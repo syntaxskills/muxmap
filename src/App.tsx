@@ -11,7 +11,7 @@ import {
 } from 'react'
 import './App.css'
 import { api } from './api.ts'
-import { expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleNodes } from './graph.ts'
+import { branchHasLiveSession, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleNodes } from './graph.ts'
 import { centerPan, dragPan, gridBackground, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
 import type { NodeType, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
@@ -625,6 +625,7 @@ function App() {
   }
 
   const hasChildren = graph.nodes.some((node) => node.parentId === selected.id)
+  const branchHasTmux = branchHasLiveSession(graph.nodes, graph.sessions, selected.id)
   const contextCount = [selected.project, selected.jiraKey, selected.repoPath, selected.note].filter(Boolean).length
   const terminalPanel = activeTerminal && activeTerminalNode && activeTerminal.status !== 'stopped' ? (
     <Suspense fallback={<section className={`terminal terminal-window terminal-loading ${terminalFloating ? 'is-floating' : 'is-docked'}`} aria-label="Loading terminal"><span /><span /></section>}>
@@ -805,9 +806,14 @@ function App() {
 
           {deleteNodeId === selected.id && <div className="delete-choice is-prominent" role="alertdialog" aria-label={`Delete ${selected.title}`}>
             <strong>Delete this {hasChildren ? 'branch' : 'node'}?</strong>
-            <span>Choose what happens to its tmux sessions.</span>
-            <button type="button" onClick={() => void deleteSelected(false)} disabled={busy}>Keep tmux as orphan</button>
-            <button className="danger-button" type="button" onClick={() => void deleteSelected(true)} disabled={busy}>Delete and stop tmux</button>
+            {branchHasTmux ? <>
+              <span>Choose what happens to its tmux sessions.</span>
+              <button type="button" onClick={() => void deleteSelected(false)} disabled={busy}>Keep tmux as orphan</button>
+              <button className="danger-button" type="button" onClick={() => void deleteSelected(true)} disabled={busy}>Delete and stop tmux</button>
+            </> : <>
+              <span>This cannot be undone.</span>
+              <button className="danger-button" type="button" onClick={() => void deleteSelected(false)} disabled={busy}>Delete {hasChildren ? 'branch' : 'node'}</button>
+            </>}
             <button type="button" onClick={() => setDeleteNodeId(null)}>Cancel</button>
           </div>}
 

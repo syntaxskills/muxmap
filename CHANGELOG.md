@@ -10,7 +10,8 @@ All notable changes to MuxMap are documented here.
 
 ### Fixed
 
-- Kept terminal scroll gestures from becoming arrow keys while restoring text selection and native copying.
+- Made terminal gestures navigate tmux history without becoming arrow keys while preserving text selection and native copying.
+- Hid tmux-specific delete choices when a node branch has no live session.
 
 ## [0.1.0] - 2026-08-07
 

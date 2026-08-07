@@ -4,7 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import type { NodeType, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
-import { dragOffset, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldHandleTerminalWheel, stopSessionIntent, terminalShortcutData } from './terminalInteraction.ts'
+import { consumeTerminalWheel, dragOffset, forceTerminalTextSelection, shouldCopyTerminalSelection, stopSessionIntent, terminalShortcutData } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { AgentIcon } from './AgentIcon.tsx'
@@ -61,10 +61,27 @@ export function TerminalPanel({ session, node, opacity, floating, disabled, onCl
     terminal.open(container.current)
     const forceSelection = (event: MouseEvent) => forceTerminalTextSelection(event, terminal.element?.classList.contains('enable-mouse-events') ?? false)
     terminal.element?.addEventListener('mousedown', forceSelection, true)
-    terminal.attachCustomWheelEventHandler(() => shouldHandleTerminalWheel(terminal.buffer.active.type))
     fit.fit()
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(`${protocol}//${window.location.host}/api/sessions/${session.id}/attach?cols=${terminal.cols}&rows=${terminal.rows}`)
+    let wheelRemainder = 0
+    let pendingScroll = 0
+    let scrollTimer: number | undefined
+    const flushScroll = () => {
+      scrollTimer = undefined
+      if (pendingScroll && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'scroll', lines: pendingScroll }))
+      pendingScroll = 0
+    }
+    const scroll = (event: WheelEvent) => {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      const intent = consumeTerminalWheel(wheelRemainder, event.deltaY, event.deltaMode, terminal.rows)
+      wheelRemainder = intent.remainder
+      if (!intent.lines) return
+      pendingScroll = Math.max(-200, Math.min(200, pendingScroll + intent.lines))
+      scrollTimer ??= window.setTimeout(flushScroll, 32)
+    }
+    terminal.element?.addEventListener('wheel', scroll, { capture: true, passive: false })
     terminal.attachCustomKeyEventHandler((event) => {
       if (shouldCopyTerminalSelection(event, terminal.hasSelection())) {
         event.preventDefault()
@@ -121,6 +138,8 @@ export function TerminalPanel({ session, node, opacity, floating, disabled, onCl
       resize.disconnect()
       input.dispose()
       terminal.element?.removeEventListener('mousedown', forceSelection, true)
+      terminal.element?.removeEventListener('wheel', scroll, true)
+      if (scrollTimer !== undefined) window.clearTimeout(scrollTimer)
       socket.close()
       terminal.dispose()
     }

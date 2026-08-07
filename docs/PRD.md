@@ -464,6 +464,7 @@ Client messages:
 ```ts
 type ClientMessage =
   | { type: "input"; data: string }
+  | { type: "scroll"; lines: number }
   | { type: "resize"; cols: number; rows: number }
   | { type: "ping" };
 ```

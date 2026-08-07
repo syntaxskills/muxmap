@@ -15,6 +15,7 @@ export type PtyHandle = {
   onData(listener: (data: string) => void): void
   onExit(listener: () => void): void
   write(data: string): void
+  scroll(lines: number): void
   resize(cols: number, rows: number): void
   kill(): void
 }
@@ -57,6 +58,15 @@ export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows:
     onData: (listener) => { pty.onData(listener) },
     onExit: (listener) => { pty.onExit(listener) },
     write: (data) => { pty.write(data) },
+    scroll: (lines) => {
+      const count = Math.min(200, Math.abs(Math.trunc(lines)))
+      if (!count) return
+      if (lines < 0) {
+        const mode = spawnSync('tmux', defaultTmuxArgs('display-message', '-p', '-t', session.tmuxName, '#{pane_in_mode}'), { encoding: 'utf8', env: defaultTmuxEnv() })
+        if (mode.stdout.trim() !== '1') spawnSync('tmux', defaultTmuxArgs('copy-mode', '-e', '-t', session.tmuxName), { env: defaultTmuxEnv() })
+      }
+      spawnSync('tmux', defaultTmuxArgs('send-keys', '-X', '-N', String(count), '-t', session.tmuxName, lines < 0 ? 'scroll-up' : 'scroll-down'), { env: defaultTmuxEnv() })
+    },
     resize: (cols, rows) => { pty.resize(cols, rows) },
     kill: () => { pty.kill() },
   }
@@ -319,6 +329,9 @@ export function createMuxMapServer(options: ServerOptions) {
         const message = JSON.parse(raw.toString()) as Record<string, unknown>
         if (message.type === 'input' && typeof message.data === 'string' && message.data.length <= 64 * 1024) {
           pty.write(message.data)
+        } else if (message.type === 'scroll') {
+          const lines = Number(message.lines)
+          if (Number.isInteger(lines) && lines !== 0 && Math.abs(lines) <= 200) pty.scroll(lines)
         } else if (message.type === 'resize') {
           const cols = Number(message.cols)
           const rows = Number(message.rows)

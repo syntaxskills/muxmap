@@ -26,6 +26,19 @@ export function liveSessionIdForNode(sessions: Array<{ id: string; nodeId: strin
   return sessions.find((session) => session.nodeId === nodeId && session.status !== 'stopped')?.id ?? null
 }
 
+export function branchHasLiveSession(nodes: WorkNode[], sessions: Array<{ nodeId: string; status: string }>, nodeId: string) {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  return sessions.some((session) => {
+    if (session.status === 'stopped') return false
+    let currentId: string | null = session.nodeId
+    while (currentId) {
+      if (currentId === nodeId) return true
+      currentId = byId.get(currentId)?.parentId ?? null
+    }
+    return false
+  })
+}
+
 export function visibleNodes(nodes: WorkNode[], collapsed: Set<string>, query: string) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const needle = query.trim().toLowerCase()

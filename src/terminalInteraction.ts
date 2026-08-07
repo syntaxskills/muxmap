@@ -17,8 +17,11 @@ export function shouldCopyTerminalSelection(
   return hasSelection && event.key.toLowerCase() === 'c' && (event.metaKey || (event.ctrlKey && event.shiftKey))
 }
 
-export function shouldHandleTerminalWheel(bufferType: 'normal' | 'alternate') {
-  return bufferType === 'normal'
+export function consumeTerminalWheel(remainder: number, deltaY: number, deltaMode: number, rows: number) {
+  const total = remainder + deltaY * (deltaMode === 1 ? 16 : deltaMode === 2 ? rows * 16 : 1)
+  const rawLines = Math.trunc(total / 16)
+  const lines = Math.max(-200, Math.min(200, rawLines))
+  return { lines, remainder: lines === rawLines ? total - lines * 16 : 0 }
 }
 
 export function forceTerminalTextSelection(event: TerminalSelectionEvent, mouseTracking: boolean) {

@@ -24,7 +24,7 @@ function fakeTmux(): TmuxAdapter & { stopped: string[]; live: Set<string> } {
   }
 }
 
-function fakePtyFactory(record: { writes: string[]; resizes: number[][]; kills: number[]; starts?: number[][] }): PtyFactory {
+function fakePtyFactory(record: { writes: string[]; resizes: number[][]; kills: number[]; starts?: number[][]; scrolls?: number[] }): PtyFactory {
   return (_session, size) => {
     if (size) record.starts?.push([size.cols, size.rows])
     const dataListeners: Array<(data: string) => void> = []
@@ -35,6 +35,7 @@ function fakePtyFactory(record: { writes: string[]; resizes: number[][]; kills: 
       },
       onExit() {},
       write: (data) => { record.writes.push(data) },
+      scroll: (lines) => { record.scrolls?.push(lines) },
       resize: (cols, rows) => { record.resizes.push([cols, rows]) },
       kill: () => { record.kills.push(1) },
     }
@@ -116,7 +117,7 @@ test('secured workspace and node APIs return persisted graph data', async () => 
 test('websocket detaches safely and workspace refresh surfaces a missing tmux session', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-ws-')))
   const tmux = fakeTmux()
-  const ptyRecord = { writes: [] as string[], resizes: [] as number[][], kills: [] as number[], starts: [] as number[][] }
+  const ptyRecord = { writes: [] as string[], resizes: [] as number[][], kills: [] as number[], starts: [] as number[][], scrolls: [] as number[] }
   const server = createMuxMapServer({
     databasePath: ':memory:',
     allowedRoots: [root],
@@ -151,6 +152,7 @@ test('websocket detaches safely and workspace refresh surfaces a missing tmux se
       ws.once('error', reject)
     })
     ws.send(JSON.stringify({ type: 'input', data: 'pwd\r' }))
+    ws.send(JSON.stringify({ type: 'scroll', lines: -4 }))
     ws.send(JSON.stringify({ type: 'resize', cols: 120, rows: 36 }))
     await new Promise((resolve) => setTimeout(resolve, 20))
     const connectedGraph = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: Array<{ id: string; status: string }> }
@@ -159,6 +161,7 @@ test('websocket detaches safely and workspace refresh surfaces a missing tmux se
     await new Promise((resolve) => ws.once('close', resolve))
 
     assert.deepEqual(ptyRecord.writes, ['pwd\r'])
+    assert.deepEqual(ptyRecord.scrolls, [-4])
     assert.deepEqual(ptyRecord.starts, [[84, 27]])
     assert.deepEqual(ptyRecord.resizes, [[120, 36]])
     assert.equal(ptyRecord.kills.length, 1)
@@ -265,14 +268,20 @@ test('the real node-pty adapter attaches to tmux and streams shell output', {
       const timeout = setTimeout(() => reject(new Error(`Timed out waiting for real PTY output: ${received}`)), 3000)
       activePty.onData((data) => {
         received += data
-        if (received.includes(marker)) {
+        if (received.split(marker).length > 3) {
           clearTimeout(timeout)
           resolve(received)
         }
       })
-      activePty.write(`printf '${marker}\\n'\r`)
+      activePty.write(`for i in {1..40}; do echo "history-$i"; done; printf '${marker}\\n'\r`)
     })
     assert.match(output, /__MUXMAP_REAL_PTY_OK__/)
+    activePty.scroll(-3)
+    activePty.scroll(-3)
+    const scroll = spawnSync('tmux', ['-L', 'default', 'display-message', '-p', '-t', tmuxName, '#{pane_in_mode} #{scroll_position}'], { encoding: 'utf8' })
+    const [mode, position] = scroll.stdout.trim().split(' ')
+    assert.equal(mode, '1')
+    assert.ok(Number(position) >= 6, 'repeated scrolling must continue through tmux history')
   } finally {
     if (inheritedTmux === undefined) delete process.env.TMUX
     else process.env.TMUX = inheritedTmux

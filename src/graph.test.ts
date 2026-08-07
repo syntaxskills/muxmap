@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { expandedNodeHeight, liveSessionIdForNode, reorderSiblings, visibleNodes } from './graph.ts'
+import { branchHasLiveSession, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, visibleNodes } from './graph.ts'
 import type { WorkNode } from './model.ts'
 
 const base = {
@@ -33,6 +33,12 @@ test('node selection opens only its live terminal and otherwise minimizes the cu
   assert.equal(liveSessionIdForNode(sessions, 'a'), 'running')
   assert.equal(liveSessionIdForNode(sessions, 'b'), null)
   assert.equal(liveSessionIdForNode(sessions, 'c'), null)
+})
+
+test('delete choices mention tmux only when the branch contains a live session', () => {
+  assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'ticket', status: 'running' }], 'repo'), true)
+  assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'ticket', status: 'stopped' }], 'repo'), false)
+  assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'other', status: 'running' }], 'repo'), false)
 })
 
 test('reordering moves nodes only within their existing sibling group', () => {
