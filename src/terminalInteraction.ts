@@ -1,5 +1,5 @@
 type Point = { x: number; y: number }
-const terminalMouseModes = new Set([9, 1000, 1002, 1003, 1005, 1006, 1015, 1016])
+type TerminalSelectionEvent = { readonly button: number; readonly altKey: boolean; readonly shiftKey: boolean }
 
 export function terminalShortcutData(event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'altKey'>) {
   if (event.metaKey && (event.key === 'Backspace' || event.key === 'Delete')) return '\x15'
@@ -17,8 +17,14 @@ export function shouldCopyTerminalSelection(
   return hasSelection && event.key.toLowerCase() === 'c' && (event.metaKey || (event.ctrlKey && event.shiftKey))
 }
 
-export function isTerminalMouseTracking(params: (number | number[])[]) {
-  return params.length > 0 && params.every((param) => typeof param === 'number' && terminalMouseModes.has(param))
+export function shouldHandleTerminalWheel(bufferType: 'normal' | 'alternate') {
+  return bufferType === 'normal'
+}
+
+export function forceTerminalTextSelection(event: TerminalSelectionEvent, mouseTracking: boolean) {
+  if (!mouseTracking || event.button !== 0) return false
+  Object.defineProperties(event, { altKey: { value: true }, shiftKey: { value: true } })
+  return true
 }
 
 export function stopSessionIntent(confirming: boolean) {

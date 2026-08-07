@@ -4,7 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import type { NodeType, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
-import { dragOffset, isTerminalMouseTracking, shouldCopyTerminalSelection, stopSessionIntent, terminalShortcutData } from './terminalInteraction.ts'
+import { dragOffset, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldHandleTerminalWheel, stopSessionIntent, terminalShortcutData } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { AgentIcon } from './AgentIcon.tsx'
@@ -53,12 +53,15 @@ export function TerminalPanel({ session, node, opacity, floating, disabled, onCl
       fontFamily: 'SFMono-Regular, Consolas, Liberation Mono, monospace',
       fontSize: 12,
       lineHeight: 1.25,
+      macOptionClickForcesSelection: true,
       theme: { background: '#101311', foreground: '#d8ddd7', cursor: '#d49a4d', selectionBackground: '#4b3d29' },
     })
-    const mouseTracking = terminal.parser.registerCsiHandler({ prefix: '?', final: 'h' }, isTerminalMouseTracking)
     const fit = new FitAddon()
     terminal.loadAddon(fit)
     terminal.open(container.current)
+    const forceSelection = (event: MouseEvent) => forceTerminalTextSelection(event, terminal.element?.classList.contains('enable-mouse-events') ?? false)
+    terminal.element?.addEventListener('mousedown', forceSelection, true)
+    terminal.attachCustomWheelEventHandler(() => shouldHandleTerminalWheel(terminal.buffer.active.type))
     fit.fit()
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(`${protocol}//${window.location.host}/api/sessions/${session.id}/attach?cols=${terminal.cols}&rows=${terminal.rows}`)
@@ -117,7 +120,7 @@ export function TerminalPanel({ session, node, opacity, floating, disabled, onCl
       lifecycle.dispose()
       resize.disconnect()
       input.dispose()
-      mouseTracking.dispose()
+      terminal.element?.removeEventListener('mousedown', forceSelection, true)
       socket.close()
       terminal.dispose()
     }
