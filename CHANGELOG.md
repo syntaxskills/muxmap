@@ -8,6 +8,10 @@ All notable changes to MuxMap are documented here.
 
 - Shortened the README around the core workflow, one product screenshot, and setup path.
 
+### Fixed
+
+- Restored native terminal selection copying with Command-C and Ctrl-Shift-C.
+
 ## [0.1.0] - 2026-08-07
 
 ### Added

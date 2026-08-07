@@ -4,7 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import type { NodeType, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
-import { dragOffset, stopSessionIntent, terminalShortcutData } from './terminalInteraction.ts'
+import { dragOffset, shouldCopyTerminalSelection, stopSessionIntent, terminalShortcutData } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { AgentIcon } from './AgentIcon.tsx'
@@ -62,6 +62,12 @@ export function TerminalPanel({ session, node, opacity, floating, disabled, onCl
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(`${protocol}//${window.location.host}/api/sessions/${session.id}/attach?cols=${terminal.cols}&rows=${terminal.rows}`)
     terminal.attachCustomKeyEventHandler((event) => {
+      if (shouldCopyTerminalSelection(event, terminal.hasSelection())) {
+        event.preventDefault()
+        if (navigator.clipboard) void navigator.clipboard.writeText(terminal.getSelection()).catch(() => document.execCommand('copy'))
+        else document.execCommand('copy')
+        return false
+      }
       const data = terminalShortcutData(event)
       if (!data) return true
       if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))

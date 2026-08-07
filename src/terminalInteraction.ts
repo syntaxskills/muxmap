@@ -9,6 +9,13 @@ export function terminalShortcutData(event: Pick<KeyboardEvent, 'key' | 'metaKey
   return null
 }
 
+export function shouldCopyTerminalSelection(
+  event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey'>,
+  hasSelection: boolean,
+) {
+  return hasSelection && event.key.toLowerCase() === 'c' && (event.metaKey || (event.ctrlKey && event.shiftKey))
+}
+
 export function stopSessionIntent(confirming: boolean) {
   return confirming ? 'stop' : 'confirm'
 }
