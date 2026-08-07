@@ -4,6 +4,10 @@ All notable changes to MuxMap are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Shortened the README around the core workflow, one product screenshot, and setup path.
+
 ## [0.1.0] - 2026-08-07
 
 ### Added
