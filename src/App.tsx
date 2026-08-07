@@ -1,0 +1,938 @@
+import {
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import './App.css'
+import { api } from './api.ts'
+import { expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleNodes } from './graph.ts'
+import { centerPan, dragPan, gridBackground, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
+import type { NodeType, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
+import { NodeColorPicker } from './NodeColorPicker.tsx'
+import { normalizeTerminalOpacity, normalizeTerminalSplit } from './terminalInteraction.ts'
+import { readViewState, writeViewState } from './viewState.ts'
+import { agentStatusText } from './agentStatus.ts'
+import { scanAgentNotifications } from './agentNotifications.ts'
+import { dragIntent, dropPositionAt } from './nodeReorderInteraction.ts'
+import { contextMenuPosition, duplicateNodeInput } from './nodeContextMenu.ts'
+import { AgentIcon } from './AgentIcon.tsx'
+import { ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, Pencil2Icon, PlusIcon, TrashIcon } from '@radix-ui/react-icons'
+import {
+  closeTerminal,
+  floatTerminal,
+  openRightPanel,
+  openTerminal as openTerminalSurface,
+  selectNodeSurface,
+  type WorkspaceSurface,
+} from './workspaceSurface.ts'
+
+const NODE_WIDTH = 184
+const NODE_HEIGHT = 42
+const TerminalPanel = lazy(() => import('./TerminalPanel.tsx'))
+
+const typeLabels: Record<NodeType, string> = {
+  workspace: 'Workspace',
+  repo: 'Repository',
+  feature: 'Feature',
+  ticket: 'Jira ticket',
+  note: 'Note',
+  todo: 'Todo',
+  terminal: 'Terminal task',
+}
+
+function App() {
+  const [initialView] = useState(() => readViewState(window.location.search))
+  const [graph, setGraph] = useState<WorkspaceGraph | null>(null)
+  const [selectedId, setSelectedId] = useState(initialView.selectedId ?? 'dev-1420')
+  const [collapsed, setCollapsed] = useState(new Set<string>())
+  const [query, setQuery] = useState('')
+  const [scale, setScale] = useState(0.9)
+  const [pan, setPan] = useState({ x: 24, y: 48 })
+  const [isPanning, setPanning] = useState(false)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameTitle, setRenameTitle] = useState('')
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
+  const [draggedId, setDraggedId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ id: string; position: ReorderPosition } | null>(null)
+  const [surface, setSurface] = useState<WorkspaceSurface>(() => ({
+    rightPanel: initialView.terminalSessionId && !initialView.terminalFloating ? null : 'details',
+    terminalSessionId: initialView.terminalSessionId,
+    terminalFloating: initialView.terminalFloating,
+  }))
+  const [terminalSplit, setTerminalSplit] = useState(() => normalizeTerminalSplit(window.localStorage.getItem('muxmap:terminal-split')))
+  const [terminalOpacity, setTerminalOpacity] = useState(() => normalizeTerminalOpacity(window.localStorage.getItem('muxmap:terminal-opacity')))
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => 'Notification' in window ? Notification.permission : 'unsupported')
+  const [deleteNodeId, setDeleteNodeId] = useState<string | null>(null)
+  const [confirmStopTmux, setConfirmStopTmux] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const workspaceRef = useRef<HTMLElement>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const centeredOnce = useRef(false)
+  const dragRef = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null)
+  const nodeDragRef = useRef<string | null>(null)
+  const nodePointerRef = useRef<{ pointerId: number; nodeId: string; parentId: string; x: number; y: number; dragging: boolean } | null>(null)
+  const nodeDropRef = useRef<{ id: string; position: ReorderPosition } | null>(null)
+  const suppressNodeClick = useRef(false)
+  const notifiedAgentEvents = useRef(new Map<string, string>())
+  const notificationBaselineReady = useRef(false)
+  const splitDragRef = useRef<number | null>(null)
+  const { rightPanel, terminalSessionId, terminalFloating } = surface
+
+  const loadWorkspace = useCallback(async () => {
+    setError('')
+    try {
+      await api('/api/auth')
+      setGraph(await api<WorkspaceGraph>('/api/workspaces/default'))
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Unable to load workspace')
+    }
+  }, [])
+
+  useEffect(() => { void loadWorkspace() }, [loadWorkspace])
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void api<WorkspaceGraph>('/api/workspaces/default').then(setGraph).catch(() => {})
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [])
+  useEffect(() => setDeleteNodeId((current) => current === selectedId ? current : null), [selectedId])
+  useEffect(() => {
+    if (!contextMenu) return
+    const dismiss = (event: PointerEvent) => {
+      if (!(event.target as Element).closest('.node-context-menu')) setContextMenu(null)
+    }
+    const dismissOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setContextMenu(null) }
+    const dismissOnResize = () => setContextMenu(null)
+    window.addEventListener('pointerdown', dismiss)
+    window.addEventListener('keydown', dismissOnEscape)
+    window.addEventListener('resize', dismissOnResize)
+    return () => {
+      window.removeEventListener('pointerdown', dismiss)
+      window.removeEventListener('keydown', dismissOnEscape)
+      window.removeEventListener('resize', dismissOnResize)
+    }
+  }, [contextMenu])
+  useEffect(() => window.localStorage.setItem('muxmap:terminal-opacity', String(terminalOpacity)), [terminalOpacity])
+  useEffect(() => window.localStorage.setItem('muxmap:terminal-split', String(terminalSplit)), [terminalSplit])
+  useEffect(() => {
+    if (!graph) return
+    const scanned = scanAgentNotifications(graph, notifiedAgentEvents.current, notificationBaselineReady.current)
+    notifiedAgentEvents.current = scanned.notified
+    if (!notificationBaselineReady.current) {
+      notificationBaselineReady.current = true
+      return
+    }
+    if (!('Notification' in window) || Notification.permission !== 'granted') return
+    for (const event of scanned.notifications) {
+      try {
+        const notification = new Notification(event.title, {
+          body: event.body,
+          icon: '/favicon.svg',
+          tag: `muxmap-${event.sessionId}-${event.key}`,
+          requireInteraction: event.key.startsWith('needs_input:'),
+        })
+        notification.onclick = () => {
+          window.focus()
+          setSelectedId(event.nodeId)
+          setSurface((current) => openTerminalSurface(current, event.sessionId))
+          notification.close()
+        }
+      } catch {
+        // Browser notification failures must not interrupt workspace polling.
+      }
+    }
+  }, [graph])
+  useEffect(() => {
+    const search = writeViewState(window.location.search, { selectedId, terminalSessionId, terminalFloating })
+    const nextUrl = `${window.location.pathname}${search}${window.location.hash}`
+    if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) window.history.replaceState(window.history.state, '', nextUrl)
+  }, [selectedId, terminalFloating, terminalSessionId])
+  useEffect(() => {
+    if (!graph) return
+    if (!graph.nodes.some((node) => node.id === selectedId)) setSelectedId(graph.workspace.rootNodeId)
+    if (!terminalSessionId) return
+    const restored = graph.sessions.find((item) => item.id === terminalSessionId && item.status !== 'stopped')
+    if (!restored) {
+      setSurface(closeTerminal)
+      return
+    }
+    if (restored.nodeId !== selectedId) {
+      setSelectedId(restored.nodeId)
+    }
+    if (restored.agent?.state === 'completed') {
+      setGraph((current) => current ? {
+        ...current,
+        sessions: current.sessions.map((item) => item.id === restored.id && item.agent ? { ...item, agent: { ...item.agent, state: 'read' } } : item),
+      } : current)
+      void api(`/api/sessions/${restored.id}/agent/read`, { method: 'POST', body: '{}' }).catch(() => loadWorkspace())
+    }
+  }, [graph, loadWorkspace, selectedId, terminalSessionId])
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const pinchZoom = (event: WheelEvent) => {
+      event.preventDefault()
+      if (!event.ctrlKey) {
+        setPan(wheelPan(pan, { x: event.deltaX, y: event.deltaY }))
+        return
+      }
+      const bounds = canvas.getBoundingClientRect()
+      const nextScale = Math.max(0.45, Math.min(1.4, scale * Math.exp(-event.deltaY * 0.01)))
+      setPan(zoomAtPoint(pan, scale, nextScale, { x: event.clientX - bounds.left, y: event.clientY - bounds.top }))
+      setScale(nextScale)
+    }
+    canvas.addEventListener('wheel', pinchZoom, { passive: false })
+    return () => canvas.removeEventListener('wheel', pinchZoom)
+  }, [graph, pan, scale])
+
+  const nodes = useMemo(
+    () => visibleNodes(graph?.nodes ?? [], collapsed, query),
+    [collapsed, graph?.nodes, query],
+  )
+  const sessionsByNode = useMemo(() => new Map(graph?.sessions.map((item) => [item.nodeId, item]) ?? []), [graph?.sessions])
+  const nodeHeights = useMemo(() => new Map(nodes
+    .filter((node) => node.id === selectedId || node.id === hoveredId)
+    .map((node) => [node.id, expandedNodeHeight(node, Boolean(sessionsByNode.get(node.id)?.agent))])), [hoveredId, nodes, selectedId, sessionsByNode])
+  const positions = useMemo(
+    () => layoutTree(nodes, graph?.workspace.rootNodeId ?? 'workspace', 240, 30, nodeHeights),
+    [graph?.workspace.rootNodeId, nodeHeights, nodes],
+  )
+  const selected = graph?.nodes.find((node) => node.id === selectedId) ?? graph?.nodes[0]
+  const session = graph?.sessions.find((item) => item.nodeId === selected?.id)
+  const activeTerminal = graph?.sessions.find((item) => item.id === terminalSessionId)
+  const activeTerminalNode = graph?.nodes.find((node) => node.id === activeTerminal?.nodeId)
+  const orphans = graph?.orphans ?? []
+  const agentCount = [...(graph?.sessions ?? []), ...orphans].filter((item) => item.agent).length
+  const width = Math.max(0, ...[...positions.values()].map(({ x }) => x)) + NODE_WIDTH + 96
+  const height = Math.max(0, ...nodes.map((node) => (positions.get(node.id)?.y ?? 0) + (nodeHeights.get(node.id) ?? NODE_HEIGHT))) + 96
+
+  const fitView = useCallback(() => {
+    const viewport = canvasRef.current
+    if (!viewport) return
+    const nextScale = Math.max(0.45, Math.min(1, (viewport.clientWidth - 64) / width, (viewport.clientHeight - 64) / height))
+    setScale(nextScale)
+    setPan(centerPan(viewport.clientWidth, viewport.clientHeight, width, height, nextScale))
+  }, [height, width])
+
+  const centerView = useCallback(() => {
+    const viewport = canvasRef.current
+    if (!viewport) return
+    setPan(centerPan(viewport.clientWidth, viewport.clientHeight, width, height, scale))
+  }, [height, scale, width])
+
+  useEffect(() => {
+    if (!graph || centeredOnce.current) return
+    centeredOnce.current = true
+    requestAnimationFrame(fitView)
+  }, [fitView, graph])
+
+  function fitProject() {
+    if (!selected) return
+    const projectNodes = nodes.filter((node) => node.project === selected.project || node.id === selected.id)
+    const points = projectNodes.map((node) => positions.get(node.id)).filter(Boolean) as Array<{ x: number; y: number }>
+    const viewport = canvasRef.current
+    if (!viewport || points.length === 0) return
+    const minX = Math.min(...points.map((point) => point.x))
+    const maxX = Math.max(...points.map((point) => point.x)) + NODE_WIDTH
+    const minY = Math.min(...points.map((point) => point.y))
+    const maxY = Math.max(...projectNodes.map((node) => (positions.get(node.id)?.y ?? 0) + (nodeHeights.get(node.id) ?? NODE_HEIGHT)))
+    const nextScale = Math.max(0.55, Math.min(1.2, (viewport.clientWidth - 80) / (maxX - minX + 96), (viewport.clientHeight - 80) / (maxY - minY + 96)))
+    setScale(nextScale)
+    setPan({
+      x: (viewport.clientWidth - (maxX - minX) * nextScale) / 2 - minX * nextScale,
+      y: (viewport.clientHeight - (maxY - minY) * nextScale) / 2 - minY * nextScale,
+    })
+  }
+
+  useEffect(() => {
+    function shortcuts(event: KeyboardEvent) {
+      const tag = (event.target as HTMLElement).tagName
+      const typing = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA'
+      if (event.key === '/' && !typing) {
+        event.preventDefault()
+        searchRef.current?.focus()
+      } else if (event.key.toLowerCase() === 'n' && !typing) {
+        event.preventDefault()
+        const parent = graph?.nodes.find((node) => node.id === selectedId)
+        if (parent) void addChild(parent)
+      } else if (event.key.toLowerCase() === 'f' && !typing) {
+        event.preventDefault()
+        fitView()
+      } else if (event.key.toLowerCase() === 'c' && !typing) {
+        event.preventDefault()
+        centerView()
+      } else if ((event.key === '+' || event.key === '=') && !typing) {
+        setScale((value) => Math.min(1.4, value + 0.1))
+      } else if (event.key === '-' && !typing) {
+        setScale((value) => Math.max(0.45, value - 0.1))
+      } else if (event.key === 'Escape' && !typing) {
+        if (!contextMenu && terminalSessionId) setSurface(closeTerminal)
+      }
+    }
+    window.addEventListener('keydown', shortcuts)
+    return () => window.removeEventListener('keydown', shortcuts)
+  }, [centerView, contextMenu, fitView, graph?.nodes, selectedId, terminalSessionId])
+
+  async function addChild(parent: WorkNode) {
+    setBusy(true)
+    setError('')
+    try {
+      const node = await api<WorkNode>(`/api/workspaces/${parent.workspaceId}/nodes`, {
+        method: 'POST',
+        body: JSON.stringify({
+          parentId: parent.id,
+          title: 'New node',
+          type: 'note',
+        }),
+      })
+      setGraph((current) => current ? { ...current, nodes: [...current.nodes, node] } : current)
+      setSelectedId(node.id)
+      setSurface(selectNodeSurface(null))
+      setRenamingId(node.id)
+      setRenameTitle(node.title)
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Unable to add node')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function duplicateNode(node: WorkNode) {
+    const input = duplicateNodeInput(node)
+    if (!input) return
+    setBusy(true)
+    setError('')
+    try {
+      const copy = await api<WorkNode>(`/api/workspaces/${node.workspaceId}/nodes`, {
+        method: 'POST',
+        body: JSON.stringify(input),
+      })
+      setGraph((current) => current ? { ...current, nodes: [...current.nodes, copy] } : current)
+      setSelectedId(copy.id)
+      setSurface(selectNodeSurface(null))
+    } catch (copyError) {
+      setError(copyError instanceof Error ? copyError.message : 'Unable to duplicate node')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveNode(nodeId: string, changes: Partial<WorkNode>) {
+    setError('')
+    try {
+      const updated = await api<WorkNode>(`/api/nodes/${nodeId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(changes),
+      })
+      setGraph((current) => current ? {
+        ...current,
+        nodes: current.nodes.map((node) => node.id === updated.id ? updated : node),
+      } : current)
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : 'Unable to update node')
+      await loadWorkspace()
+    }
+  }
+
+  function startRename(node: WorkNode) {
+    setSelectedId(node.id)
+    setRenamingId(node.id)
+    setRenameTitle(node.title)
+  }
+
+  function finishRename(node: WorkNode) {
+    const nextTitle = renameTitle.trim()
+    setRenamingId(null)
+    if (nextTitle && nextTitle !== node.title) void saveNode(node.id, { title: nextTitle })
+  }
+
+  async function reorderNode(movedId: string, targetId: string, position: ReorderPosition) {
+    setGraph((current) => current ? { ...current, nodes: reorderSiblings(current.nodes, movedId, targetId, position) } : current)
+    try {
+      const response = await api<{ nodes: WorkNode[] }>(`/api/nodes/${movedId}/reorder`, {
+        method: 'POST',
+        body: JSON.stringify({ targetId, position }),
+      })
+      const updated = new Map(response.nodes.map((node) => [node.id, node]))
+      setGraph((current) => current ? { ...current, nodes: current.nodes.map((node) => updated.get(node.id) ?? node) } : current)
+    } catch (reorderError) {
+      setError(reorderError instanceof Error ? reorderError.message : 'Unable to reorder node')
+      await loadWorkspace()
+    }
+  }
+
+  function beginNodeReorder(event: ReactPointerEvent<HTMLElement>, node: WorkNode) {
+    const target = event.target as HTMLElement
+    if (event.button !== 0 || !node.parentId || renamingId === node.id || target.closest('input, .node-add-action, .node-terminal-action')) return
+    nodePointerRef.current = { pointerId: event.pointerId, nodeId: node.id, parentId: node.parentId, x: event.clientX, y: event.clientY, dragging: false }
+    target.setPointerCapture(event.pointerId)
+  }
+
+  function moveNodeReorder(event: ReactPointerEvent<HTMLElement>) {
+    const drag = nodePointerRef.current
+    if (!drag || drag.pointerId !== event.pointerId || !graph) return
+    if (!drag.dragging) {
+      if (!dragIntent({ x: drag.x, y: drag.y }, { x: event.clientX, y: event.clientY })) return
+      drag.dragging = true
+      nodeDragRef.current = drag.nodeId
+      suppressNodeClick.current = true
+      setDraggedId(drag.nodeId)
+    }
+    event.preventDefault()
+    const candidates = graph.nodes.filter((node) => node.parentId === drag.parentId && node.id !== drag.nodeId)
+      .map((node) => {
+        const element = canvasRef.current?.querySelector<HTMLElement>(`[data-node-id="${node.id}"]`)
+        const bounds = element?.getBoundingClientRect()
+        return bounds ? { id: node.id, bounds, distance: Math.abs(event.clientY - (bounds.top + bounds.height / 2)) } : null
+      })
+      .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+      .sort((a, b) => a.distance - b.distance)
+    const nearest = candidates[0]
+    const next = nearest ? { id: nearest.id, position: dropPositionAt(event.clientY, nearest.bounds) } : null
+    nodeDropRef.current = next
+    setDropTarget(next)
+  }
+
+  function endNodeReorder(event: ReactPointerEvent<HTMLElement>) {
+    const drag = nodePointerRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const target = nodeDropRef.current
+    if (drag.dragging && target) void reorderNode(drag.nodeId, target.id, target.position)
+    nodePointerRef.current = null
+    nodeDragRef.current = null
+    nodeDropRef.current = null
+    setDraggedId(null)
+    setDropTarget(null)
+    setHoveredId(null)
+    window.setTimeout(() => { suppressNodeClick.current = false }, 0)
+  }
+
+  function cancelNodeReorder(event: ReactPointerEvent<HTMLElement>) {
+    if (nodePointerRef.current?.pointerId !== event.pointerId) return
+    nodePointerRef.current = null
+    nodeDragRef.current = null
+    nodeDropRef.current = null
+    setDraggedId(null)
+    setDropTarget(null)
+    setHoveredId(null)
+    window.setTimeout(() => { suppressNodeClick.current = false }, 0)
+  }
+
+  function selectNode(node: WorkNode) {
+    setContextMenu(null)
+    setSelectedId(node.id)
+    setSurface(selectNodeSurface(liveSessionIdForNode(graph?.sessions ?? [], node.id)))
+  }
+
+  function openNodeContextMenu(event: React.MouseEvent<HTMLElement>, node: WorkNode) {
+    event.preventDefault()
+    event.stopPropagation()
+    const position = contextMenuPosition(event.clientX, event.clientY, window.innerWidth, window.innerHeight)
+    setSelectedId(node.id)
+    setContextMenu({ nodeId: node.id, ...position })
+  }
+
+  function toggleNodeCollapsed(nodeId: string) {
+    setCollapsed((current) => {
+      const next = new Set(current)
+      if (next.has(nodeId)) next.delete(nodeId)
+      else next.add(nodeId)
+      return next
+    })
+  }
+
+  function beginPan(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea, a')) return
+    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setPanning(true)
+  }
+
+  function movePan(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    setPan(dragPan({ x: drag.panX, y: drag.panY }, { x: drag.x, y: drag.y }, { x: event.clientX, y: event.clientY }))
+  }
+
+  function endPan(event: ReactPointerEvent<HTMLDivElement>) {
+    if (dragRef.current?.pointerId !== event.pointerId) return
+    dragRef.current = null
+    setPanning(false)
+  }
+
+  function openTerminal(id: string) {
+    setSurface((current) => openTerminalSurface(current, id))
+  }
+
+  async function enableAgentNotifications() {
+    if (!('Notification' in window)) return
+    setNotificationPermission(await Notification.requestPermission())
+  }
+
+  function toggleSessionManager() {
+    const opening = rightPanel !== 'sessions'
+    setSurface((current) => openRightPanel(current, 'sessions'))
+    if (opening) void loadWorkspace()
+  }
+
+  function beginTerminalResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return
+    splitDragRef.current = event.pointerId
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  function resizeTerminal(event: ReactPointerEvent<HTMLDivElement>) {
+    if (splitDragRef.current !== event.pointerId || !workspaceRef.current) return
+    const bounds = workspaceRef.current.getBoundingClientRect()
+    setTerminalSplit(normalizeTerminalSplit(((event.clientX - bounds.left) / bounds.width) * 100))
+  }
+
+  function endTerminalResize(event: ReactPointerEvent<HTMLDivElement>) {
+    if (splitDragRef.current === event.pointerId) splitDragRef.current = null
+  }
+
+  async function attachTerminal() {
+    if (!selected) return
+    setBusy(true)
+    setError('')
+    try {
+      const response = await api<{ session: TerminalSession }>(`/api/nodes/${selected.id}/session`, {
+        method: 'POST',
+        body: JSON.stringify({ backend: 'tmux', cwd: selected.repoPath }),
+      })
+      await loadWorkspace()
+      openTerminal(response.session.id)
+    } catch (attachError) {
+      setError(attachError instanceof Error ? attachError.message : 'Unable to attach terminal')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function stopSession(sessionId = session?.id) {
+    if (!sessionId) return
+    setBusy(true)
+    setError('')
+    try {
+      await api(`/api/sessions/${sessionId}/stop`, { method: 'POST', body: '{}' })
+      setSurface(closeTerminal)
+      await loadWorkspace()
+    } catch (stopError) {
+      setError(stopError instanceof Error ? stopError.message : 'Unable to stop session')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function stopTmux(tmuxName: string) {
+    setBusy(true)
+    setError('')
+    try {
+      await api('/api/tmux/stop', { method: 'POST', body: JSON.stringify({ tmuxName }) })
+      if (activeTerminal?.tmuxName === tmuxName) setSurface(closeTerminal)
+      setConfirmStopTmux(null)
+      await loadWorkspace()
+    } catch (stopError) {
+      setError(stopError instanceof Error ? stopError.message : 'Unable to stop tmux session')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function adoptTmux(tmuxName: string, createNode: boolean) {
+    if (!graph || !selected) return
+    setBusy(true)
+    setError('')
+    try {
+      let target = selected
+      if (createNode) {
+        const root = graph.nodes.find((node) => node.id === graph.workspace.rootNodeId)
+        if (!root) throw new Error('Workspace root not found')
+        target = await api<WorkNode>(`/api/workspaces/${graph.workspace.id}/nodes`, {
+          method: 'POST',
+          body: JSON.stringify({
+            parentId: root.id,
+            title: tmuxName.replace(/^muxmap-?/, '') || 'Orphan terminal',
+            type: 'terminal',
+          }),
+        })
+      }
+      const response = await api<{ session: TerminalSession }>('/api/tmux/adopt', {
+        method: 'POST',
+        body: JSON.stringify({ nodeId: target.id, tmuxName }),
+      })
+      setSelectedId(target.id)
+      openTerminal(response.session.id)
+      await loadWorkspace()
+    } catch (adoptError) {
+      setError(adoptError instanceof Error ? adoptError.message : 'Unable to adopt tmux session')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteSelected(stopTmuxWithNode: boolean) {
+    if (!graph || !selected || selected.id === graph.workspace.rootNodeId) return
+    setBusy(true)
+    setError('')
+    try {
+      await api(`/api/nodes/${selected.id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ stopTmux: stopTmuxWithNode }),
+      })
+      setSelectedId(graph.workspace.rootNodeId)
+      setSurface(closeTerminal)
+      setDeleteNodeId(null)
+      await loadWorkspace()
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Unable to delete node')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const updateSessionStatus = useCallback((id: string, status: TerminalSession['status']) => {
+    setGraph((current) => current ? {
+      ...current,
+      sessions: current.sessions.map((item) => item.id === id ? { ...item, status } : item),
+    } : current)
+  }, [])
+
+  function toggleCollapsed() {
+    if (!selected) return
+    toggleNodeCollapsed(selected.id)
+  }
+
+  if (!graph) {
+    return (
+      <main className="load-state">
+        {error ? <><h1>Workspace unavailable</h1><p>{error}</p><button type="button" onClick={() => void loadWorkspace()}>Retry</button></> : <><span className="skeleton wide" /><span className="skeleton" /></>}
+      </main>
+    )
+  }
+
+  if (!selected) {
+    return <main className="load-state"><h1>Workspace is empty</h1><p>Create a root node in the database to continue.</p></main>
+  }
+
+  const hasChildren = graph.nodes.some((node) => node.parentId === selected.id)
+  const contextCount = [selected.project, selected.jiraKey, selected.repoPath, selected.note].filter(Boolean).length
+  const terminalPanel = activeTerminal && activeTerminalNode && activeTerminal.status !== 'stopped' ? (
+    <Suspense fallback={<section className={`terminal terminal-window terminal-loading ${terminalFloating ? 'is-floating' : 'is-docked'}`} aria-label="Loading terminal"><span /><span /></section>}>
+      <TerminalPanel
+        key={activeTerminal.id}
+        session={activeTerminal}
+        node={activeTerminalNode}
+        opacity={terminalOpacity}
+        floating={terminalFloating}
+        onToggleFloating={() => setSurface(floatTerminal)}
+        onStatus={updateSessionStatus}
+        onStop={() => void stopSession(activeTerminal.id)}
+        onClose={() => setSurface(closeTerminal)}
+        onUpdate={(changes) => void saveNode(activeTerminalNode.id, changes)}
+        disabled={busy}
+      />
+    </Suspense>
+  ) : null
+  const terminalDocked = Boolean(terminalPanel && !terminalFloating)
+  const sidePanelOpen = Boolean(rightPanel && !terminalDocked)
+  const background = gridBackground(pan, scale)
+
+  return (
+    <main className="app-shell">
+      <header className="topbar">
+        <a className="brand" href="#workspace" aria-label="MuxMap workspace"><img className="brand-mark" src="/favicon.svg" alt="" /><span>MuxMap</span></a>
+        <label className="search-box">
+          <span>Search</span>
+          <input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Title or Jira key" />
+          <kbd>/</kbd>
+        </label>
+        <div className="topbar-status" aria-label="Workspace status">
+          <span>{graph.nodes.length} nodes</span>
+          {agentCount > 0 && <span>{agentCount} agents</span>}
+          <button type="button" onClick={toggleSessionManager} aria-expanded={rightPanel === 'sessions'}>
+            {graph.sessions.filter((item) => item.status !== 'stopped').length + orphans.length} sessions{orphans.length > 0 ? ` · ${orphans.length} orphan` : ''}
+          </button>
+          <button className="settings-trigger" type="button" onClick={() => setSurface((current) => openRightPanel(current, 'settings'))} aria-expanded={rightPanel === 'settings'}>Settings</button>
+        </div>
+      </header>
+
+      {error && <div className="error-banner" role="alert"><span>{error}</span><button type="button" onClick={() => setError('')}>Dismiss</button></div>}
+
+      <section className={`workspace ${terminalDocked ? 'has-docked-terminal' : ''} ${sidePanelOpen ? 'has-side-panel' : ''}`} id="workspace" ref={workspaceRef} style={{ '--terminal-split': `${terminalSplit}%` } as CSSProperties}>
+        <div
+          className={`canvas ${isPanning ? 'is-panning' : ''}`}
+          ref={canvasRef}
+          aria-label="Workspace mindmap"
+          style={{ backgroundPosition: background.position, backgroundSize: background.size }}
+          onPointerDown={beginPan}
+          onPointerMove={movePan}
+          onPointerUp={endPan}
+          onPointerCancel={endPan}
+        >
+          <div className="canvas-toolbar" aria-label="Canvas controls">
+            <button type="button" onClick={() => setScale((value) => Math.max(0.45, value - 0.1))} aria-label="Zoom out">−</button>
+            <output>{Math.round(scale * 100)}%</output>
+            <button type="button" onClick={() => setScale((value) => Math.min(1.4, value + 0.1))} aria-label="Zoom in">+</button>
+            <button className="fit-button" type="button" onClick={fitView}>Fit all</button>
+            <button className="fit-button" type="button" onClick={centerView}>Center</button>
+            <button className="fit-button" type="button" onClick={fitProject}>Fit project</button>
+          </div>
+
+          {nodes.length === 0 ? (
+            <div className="empty-state"><strong>No matching nodes</strong><span>Clear the search to restore the full workspace.</span><button type="button" onClick={() => setQuery('')}>Clear search</button></div>
+          ) : (
+            <div className="stage-shell">
+              <div className="graph-stage" style={{ width, height, transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})` }}>
+                <svg className="edges" width={width} height={height} aria-hidden="true">
+                  {nodes.map((node) => {
+                    if (!node.parentId) return null
+                    const from = positions.get(node.parentId)
+                    const to = positions.get(node.id)
+                    if (!from || !to) return null
+                    const x1 = from.x + NODE_WIDTH + 48
+                    const y1 = from.y + (nodeHeights.get(node.parentId) ?? NODE_HEIGHT) / 2 + 48
+                    const x2 = to.x + 48
+                    const y2 = to.y + (nodeHeights.get(node.id) ?? NODE_HEIGHT) / 2 + 48
+                    const bend = (x1 + x2) / 2
+                    return <path key={node.id} d={`M ${x1} ${y1} C ${bend} ${y1}, ${bend} ${y2}, ${x2} ${y2}`} />
+                  })}
+                </svg>
+
+                {nodes.map((node) => {
+                  const point = positions.get(node.id)
+                  if (!point) return null
+                  const nodeSession = sessionsByNode.get(node.id)
+                  const childCount = graph.nodes.filter((child) => child.parentId === node.id).length
+                  const expanded = node.id === selectedId || node.id === hoveredId
+                  const style = { left: point.x + 48, top: point.y + 48, height: nodeHeights.get(node.id) ?? NODE_HEIGHT, '--node-color': node.color } as CSSProperties
+                  return (
+                    <article
+                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
+                      key={node.id}
+                      style={style}
+                      data-node-id={node.id}
+                      onMouseEnter={() => { if (!nodeDragRef.current) setHoveredId(node.id) }}
+                      onMouseLeave={() => { if (!nodeDragRef.current) setHoveredId((current) => current === node.id ? null : current) }}
+                      onPointerDown={(event) => beginNodeReorder(event, node)}
+                      onPointerMove={moveNodeReorder}
+                      onPointerUp={endNodeReorder}
+                      onPointerCancel={cancelNodeReorder}
+                      onContextMenu={(event) => openNodeContextMenu(event, node)}
+                    >
+                      <button
+                        className="node-select"
+                        type="button"
+                        onClick={() => { if (!suppressNodeClick.current) selectNode(node) }}
+                        onDoubleClick={(event) => { event.preventDefault(); startRename(node) }}
+                      >
+                        <span className="node-color" />
+                        <span className="node-copy">
+                          {renamingId === node.id ? (
+                            <input
+                              className="node-rename"
+                              value={renameTitle}
+                              onChange={(event) => setRenameTitle(event.target.value)}
+                              onClick={(event) => event.stopPropagation()}
+                              onDoubleClick={(event) => event.stopPropagation()}
+                              onBlur={() => finishRename(node)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') event.currentTarget.blur()
+                                if (event.key === 'Escape') { setRenameTitle(node.title); setRenamingId(null) }
+                              }}
+                              autoFocus
+                            />
+                          ) : <span className="node-title">{node.title}</span>}
+                          <span className="node-type">{typeLabels[node.type]}</span>
+                          {expanded && (
+                            <span className="node-expanded-content">
+                              {node.project && <span><b>Project</b>{node.project}</span>}
+                              {node.jiraKey && <span><b>Ticket</b>{node.jiraKey}</span>}
+                              {node.repoPath && <span><b>Path</b><code>{node.repoPath}</code></span>}
+                              {node.note && <span><b>Note</b><em>{node.note}</em></span>}
+                              {nodeSession?.agent && <span><b>Agent</b>{agentStatusText(nodeSession.agent)}</span>}
+                              <span><b>Terminal</b>{nodeSession?.status ?? 'None'}</span>
+                            </span>
+                          )}
+                        </span>
+                        {childCount > 0 && <span className="child-count">{collapsed.has(node.id) ? '+' : childCount}</span>}
+                        {nodeSession && <span className={`terminal-badge is-${nodeSession.status} ${nodeSession.agent ? `is-${nodeSession.agent.state}` : ''}`} title={nodeSession.agent ? agentStatusText(nodeSession.agent) : `Terminal ${nodeSession.status}`}>{nodeSession.agent ? <AgentIcon kind={nodeSession.agent.kind} /> : '>_'}</span>}
+                      </button>
+                      {nodeSession && nodeSession.status !== 'stopped' && (
+                        <button className="node-terminal-action" type="button" onClick={() => selectNode(node)} aria-label={`Open terminal for ${node.title}`}>&gt;_</button>
+                      )}
+                      <button className="node-add-action" type="button" onClick={() => void addChild(node)} aria-label={`Add child to ${node.title}`}>+</button>
+                    </article>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {contextMenu && (() => {
+            const node = graph.nodes.find((candidate) => candidate.id === contextMenu.nodeId)
+            if (!node) return null
+            const childCount = graph.nodes.filter((child) => child.parentId === node.id).length
+            return (
+              <div className="node-context-menu" role="menu" aria-label={`Actions for ${node.title}`} style={{ left: contextMenu.x, top: contextMenu.y }} onContextMenu={(event) => event.preventDefault()}>
+                <div className="node-context-menu-title"><span>{node.title}</span><small>{typeLabels[node.type]}</small></div>
+                <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void addChild(node) }}><PlusIcon />Add child</button>
+                <button type="button" role="menuitem" onClick={() => { setContextMenu(null); startRename(node) }}><Pencil2Icon />Rename</button>
+                {node.parentId && <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void duplicateNode(node) }}><CopyIcon />Duplicate</button>}
+                {childCount > 0 && <button type="button" role="menuitem" onClick={() => { toggleNodeCollapsed(node.id); setContextMenu(null) }}>{collapsed.has(node.id) ? <ChevronDownIcon /> : <ChevronUpIcon />}{collapsed.has(node.id) ? 'Expand branch' : 'Collapse branch'}</button>}
+                {node.parentId && <button className="is-danger" type="button" role="menuitem" onClick={() => { setSelectedId(node.id); setSurface((current) => current.terminalFloating ? { ...current, rightPanel: 'details' } : selectNodeSurface(null)); setDeleteNodeId(node.id); setContextMenu(null) }}><TrashIcon />Delete</button>}
+              </div>
+            )
+          })()}
+
+          <div className="canvas-legend"><span><i className="legend-line" /> relationship</span><span><b>&gt;_</b> terminal</span><span>drag to pan</span><span><kbd>C</kbd> center</span><span><kbd>N</kbd> new node</span></div>
+        </div>
+
+        {sidePanelOpen && rightPanel === 'details' && <aside className="side-panel detail-panel" aria-label="Node details" aria-live="polite">
+          <header className="side-panel-header">
+            <div><span>{typeLabels[selected.type]}</span><h2>{selected.title}</h2></div>
+            <div className="side-panel-actions">{hasChildren && <button type="button" onClick={toggleCollapsed}>{collapsed.has(selected.id) ? 'Expand' : 'Collapse'}</button>}<button className="side-panel-close" type="button" onClick={() => setSurface((current) => ({ ...current, rightPanel: null }))} aria-label="Close node details" title="Close panel"><Cross2Icon /></button></div>
+          </header>
+
+          {deleteNodeId === selected.id && <div className="delete-choice is-prominent" role="alertdialog" aria-label={`Delete ${selected.title}`}>
+            <strong>Delete this {hasChildren ? 'branch' : 'node'}?</strong>
+            <span>Choose what happens to its tmux sessions.</span>
+            <button type="button" onClick={() => void deleteSelected(false)} disabled={busy}>Keep tmux as orphan</button>
+            <button className="danger-button" type="button" onClick={() => void deleteSelected(true)} disabled={busy}>Delete and stop tmux</button>
+            <button type="button" onClick={() => setDeleteNodeId(null)}>Cancel</button>
+          </div>}
+
+          <div className="node-editor" key={`${selected.id}-${selected.updatedAt}`}>
+            <label>Title<input defaultValue={selected.title} onBlur={(event) => { if (event.target.value !== selected.title) void saveNode(selected.id, { title: event.target.value }) }} /></label>
+            <label>Type<select value={selected.type} onChange={(event) => void saveNode(selected.id, { type: event.target.value as NodeType })}>{Object.entries(typeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+            <div className="node-color-field"><span>Color</span><NodeColorPicker value={selected.color} onChange={(color) => void saveNode(selected.id, { color })} /></div>
+            <details className="node-context">
+              <summary><span>Context</span><small>{contextCount ? `${contextCount} saved` : 'Optional'}</small></summary>
+              <div className="node-context-fields">
+                <label>Project<input defaultValue={selected.project ?? ''} placeholder="Optional" onBlur={(event) => { if (event.target.value !== (selected.project ?? '')) void saveNode(selected.id, { project: event.target.value }) }} /></label>
+                <label>Ticket key<input defaultValue={selected.jiraKey ?? ''} placeholder="Optional" onBlur={(event) => { if (event.target.value !== (selected.jiraKey ?? '')) void saveNode(selected.id, { jiraKey: event.target.value }) }} /></label>
+                <label>Repository path<input defaultValue={selected.repoPath ?? ''} placeholder="Uses allowed root" onBlur={(event) => { if (event.target.value !== (selected.repoPath ?? '')) void saveNode(selected.id, { repoPath: event.target.value }) }} /></label>
+                <label>Note<textarea defaultValue={selected.note ?? ''} placeholder="Optional context" rows={3} onBlur={(event) => { if (event.target.value !== (selected.note ?? '')) void saveNode(selected.id, { note: event.target.value }) }} /></label>
+              </div>
+            </details>
+          </div>
+
+          <div className="node-commands">
+            {session && session.status !== 'stopped' ? (
+              <button className={`terminal-preview ${terminalSessionId === session.id ? 'is-active' : ''}`} type="button" onClick={() => openTerminal(session.id)} aria-label={`Expand terminal for ${selected.title}`} style={{ '--accent': selected.color, '--accent-soft': `color-mix(in srgb, ${selected.color} 20%, transparent)` } as CSSProperties}>
+                <span className="terminal-preview-bar"><i /><i /><i /><strong>{session.agent ? agentStatusText(session.agent) : session.status}</strong></span>
+                <span className="terminal-preview-screen"><code>$ tmux attach</code><code>{session.tmuxName}</code><i /></span>
+                <span className="terminal-preview-footer"><strong>{selected.title}</strong><small>Click to expand ↗</small></span>
+              </button>
+            ) : (
+              <button className="attach-button" type="button" onClick={() => void attachTerminal()} disabled={busy}>{session ? 'Restart terminal' : 'Attach terminal'}</button>
+            )}
+            <button className="add-child-button" type="button" onClick={() => void addChild(selected)}>+ Add child node</button>
+          </div>
+
+          {selected.id !== graph.workspace.rootNodeId && (
+            <details className="node-more-actions">
+              <summary>More actions</summary>
+              <div className="delete-node-control">
+                <button type="button" onClick={() => setDeleteNodeId(selected.id)}>Delete {hasChildren ? 'branch' : 'node'}</button>
+              </div>
+            </details>
+          )}
+        </aside>}
+
+        {sidePanelOpen && rightPanel === 'settings' && (
+          <aside className="side-panel settings-panel" aria-label="Settings">
+            <header className="side-panel-header">
+              <div><span>Workspace</span><h2>Settings</h2></div>
+              <button className="side-panel-close" type="button" onClick={() => setSurface((current) => ({ ...current, rightPanel: null }))} aria-label="Close settings" title="Close panel"><Cross2Icon /></button>
+            </header>
+            <section className="settings-section">
+              <div className="settings-section-heading"><h3>Terminal appearance</h3><p>Saved in this browser.</p></div>
+              <label htmlFor="terminal-opacity" className="setting-control">
+                <span><strong>Window opacity</strong><small>Applies to docked, floating, and full-screen terminals.</small></span>
+                <output>{terminalOpacity}%</output>
+              </label>
+              <input id="terminal-opacity" type="range" min="45" max="100" value={terminalOpacity} onChange={(event) => setTerminalOpacity(normalizeTerminalOpacity(event.target.value))} />
+              <label htmlFor="terminal-split" className="setting-control">
+                <span><strong>Mindmap width</strong><small>Share kept for the mindmap when a terminal is docked.</small></span>
+                <output>{terminalSplit}%</output>
+              </label>
+              <input id="terminal-split" type="range" min="25" max="75" value={terminalSplit} onChange={(event) => setTerminalSplit(normalizeTerminalSplit(event.target.value))} />
+            </section>
+            <section className="settings-section">
+              <div className="settings-section-heading"><h3>Agent notifications</h3><p>Chrome alerts while this MuxMap page is open.</p></div>
+              <div className="setting-control">
+                <span><strong>Completion and input</strong><small>Clicking an alert opens its linked terminal.</small></span>
+                <output aria-live="polite">{notificationPermission === 'granted' ? 'Enabled' : notificationPermission === 'denied' ? 'Blocked' : notificationPermission === 'unsupported' ? 'Unavailable' : 'Off'}</output>
+              </div>
+              {notificationPermission === 'default' && <button className="settings-button" type="button" onClick={() => void enableAgentNotifications()}>Enable notifications</button>}
+              {notificationPermission === 'denied' && <p className="settings-hint">Allow notifications in Chrome site settings, then reload MuxMap.</p>}
+            </section>
+          </aside>
+        )}
+
+        {sidePanelOpen && rightPanel === 'sessions' && (
+          <aside className="side-panel session-manager" aria-label="Tmux session manager">
+            <header className="side-panel-header">
+              <div><span>Runtime inventory</span><h2>MuxMap sessions</h2></div>
+              <button className="side-panel-close" type="button" onClick={() => setSurface((current) => ({ ...current, rightPanel: null }))} aria-label="Close session manager" title="Close panel"><Cross2Icon /></button>
+            </header>
+
+            <section>
+              <h3>Linked <span>{graph.sessions.length}</span></h3>
+              {graph.sessions.length === 0 ? <p>No linked sessions.</p> : graph.sessions.map((item) => {
+                const node = graph.nodes.find((candidate) => candidate.id === item.nodeId)
+                return (
+                  <article className={`session-row ${terminalSessionId === item.id || selected.id === item.nodeId ? 'is-current' : ''}`} key={item.id}>
+                    <div><strong>{node?.title ?? item.name}</strong><code>{item.tmuxName}</code><small className={item.agent ? `is-${item.agent.state}` : undefined}>{item.agent && <AgentIcon kind={item.agent.kind} />}{item.agent ? agentStatusText(item.agent) : item.status}</small></div>
+                    <div className="session-row-actions">
+                      {item.status !== 'stopped' && <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button>}
+                      {item.status !== 'stopped' && (confirmStopTmux === item.tmuxName ? (
+                        <><button className="danger-button" type="button" onClick={() => void stopTmux(item.tmuxName)} disabled={busy}>Confirm stop</button><button type="button" onClick={() => setConfirmStopTmux(null)}>Cancel</button></>
+                      ) : <button type="button" onClick={() => setConfirmStopTmux(item.tmuxName)}>Stop</button>)}
+                    </div>
+                  </article>
+                )
+              })}
+            </section>
+
+            <section>
+              <h3>Orphan <span>{orphans.length}</span></h3>
+              {orphans.length === 0 ? <p>No orphan sessions.</p> : orphans.map((orphan) => {
+                const selectedHasSession = graph.sessions.some((item) => item.nodeId === selected.id && item.status !== 'stopped')
+                return (
+                  <article className="session-row is-orphan" key={orphan.tmuxName}>
+                    <div><strong>{orphan.tmuxName}</strong><small className={orphan.agent ? `is-${orphan.agent.state}` : undefined}>{orphan.agent && <AgentIcon kind={orphan.agent.kind} />}{orphan.agent ? agentStatusText(orphan.agent) : 'Live tmux'} · not linked to a node</small></div>
+                    <div className="session-row-actions">
+                      <button type="button" onClick={() => void adoptTmux(orphan.tmuxName, false)} disabled={busy || selectedHasSession}>Attach to selected</button>
+                      <button type="button" onClick={() => void adoptTmux(orphan.tmuxName, true)} disabled={busy}>Create root node</button>
+                      {confirmStopTmux === orphan.tmuxName ? (
+                        <><button className="danger-button" type="button" onClick={() => void stopTmux(orphan.tmuxName)} disabled={busy}>Confirm stop</button><button type="button" onClick={() => setConfirmStopTmux(null)}>Cancel</button></>
+                      ) : <button type="button" onClick={() => setConfirmStopTmux(orphan.tmuxName)}>Close tmux</button>}
+                    </div>
+                  </article>
+                )
+              })}
+            </section>
+          </aside>
+        )}
+
+        {terminalDocked && <div className="terminal-splitter" role="separator" aria-label="Resize terminal" aria-orientation="vertical" aria-valuemin={25} aria-valuemax={75} aria-valuenow={terminalSplit} tabIndex={0} onPointerDown={beginTerminalResize} onPointerMove={resizeTerminal} onPointerUp={endTerminalResize} onPointerCancel={endTerminalResize} onDoubleClick={() => setTerminalSplit(50)} onKeyDown={(event) => { if (event.key === 'ArrowLeft') setTerminalSplit((value) => normalizeTerminalSplit(value - 2)); if (event.key === 'ArrowRight') setTerminalSplit((value) => normalizeTerminalSplit(value + 2)) }}><span /></div>}
+        {terminalDocked && terminalPanel}
+      </section>
+
+      {terminalFloating && terminalPanel}
+    </main>
+  )
+}
+
+export default App

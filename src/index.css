@@ -1,0 +1,92 @@
+:root {
+  --sans: "Avenir Next", Avenir, "Segoe UI", system-ui, sans-serif;
+  --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --background: #eef0ed;
+  --background-subtle: #e7e9e5;
+  --surface: #f7f8f5;
+  --surface-elevated: #fbfcf9;
+  --surface-hover: #ffffff;
+  --node-surface: rgba(247, 248, 245, 0.96);
+  --input: #ffffff;
+  --text-strong: #20231f;
+  --text: #4d534c;
+  --text-muted: #70766e;
+  --placeholder: #7c827a;
+  --line: #d3d7d0;
+  --line-strong: #bbc0b8;
+  --edge: #9ba29a;
+  --grid-dot: #cfd3cd;
+  --accent: #a46212;
+  --accent-text: #fffaf1;
+  --accent-soft: rgba(164, 98, 18, 0.18);
+  --disabled: #dfe2dc;
+  --terminal: #1d211e;
+  --terminal-line: #353b36;
+  --terminal-text: #d9ded8;
+  --terminal-muted: #9aa39b;
+  --shadow: rgba(43, 49, 44, 0.12);
+  --shadow-soft: rgba(43, 49, 44, 0.07);
+  font-family: var(--sans);
+  color: var(--text);
+  background: var(--background);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #151816;
+    --background-subtle: #1b1f1c;
+    --surface: #1c201d;
+    --surface-elevated: #242925;
+    --surface-hover: #262b27;
+    --node-surface: rgba(28, 32, 29, 0.96);
+    --input: #171a18;
+    --text-strong: #e8ebe6;
+    --text: #bdc4bc;
+    --text-muted: #90998f;
+    --placeholder: #899188;
+    --line: #303630;
+    --line-strong: #444c45;
+    --edge: #515a52;
+    --grid-dot: #282e29;
+    --accent: #d49a4d;
+    --accent-text: #1b140a;
+    --accent-soft: rgba(212, 154, 77, 0.2);
+    --disabled: #2a2f2b;
+    --terminal: #101311;
+    --terminal-line: #303630;
+    --terminal-text: #d8ddd7;
+    --terminal-muted: #899188;
+    --shadow: rgba(0, 0, 0, 0.34);
+    --shadow-soft: rgba(0, 0, 0, 0.22);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--background);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100dvh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
