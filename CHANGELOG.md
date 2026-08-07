@@ -10,7 +10,7 @@ All notable changes to MuxMap are documented here.
 
 ### Fixed
 
-- Restored native terminal selection copying with Command-C and Ctrl-Shift-C.
+- Restored terminal text selection and native copying with Command-C and Ctrl-Shift-C.
 
 ## [0.1.0] - 2026-08-07
 

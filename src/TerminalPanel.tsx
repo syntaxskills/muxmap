@@ -4,7 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import type { NodeType, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
-import { dragOffset, shouldCopyTerminalSelection, stopSessionIntent, terminalShortcutData } from './terminalInteraction.ts'
+import { dragOffset, isTerminalMouseTracking, shouldCopyTerminalSelection, stopSessionIntent, terminalShortcutData } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { AgentIcon } from './AgentIcon.tsx'
@@ -55,6 +55,7 @@ export function TerminalPanel({ session, node, opacity, floating, disabled, onCl
       lineHeight: 1.25,
       theme: { background: '#101311', foreground: '#d8ddd7', cursor: '#d49a4d', selectionBackground: '#4b3d29' },
     })
+    const mouseTracking = terminal.parser.registerCsiHandler({ prefix: '?', final: 'h' }, isTerminalMouseTracking)
     const fit = new FitAddon()
     terminal.loadAddon(fit)
     terminal.open(container.current)
@@ -116,6 +117,7 @@ export function TerminalPanel({ session, node, opacity, floating, disabled, onCl
       lifecycle.dispose()
       resize.disconnect()
       input.dispose()
+      mouseTracking.dispose()
       socket.close()
       terminal.dispose()
     }
