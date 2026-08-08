@@ -1,4 +1,4 @@
-export type RightPanel = 'details' | 'sessions' | 'settings' | null
+export type RightPanel = 'details' | 'archive' | 'sessions' | 'settings' | null
 
 export type WorkspaceSurface = {
   rightPanel: RightPanel

@@ -11,7 +11,7 @@ import {
 } from 'react'
 import './App.css'
 import { api } from './api.ts'
-import { branchHasLiveSession, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleNodes } from './graph.ts'
+import { activeNodes, archivedNodeEntries, branchHasLiveSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleNodes } from './graph.ts'
 import { centerPan, dragPan, gridBackground, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
 import type { NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
@@ -23,8 +23,9 @@ import { dragIntent, dropPositionAt } from './nodeReorderInteraction.ts'
 import { contextMenuPosition, duplicateNodeInput } from './nodeContextMenu.ts'
 import { AgentIcon } from './AgentIcon.tsx'
 import { SettingsPanel } from './SettingsPanel.tsx'
+import { ArchivePanel } from './ArchivePanel.tsx'
 import { loadSettings, type AppSettings } from './settings.ts'
-import { ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, Pencil2Icon, PlusIcon, TrashIcon } from '@radix-ui/react-icons'
+import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, Pencil2Icon, PlusIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
   floatTerminal,
@@ -175,10 +176,11 @@ function App() {
   }, [selectedId, terminalFloating, terminalSessionId])
   useEffect(() => {
     if (!graph) return
-    if (!graph.nodes.some((node) => node.id === selectedId)) setSelectedId(graph.workspace.rootNodeId)
+    const archivedIds = effectiveArchivedNodeIds(graph.nodes)
+    if (!graph.nodes.some((node) => node.id === selectedId) || archivedIds.has(selectedId)) setSelectedId(graph.workspace.rootNodeId)
     if (!terminalSessionId) return
     const restored = graph.sessions.find((item) => item.id === terminalSessionId && item.status !== 'stopped')
-    if (!restored) {
+    if (!restored || archivedIds.has(restored.nodeId)) {
       setSurface(closeTerminal)
       return
     }
@@ -211,9 +213,12 @@ function App() {
     return () => canvas.removeEventListener('wheel', pinchZoom)
   }, [graph, pan, scale, settings])
 
+  const activeGraphNodes = useMemo(() => activeNodes(graph?.nodes ?? []), [graph?.nodes])
+  const archivedIds = useMemo(() => effectiveArchivedNodeIds(graph?.nodes ?? []), [graph?.nodes])
+  const archivedCount = useMemo(() => archivedNodeEntries(graph?.nodes ?? [], '').length, [graph?.nodes])
   const nodes = useMemo(
-    () => visibleNodes(graph?.nodes ?? [], collapsed, query),
-    [collapsed, graph?.nodes, query],
+    () => visibleNodes(activeGraphNodes, collapsed, query),
+    [activeGraphNodes, collapsed, query],
   )
   const sessionsByNode = useMemo(() => new Map(graph?.sessions.map((item) => [item.nodeId, item]) ?? []), [graph?.sessions])
   const nodeHeights = useMemo(() => new Map(nodes
@@ -223,10 +228,10 @@ function App() {
     () => layoutTree(nodes, graph?.workspace.rootNodeId ?? 'workspace', settings['mindmap.columnGap'], settings['mindmap.rowGap'], nodeHeights),
     [graph?.workspace.rootNodeId, nodeHeights, nodes, settings],
   )
-  const selected = graph?.nodes.find((node) => node.id === selectedId) ?? graph?.nodes[0]
+  const selected = activeGraphNodes.find((node) => node.id === selectedId) ?? activeGraphNodes[0]
   const session = graph?.sessions.find((item) => item.nodeId === selected?.id)
   const activeTerminal = graph?.sessions.find((item) => item.id === terminalSessionId)
-  const activeTerminalNode = graph?.nodes.find((node) => node.id === activeTerminal?.nodeId)
+  const activeTerminalNode = activeGraphNodes.find((node) => node.id === activeTerminal?.nodeId)
   const orphans = graph?.orphans ?? []
   const agentCount = [...(graph?.sessions ?? []), ...orphans].filter((item) => item.agent).length
   const width = Math.max(0, ...[...positions.values()].map(({ x }) => x)) + NODE_WIDTH + 96
@@ -405,7 +410,7 @@ function App() {
       setDraggedId(drag.nodeId)
     }
     event.preventDefault()
-    const candidates = graph.nodes.filter((node) => node.parentId === drag.parentId && node.id !== drag.nodeId)
+    const candidates = activeGraphNodes.filter((node) => node.parentId === drag.parentId && node.id !== drag.nodeId)
       .map((node) => {
         const element = canvasRef.current?.querySelector<HTMLElement>(`[data-node-id="${node.id}"]`)
         const bounds = element?.getBoundingClientRect()
@@ -619,6 +624,36 @@ function App() {
     }
   }
 
+  async function archiveNode(nodeId: string) {
+    if (!graph || nodeId === graph.workspace.rootNodeId) return
+    setBusy(true)
+    setError('')
+    try {
+      await api(`/api/nodes/${nodeId}/archive`, { method: 'POST', body: '{}' })
+      setSelectedId(graph.workspace.rootNodeId)
+      setSurface({ rightPanel: 'archive', terminalSessionId: null, terminalFloating: false })
+      setContextMenu(null)
+      await loadWorkspace()
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : 'Unable to archive node')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function restoreNode(nodeId: string) {
+    setBusy(true)
+    setError('')
+    try {
+      await api(`/api/nodes/${nodeId}/restore`, { method: 'POST', body: '{}' })
+      await loadWorkspace()
+    } catch (restoreError) {
+      setError(restoreError instanceof Error ? restoreError.message : 'Unable to restore node')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const updateSessionStatus = useCallback((id: string, status: TerminalSession['status']) => {
     setGraph((current) => current ? {
       ...current,
@@ -643,7 +678,7 @@ function App() {
     return <main className="load-state"><h1>Workspace is empty</h1><p>Create a root node in the database to continue.</p></main>
   }
 
-  const hasChildren = graph.nodes.some((node) => node.parentId === selected.id)
+  const hasChildren = activeGraphNodes.some((node) => node.parentId === selected.id)
   const branchHasSession = branchHasLiveSession(graph.nodes, graph.sessions, selected.id)
   const contextCount = [selected.project, selected.jiraKey, selected.repoPath, selected.note].filter(Boolean).length
   const terminalPanel = activeTerminal && activeTerminalNode && activeTerminal.status !== 'stopped' ? (
@@ -681,8 +716,9 @@ function App() {
           <kbd>/</kbd>
         </label>
         <div className="topbar-status" aria-label="Workspace status">
-          <span>{graph.nodes.length} nodes</span>
+          <span>{activeGraphNodes.length} nodes</span>
           {agentCount > 0 && <span>{agentCount} agents</span>}
+          <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))} aria-expanded={rightPanel === 'archive'}><ArchiveIcon />{archivedCount} archived</button>
           <button type="button" onClick={toggleSessionManager} aria-expanded={rightPanel === 'sessions'}>
             {graph.sessions.filter((item) => item.status !== 'stopped').length + orphans.length} sessions{orphans.length > 0 ? ` · ${orphans.length} orphan` : ''}
           </button>
@@ -736,7 +772,7 @@ function App() {
                   const point = positions.get(node.id)
                   if (!point) return null
                   const nodeSession = sessionsByNode.get(node.id)
-                  const childCount = graph.nodes.filter((child) => child.parentId === node.id).length
+                  const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
                   const expanded = node.id === selectedId || node.id === hoveredId
                   const style = { left: point.x + 48, top: point.y + 48, height: nodeHeights.get(node.id) ?? NODE_HEIGHT, '--node-color': node.color } as CSSProperties
                   return (
@@ -805,7 +841,7 @@ function App() {
           {contextMenu && (() => {
             const node = graph.nodes.find((candidate) => candidate.id === contextMenu.nodeId)
             if (!node) return null
-            const childCount = graph.nodes.filter((child) => child.parentId === node.id).length
+            const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
             return (
               <div className="node-context-menu" role="menu" aria-label={`Actions for ${node.title}`} style={{ left: contextMenu.x, top: contextMenu.y }} onContextMenu={(event) => event.preventDefault()}>
                 <div className="node-context-menu-title"><span>{node.title}</span><small>{typeLabels[node.type]}</small></div>
@@ -813,6 +849,7 @@ function App() {
                 <button type="button" role="menuitem" onClick={() => { setContextMenu(null); startRename(node) }}><Pencil2Icon />Rename</button>
                 {node.parentId && <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void duplicateNode(node) }}><CopyIcon />Duplicate</button>}
                 {childCount > 0 && <button type="button" role="menuitem" onClick={() => { toggleNodeCollapsed(node.id); setContextMenu(null) }}>{collapsed.has(node.id) ? <ChevronDownIcon /> : <ChevronUpIcon />}{collapsed.has(node.id) ? 'Expand branch' : 'Collapse branch'}</button>}
+                {node.parentId && <button type="button" role="menuitem" onClick={() => void archiveNode(node.id)}><ArchiveIcon />Archive</button>}
                 {node.parentId && <button className="is-danger" type="button" role="menuitem" onClick={() => { setSelectedId(node.id); setSurface((current) => current.terminalFloating ? { ...current, rightPanel: 'details' } : selectNodeSurface(null)); setDeleteNodeId(node.id); setContextMenu(null) }}><TrashIcon />Delete</button>}
               </div>
             )
@@ -871,7 +908,8 @@ function App() {
           {selected.id !== graph.workspace.rootNodeId && (
             <details className="node-more-actions">
               <summary>More actions</summary>
-              <div className="delete-node-control">
+              <div className="node-lifecycle-actions">
+                <button type="button" onClick={() => void archiveNode(selected.id)} disabled={busy}><ArchiveIcon />Archive {hasChildren ? 'branch' : 'node'}</button>
                 <button type="button" onClick={() => setDeleteNodeId(selected.id)}>Delete {hasChildren ? 'branch' : 'node'}</button>
               </div>
             </details>
@@ -879,6 +917,8 @@ function App() {
         </aside>}
 
         {sidePanelOpen && rightPanel === 'settings' && <SettingsPanel settings={settings} platform={platform} notificationPermission={notificationPermission} onChange={setSettings} onEnableNotifications={() => void enableAgentNotifications()} onClose={() => setSurface((current) => ({ ...current, rightPanel: null }))} />}
+
+        {sidePanelOpen && rightPanel === 'archive' && <ArchivePanel nodes={graph.nodes} sessions={graph.sessions} busy={busy} onRestore={(nodeId) => void restoreNode(nodeId)} onClose={() => setSurface((current) => ({ ...current, rightPanel: null }))} />}
 
         {sidePanelOpen && rightPanel === 'sessions' && (
           <aside className="side-panel session-manager" aria-label="Terminal session manager">
@@ -891,11 +931,12 @@ function App() {
               <h3>Linked <span>{graph.sessions.length}</span></h3>
               {graph.sessions.length === 0 ? <p>No linked sessions.</p> : graph.sessions.map((item) => {
                 const node = graph.nodes.find((candidate) => candidate.id === item.nodeId)
+                const isArchived = archivedIds.has(item.nodeId)
                 return (
                   <article className={`session-row ${terminalSessionId === item.id || selected.id === item.nodeId ? 'is-current' : ''}`} key={item.id}>
                     <div><strong>{node?.title ?? item.name}</strong><code>{item.runtimeName}</code><small className={item.agent ? `is-${item.agent.state}` : undefined}>{item.agent && <AgentIcon kind={item.agent.kind} />}{item.agent ? agentStatusText(item.agent) : item.status}</small></div>
                     <div className="session-row-actions">
-                      {item.status !== 'stopped' && <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button>}
+                      {isArchived ? <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))}>Archived</button> : item.status !== 'stopped' && <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button>}
                       {item.status !== 'stopped' && (confirmStopSession === `${item.backend}:${item.runtimeName}` ? (
                         <><button className="danger-button" type="button" onClick={() => void stopSession(item.id)} disabled={busy}>Confirm stop</button><button type="button" onClick={() => setConfirmStopSession(null)}>Cancel</button></>
                       ) : <button type="button" onClick={() => setConfirmStopSession(`${item.backend}:${item.runtimeName}`)}>Stop</button>)}

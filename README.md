@@ -4,7 +4,7 @@
 
 MuxMap is a local-first mindmap for organizing development work and persistent terminals.
 
-- Create, rename, duplicate, color, collapse, and reorder nodes.
+- Create, rename, duplicate, color, collapse, reorder, and archive nodes.
 - Dock, float, resize, or full-screen terminal sessions.
 - Reattach after refresh and manage orphan `muxmap*` sessions.
 - Detect Codex, Claude Code, Pi, and SSH activity.

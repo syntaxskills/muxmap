@@ -6,6 +6,7 @@ All notable changes to MuxMap are documented here.
 
 ### Changed
 
+- Added reversible node and branch archiving with preserved hierarchy, search, restore, and terminal sessions.
 - Shortened the README around the core workflow, one product screenshot, and setup path.
 - Added native Windows terminal support through Zellij 0.44.3+, including persistent reattachment, orphan management, agent hooks, and Windows CI coverage.
 - Added explicit local, authenticated LAN, and Tailscale-only network access modes with accurate startup URLs.

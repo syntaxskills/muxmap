@@ -247,6 +247,14 @@ export function createMuxMapServer(options: ServerOptions) {
           return sendJson(response, 200, { nodes: store.reorderNode(reorderMatch[1], body.targetId, body.position as 'before' | 'after') })
         }
 
+        const archiveMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/(archive|restore)$/)
+        if (request.method === 'POST' && archiveMatch) {
+          const node = archiveMatch[2] === 'archive'
+            ? store.archiveNode(archiveMatch[1])
+            : store.restoreNode(archiveMatch[1])
+          return sendJson(response, 200, { node })
+        }
+
         const updateNodeMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)$/)
         if (request.method === 'PATCH' && updateNodeMatch) {
           const body = await readJson(request)

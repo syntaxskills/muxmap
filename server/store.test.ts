@@ -126,3 +126,53 @@ test('deleting a node removes its branch records but never the workspace root', 
   assert.throws(() => store.deleteNode('workspace'), /root/i)
   store.close()
 })
+
+test('archive state persists without changing parent relationships', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'muxmap-archive-'))
+  const database = join(directory, 'muxmap.db')
+
+  try {
+    const first = createStore(database)
+    const parent = first.createNode('default', { parentId: 'workspace', title: 'Finished project', type: 'feature' })
+    const child = first.createNode('default', { parentId: parent.id, title: 'Still nested', type: 'note' })
+    const archivedParent = first.archiveNode(parent.id)
+    assert.ok(archivedParent.archivedAt)
+    assert.equal(first.getNode(child.id)?.archivedAt, undefined)
+    assert.equal(first.getNode(child.id)?.parentId, parent.id)
+
+    first.archiveNode(child.id)
+    first.restoreNode(parent.id)
+    assert.equal(first.getNode(parent.id)?.archivedAt, undefined)
+    assert.ok(first.getNode(child.id)?.archivedAt, 'an independently archived child stays archived')
+    assert.throws(() => first.archiveNode('workspace'), /root/i)
+    first.close()
+
+    const second = createStore(database)
+    assert.equal(second.getNode(child.id)?.parentId, parent.id)
+    assert.ok(second.getNode(child.id)?.archivedAt)
+    second.close()
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('existing databases gain archive support without losing nodes', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'muxmap-archive-migration-'))
+  const database = join(directory, 'muxmap.db')
+
+  try {
+    const first = createStore(database)
+    const existing = first.createNode('default', { parentId: 'workspace', title: 'Existing work', type: 'note' })
+    first.close()
+    const legacy = new DatabaseSync(database)
+    legacy.exec('ALTER TABLE nodes DROP COLUMN archived_at')
+    legacy.close()
+
+    const migrated = createStore(database)
+    assert.equal(migrated.getNode(existing.id)?.title, 'Existing work')
+    assert.ok(migrated.archiveNode(existing.id).archivedAt)
+    migrated.close()
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})

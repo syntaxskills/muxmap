@@ -2,6 +2,78 @@ import type { WorkNode } from './model.ts'
 
 export type ReorderPosition = 'before' | 'after'
 
+export type ArchivedNodeEntry = {
+  node: WorkNode
+  depth: number
+  path: string
+  inherited: boolean
+}
+
+export function effectiveArchivedNodeIds(nodes: WorkNode[]) {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const archived = new Set<string>()
+
+  for (const node of nodes) {
+    let current: WorkNode | undefined = node
+    while (current) {
+      if (current.archivedAt) {
+        archived.add(node.id)
+        break
+      }
+      current = current.parentId ? byId.get(current.parentId) : undefined
+    }
+  }
+  return archived
+}
+
+export function activeNodes(nodes: WorkNode[]) {
+  const archived = effectiveArchivedNodeIds(nodes)
+  return nodes.filter((node) => !archived.has(node.id))
+}
+
+export function archivedNodeEntries(nodes: WorkNode[], query: string): ArchivedNodeEntry[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const archived = effectiveArchivedNodeIds(nodes)
+  const children = new Map<string, WorkNode[]>()
+  for (const node of nodes) {
+    if (!node.parentId || !archived.has(node.id)) continue
+    const siblings = children.get(node.parentId) ?? []
+    siblings.push(node)
+    children.set(node.parentId, siblings)
+  }
+  for (const siblings of children.values()) {
+    siblings.sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt))
+  }
+
+  const roots = nodes.filter((node) => archived.has(node.id) && (!node.parentId || !archived.has(node.parentId)))
+  const entries: ArchivedNodeEntry[] = []
+  const visit = (node: WorkNode, depth: number) => {
+    const path: string[] = []
+    let current: WorkNode | undefined = node
+    while (current?.parentId) {
+      path.unshift(current.title)
+      current = byId.get(current.parentId)
+    }
+    entries.push({ node, depth, path: path.join(' / '), inherited: !node.archivedAt })
+    for (const child of children.get(node.id) ?? []) visit(child, depth + 1)
+  }
+  for (const root of roots) visit(root, 0)
+
+  const needle = query.trim().toLowerCase()
+  if (!needle) return entries
+  const included = new Set<string>()
+  for (const entry of entries) {
+    const searchable = `${entry.node.title} ${entry.node.jiraKey ?? ''} ${entry.node.project ?? ''} ${entry.node.note ?? ''} ${entry.path}`.toLowerCase()
+    if (!searchable.includes(needle)) continue
+    let current: WorkNode | undefined = entry.node
+    while (current && archived.has(current.id)) {
+      included.add(current.id)
+      current = current.parentId ? byId.get(current.parentId) : undefined
+    }
+  }
+  return entries.filter((entry) => included.has(entry.node.id))
+}
+
 export function expandedNodeHeight(node: WorkNode, hasAgent: boolean) {
   const rows = 1 + [node.project, node.jiraKey, node.repoPath, node.note].filter(Boolean).length + Number(hasAgent)
   return Math.max(106, 64 + rows * 12)

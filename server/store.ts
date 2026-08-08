@@ -78,6 +78,11 @@ export function createStore(path: string) {
     );
   `)
 
+  const nodeColumns = database.prepare('PRAGMA table_info(nodes)').all() as Array<{ name: string }>
+  if (!nodeColumns.some((column) => column.name === 'archived_at')) {
+    database.exec('ALTER TABLE nodes ADD COLUMN archived_at TEXT')
+  }
+
   database.prepare("UPDATE agent_activity SET state = 'read' WHERE state = 'idle'").run()
 
   if (!database.prepare('SELECT id FROM workspaces WHERE id = ?').get('default')) {
@@ -125,6 +130,7 @@ export function createStore(path: string) {
       jiraKey: row.jira_key ? String(row.jira_key) : undefined,
       note: row.note ? String(row.note) : undefined,
       sortOrder: Number(row.sort_order),
+      archivedAt: row.archived_at ? String(row.archived_at) : undefined,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
     }
@@ -271,6 +277,27 @@ export function createStore(path: string) {
       database.prepare('DELETE FROM nodes WHERE id = ?').run(id)
       database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), node.workspaceId)
       return rows.map((row) => row.id)
+    },
+
+    archiveNode(id: string) {
+      const node = this.getNode(id)
+      if (!node) throw new Error('Node not found')
+      if (!node.parentId) throw new Error('Workspace root cannot be archived')
+      if (node.archivedAt) return node
+      const now = new Date().toISOString()
+      database.prepare('UPDATE nodes SET archived_at = ?, updated_at = ? WHERE id = ?').run(now, now, id)
+      database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, node.workspaceId)
+      return this.getNode(id)!
+    },
+
+    restoreNode(id: string) {
+      const node = this.getNode(id)
+      if (!node) throw new Error('Node not found')
+      if (!node.archivedAt) return node
+      const now = new Date().toISOString()
+      database.prepare('UPDATE nodes SET archived_at = NULL, updated_at = ? WHERE id = ?').run(now, id)
+      database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, node.workspaceId)
+      return this.getNode(id)!
     },
 
     getSession(id: string) {

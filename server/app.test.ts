@@ -157,6 +157,48 @@ test('LAN mode requires persistent basic auth before issuing its session cookie'
   }
 })
 
+test('archive and restore keep the node and its terminal session intact', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-archive-api-')))
+  const tmux = fakeTmux()
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    tmux,
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const auth = await fetch(`${base}/api/auth`)
+    const cookie = auth.headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const created = await fetch(`${base}/api/workspaces/default/nodes`, {
+      method: 'POST', headers, body: JSON.stringify({ parentId: 'workspace', title: 'Done', type: 'terminal', repoPath: root }),
+    }).then((response) => response.json()) as { id: string }
+    const attached = await fetch(`${base}/api/nodes/${created.id}/session`, {
+      method: 'POST', headers, body: JSON.stringify({ backend: 'tmux', cwd: root }),
+    }).then((response) => response.json()) as { session: { id: string; runtimeName: string } }
+
+    const archivedResponse = await fetch(`${base}/api/nodes/${created.id}/archive`, { method: 'POST', headers, body: '{}' })
+    assert.equal(archivedResponse.status, 200)
+    const archived = await archivedResponse.json() as { node: { archivedAt?: string } }
+    assert.ok(archived.node.archivedAt)
+    assert.equal(tmux.live.has(attached.session.runtimeName), true)
+    assert.ok(server.store.getSession(attached.session.id))
+
+    const restoredResponse = await fetch(`${base}/api/nodes/${created.id}/restore`, { method: 'POST', headers, body: '{}' })
+    assert.equal(restoredResponse.status, 200)
+    const restored = await restoredResponse.json() as { node: { archivedAt?: string } }
+    assert.equal(restored.node.archivedAt, undefined)
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('websocket detaches safely and workspace refresh surfaces a missing tmux session', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-ws-')))
   const tmux = fakeTmux()

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { branchHasLiveSession, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, visibleNodes } from './graph.ts'
+import { activeNodes, archivedNodeEntries, branchHasLiveSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, visibleNodes } from './graph.ts'
 import type { WorkNode } from './model.ts'
 
 const base = {
@@ -57,4 +57,24 @@ test('reordering moves nodes only within their existing sibling group', () => {
 test('expanded nodes grow only as much as their visible metadata needs', () => {
   assert.equal(expandedNodeHeight(nodes[1], false), 106)
   assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, true), 136)
+})
+
+test('archiving a parent hides its branch while preserving the original hierarchy', () => {
+  const archived = nodes.map((node) => node.id === 'repo' ? { ...node, archivedAt: '2026-08-09T02:00:00.000Z' } : node)
+  assert.deepEqual([...effectiveArchivedNodeIds(archived)], ['repo', 'feature', 'ticket'])
+  assert.deepEqual(activeNodes(archived).map((node) => node.id), ['root', 'other'])
+
+  const entries = archivedNodeEntries(archived, '')
+  assert.deepEqual(entries.map((entry) => [entry.node.id, entry.depth, entry.inherited]), [
+    ['repo', 0, false],
+    ['feature', 1, true],
+    ['ticket', 2, true],
+  ])
+  assert.equal(entries[2].path, 'Users / Device trust / Session expiry')
+})
+
+test('archive search retains archived ancestors for context', () => {
+  const archived = nodes.map((node) => node.id === 'repo' ? { ...node, archivedAt: '2026-08-09T02:00:00.000Z' } : node)
+  assert.deepEqual(archivedNodeEntries(archived, 'DEV-1420').map((entry) => entry.node.id), ['repo', 'feature', 'ticket'])
+  assert.deepEqual(archivedNodeEntries(archived, 'missing'), [])
 })

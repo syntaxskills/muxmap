@@ -19,6 +19,7 @@ export type WorkNode = {
   jiraKey?: string
   note?: string
   sortOrder: number
+  archivedAt?: string
   createdAt: string
   updatedAt: string
 }
