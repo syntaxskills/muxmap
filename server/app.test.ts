@@ -4,10 +4,13 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import xterm from '@xterm/xterm'
 import WebSocket from 'ws'
 import { createMuxMapServer, defaultPtyFactory, type PtyFactory, type PtyHandle } from './app.ts'
 import { realTmux, realZellij, zellijExecutable, type TmuxAdapter } from './sessions.ts'
 import type { TerminalSession } from '../src/model.ts'
+
+const { Terminal } = xterm
 
 function fakeTmux(): TmuxAdapter & { stopped: string[]; live: Set<string> } {
   const live = new Set<string>()
@@ -322,10 +325,13 @@ test('the real node-pty adapter reattaches to a persistent Zellij session', {
   let pty: ReturnType<typeof defaultPtyFactory> | undefined
 
   const proveShell = (activePty: ReturnType<typeof defaultPtyFactory>, marker: string) => new Promise<string>((resolve, reject) => {
+    const terminal = new Terminal({ cols: 100, rows: 30 })
     let received = ''
     const timeout = setTimeout(() => reject(new Error(`Timed out waiting for Zellij PTY output: ${received}`)), 8000)
+    terminal.onData((data) => activePty.write(data))
     activePty.onData((data) => {
       received += data
+      terminal.write(data)
       if (received.split(marker).length > 2) {
         clearTimeout(timeout)
         resolve(received)
