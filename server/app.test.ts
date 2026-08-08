@@ -370,7 +370,7 @@ test('Windows provides native ConPTY shell I/O and accepts the MuxMap Zellij con
 
   const marker = '__MUXMAP_WINDOWS_CONPTY_OK__'
   const pty = spawnPty('powershell.exe', ['-NoLogo', '-NoProfile'], {
-    name: 'xterm-256color', cols: 80, rows: 24, cwd: process.cwd(), env: process.env,
+    name: 'xterm-256color', cols: 80, rows: 24, cwd: process.cwd(), env: process.env, useConptyDll: true,
   })
   const output = await new Promise<string>((resolve, reject) => {
     let received = ''
