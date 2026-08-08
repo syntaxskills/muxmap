@@ -354,7 +354,7 @@ test('the real node-pty adapter reattaches to a persistent Zellij session', {
   } finally {
     pty?.kill()
     if (realZellij.exists(runtimeName)) realZellij.stop(runtimeName)
-    rmSync(root, { recursive: true, force: true })
+    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
   assert.equal(realZellij.exists(runtimeName), false)
 })

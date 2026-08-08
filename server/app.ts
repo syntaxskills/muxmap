@@ -66,6 +66,7 @@ export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows:
       rows: size.rows,
       cwd: session.cwd,
       env: { ...defaultZellijEnv(), TERM: 'xterm-256color' } as Record<string, string>,
+      useConptyDll: process.platform === 'win32',
     })
     return {
       onData: (listener) => { pty.onData(listener) },
