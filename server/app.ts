@@ -78,8 +78,8 @@ export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows:
       resize: (cols, rows) => { pty.resize(cols, rows) },
       kill: () => {
         if (process.platform !== 'win32') return pty.kill()
-        process.kill(pty.pid)
-        setTimeout(() => pty.kill(), 250)
+        const detached = spawnSync(zellijExecutable(), ['--session', session.runtimeName, 'action', 'detach'], { env: defaultZellijEnv() })
+        if (detached.status !== 0) process.kill(pty.pid)
       },
     }
   }
