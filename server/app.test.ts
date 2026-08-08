@@ -43,6 +43,12 @@ function fakePtyFactory(record: { writes: string[]; resizes: number[][]; kills: 
   }
 }
 
+async function eventually(predicate: () => boolean, timeout = 2000) {
+  const deadline = Date.now() + timeout
+  while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(predicate(), true)
+}
+
 test('secured workspace and node APIs return persisted graph data', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-api-')))
   const server = createMuxMapServer({
@@ -159,6 +165,7 @@ test('websocket detaches safely and workspace refresh surfaces a missing tmux se
     assert.equal(connectedGraph.sessions.find((item) => item.id === session.id)?.status, 'running')
     ws.close()
     await new Promise((resolve) => ws.once('close', resolve))
+    await eventually(() => ptyRecord.kills.length === 1)
 
     assert.deepEqual(ptyRecord.writes, ['pwd\r'])
     assert.deepEqual(ptyRecord.scrolls, [-4])
@@ -177,6 +184,7 @@ test('websocket detaches safely and workspace refresh surfaces a missing tmux se
     })
     reopened.close()
     await new Promise((resolve) => reopened.once('close', resolve))
+    await eventually(() => ptyRecord.kills.length === 2)
     assert.equal(ptyRecord.kills.length, 2)
     assert.equal(tmux.stopped.length, 0)
 

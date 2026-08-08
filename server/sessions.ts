@@ -94,6 +94,8 @@ export const realZellij: MultiplexerAdapter = {
   create(name, cwd) {
     const result = spawnSync(zellijExecutable(), ['--config', zellijConfig, 'attach', '--create-background', name], { cwd, encoding: 'utf8', env: defaultZellijEnv() })
     if (result.status !== 0) throw new Error(result.stderr.trim() || 'Unable to create Zellij session. Install Zellij 0.44.3 or newer.')
+    for (let attempt = 0; attempt < 20 && !this.exists(name); attempt++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+    if (!this.exists(name)) throw new Error('Zellij reported success but the session did not start')
   },
   stop(name) {
     const result = spawnSync(zellijExecutable(), ['kill-session', name], { encoding: 'utf8', env: defaultZellijEnv() })
