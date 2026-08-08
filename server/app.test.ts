@@ -369,18 +369,21 @@ test('Windows provides native ConPTY shell I/O and accepts the MuxMap Zellij con
   assert.equal(config.status, 0, config.stderr)
 
   const marker = '__MUXMAP_WINDOWS_CONPTY_OK__'
-  const pty = spawnPty('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', `Write-Output ${marker}`], {
+  const pty = spawnPty('powershell.exe', ['-NoLogo', '-NoProfile'], {
     name: 'xterm-256color', cols: 80, rows: 24, cwd: process.cwd(), env: process.env,
   })
   const output = await new Promise<string>((resolve, reject) => {
     let received = ''
-    const timeout = setTimeout(() => reject(new Error(`Timed out waiting for PowerShell: ${received}`)), 5000)
-    pty.onData((data) => { received += data })
-    pty.onExit(({ exitCode }) => {
-      clearTimeout(timeout)
-      if (exitCode) reject(new Error(`PowerShell exited ${exitCode}: ${received}`))
-      else resolve(received)
+    const timeout = setTimeout(() => { pty.kill(); reject(new Error(`Timed out waiting for PowerShell: ${received}`)) }, 5000)
+    pty.onData((data) => {
+      received += data
+      if (received.includes(marker)) {
+        clearTimeout(timeout)
+        pty.kill()
+        resolve(received)
+      }
     })
+    pty.write(`Write-Output ${marker}\r`)
   })
   assert.match(output, new RegExp(marker))
 })
