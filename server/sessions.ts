@@ -89,13 +89,14 @@ export function parseZellijSessions(output: string) {
 
 function windowsZellijSessions() {
   try {
-    const processes = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf8' }).stdout
-    const livePids = new Set([...processes.matchAll(/^"[^"]+","(\d+)"/gm)].map((match) => match[1]))
     const root = process.env.ZELLIJ_SOCKET_DIR ?? join(tmpdir(), 'zellij')
     return readdirSync(root, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && entry.name.startsWith('contract_version_'))
       .flatMap((contract) => readdirSync(join(root, contract.name), { withFileTypes: true })
-        .filter((entry) => entry.isFile() && livePids.has(readFileSync(join(root, contract.name, entry.name), 'utf8').trim()))
+        .filter((entry) => {
+          if (!entry.isFile()) return false
+          try { process.kill(Number(readFileSync(join(root, contract.name, entry.name), 'utf8').trim()), 0); return true } catch { return false }
+        })
         .map((entry) => entry.name))
   } catch {
     return []
