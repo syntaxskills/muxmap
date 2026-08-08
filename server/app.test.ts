@@ -326,6 +326,11 @@ test('the real node-pty adapter reattaches to a persistent Zellij session', {
   }
   let pty: ReturnType<typeof defaultPtyFactory> | undefined
 
+  const detach = (activePty: ReturnType<typeof defaultPtyFactory>) => new Promise<void>((resolve) => {
+    activePty.onExit(resolve)
+    activePty.kill()
+  })
+
   const proveShell = (activePty: ReturnType<typeof defaultPtyFactory>, marker: string) => new Promise<string>((resolve, reject) => {
     const terminal = new Terminal({ cols: 100, rows: 30 })
     let received = ''
@@ -347,15 +352,16 @@ test('the real node-pty adapter reattaches to a persistent Zellij session', {
     await new Promise((resolve) => setTimeout(resolve, 1500))
     await proveShell(pty, '__MUXMAP_ZELLIJ_FIRST__')
     await eventually(() => realZellij.exists(runtimeName), 5000)
-    pty.kill()
+    await detach(pty)
     pty = undefined
     await eventually(() => realZellij.exists(runtimeName), 5000)
 
     pty = defaultPtyFactory(session)
     await proveShell(pty, '__MUXMAP_ZELLIJ_REATTACHED__')
   } finally {
-    pty?.kill()
+    if (pty) await detach(pty)
     if (realZellij.exists(runtimeName)) realZellij.stop(runtimeName)
+    await eventually(() => !realZellij.exists(runtimeName), 5000)
     rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
   assert.equal(realZellij.exists(runtimeName), false)
