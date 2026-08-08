@@ -66,7 +66,6 @@ export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows:
       rows: size.rows,
       cwd: session.cwd,
       env: { ...defaultZellijEnv(), TERM: 'xterm-256color' } as Record<string, string>,
-      useConptyDll: process.platform === 'win32',
     })
     return {
       onData: (listener) => { pty.onData(listener) },
@@ -77,7 +76,7 @@ export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows:
         if (count) pty.write(`\x1b[<${lines < 0 ? 64 : 65};1;1M`.repeat(Math.ceil(count / 3)))
       },
       resize: (cols, rows) => { pty.resize(cols, rows) },
-      kill: () => { pty.kill() },
+      kill: () => { process.platform === 'win32' ? pty.write('\x0fd') : pty.kill() },
     }
   }
   const mouse = spawnSync('tmux', defaultTmuxArgs('set-option', '-t', session.runtimeName, 'mouse', 'on'), { encoding: 'utf8', env: defaultTmuxEnv() })
