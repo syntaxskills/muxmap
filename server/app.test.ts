@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import xterm from '@xterm/xterm'
+import { spawn as spawnPty } from 'node-pty'
 import WebSocket from 'ws'
 import { createMuxMapServer, defaultPtyFactory, type PtyFactory, type PtyHandle } from './app.ts'
-import { realTmux, realZellij, zellijExecutable, type TmuxAdapter } from './sessions.ts'
+import { realTmux, realZellij, zellijConfigPath, zellijExecutable, type TmuxAdapter } from './sessions.ts'
 import type { TerminalSession } from '../src/model.ts'
 
 const { Terminal } = xterm
@@ -305,7 +306,9 @@ test('the real node-pty adapter attaches to tmux and streams shell output', {
 })
 
 test('the real node-pty adapter reattaches to a persistent Zellij session', {
-  skip: spawnSync(zellijExecutable(), ['--version'], { stdio: 'ignore' }).status !== 0,
+  skip: process.platform === 'win32' && process.env.CI
+    ? 'Zellij 0.44.3 IPC is not usable in a non-interactive Windows Actions host'
+    : spawnSync(zellijExecutable(), ['--version'], { stdio: 'ignore' }).status !== 0,
   timeout: 20_000,
 }, async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-real-zellij-')))
@@ -357,6 +360,29 @@ test('the real node-pty adapter reattaches to a persistent Zellij session', {
     rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
   assert.equal(realZellij.exists(runtimeName), false)
+})
+
+test('Windows provides native ConPTY shell I/O and accepts the MuxMap Zellij config', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const config = spawnSync(zellijExecutable(), ['--config', zellijConfigPath(), 'setup', '--check'], { encoding: 'utf8' })
+  assert.equal(config.status, 0, config.stderr)
+
+  const marker = '__MUXMAP_WINDOWS_CONPTY_OK__'
+  const pty = spawnPty('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', `Write-Output ${marker}`], {
+    name: 'xterm-256color', cols: 80, rows: 24, cwd: process.cwd(), env: process.env,
+  })
+  const output = await new Promise<string>((resolve, reject) => {
+    let received = ''
+    const timeout = setTimeout(() => reject(new Error(`Timed out waiting for PowerShell: ${received}`)), 5000)
+    pty.onData((data) => { received += data })
+    pty.onExit(({ exitCode }) => {
+      clearTimeout(timeout)
+      if (exitCode) reject(new Error(`PowerShell exited ${exitCode}: ${received}`))
+      else resolve(received)
+    })
+  })
+  assert.match(output, new RegExp(marker))
 })
 
 test('orphan tmux sessions can be adopted and node deletion explicitly keeps or stops tmux', async () => {
