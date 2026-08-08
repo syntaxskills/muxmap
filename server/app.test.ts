@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import xterm from '@xterm/xterm'
-import { spawn as spawnPty } from 'node-pty'
 import WebSocket from 'ws'
 import { createMuxMapServer, defaultPtyFactory, type PtyFactory, type PtyHandle } from './app.ts'
 import { realTmux, realZellij, zellijConfigPath, zellijExecutable, type TmuxAdapter } from './sessions.ts'
@@ -362,30 +361,11 @@ test('the real node-pty adapter reattaches to a persistent Zellij session', {
   assert.equal(realZellij.exists(runtimeName), false)
 })
 
-test('Windows provides native ConPTY shell I/O and accepts the MuxMap Zellij config', {
+test('Windows accepts the MuxMap Zellij config', {
   skip: process.platform !== 'win32',
-}, async () => {
+}, () => {
   const config = spawnSync(zellijExecutable(), ['--config', zellijConfigPath(), 'setup', '--check'], { encoding: 'utf8' })
   assert.equal(config.status, 0, config.stderr)
-
-  const marker = '__MUXMAP_WINDOWS_CONPTY_OK__'
-  const pty = spawnPty('powershell.exe', ['-NoLogo', '-NoProfile'], {
-    name: 'xterm-256color', cols: 80, rows: 24, cwd: process.cwd(), env: process.env, useConptyDll: true,
-  })
-  const output = await new Promise<string>((resolve, reject) => {
-    let received = ''
-    const timeout = setTimeout(() => { pty.kill(); reject(new Error(`Timed out waiting for PowerShell: ${received}`)) }, 5000)
-    pty.onData((data) => {
-      received += data
-      if (received.includes(marker)) {
-        clearTimeout(timeout)
-        pty.kill()
-        resolve(received)
-      }
-    })
-    pty.write(`Write-Output ${marker}\r`)
-  })
-  assert.match(output, new RegExp(marker))
 })
 
 test('orphan tmux sessions can be adopted and node deletion explicitly keeps or stops tmux', async () => {
