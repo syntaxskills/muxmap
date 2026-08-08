@@ -61,6 +61,7 @@ export type WorkspaceGraph = {
   nodes: WorkNode[]
   sessions: TerminalSession[]
   orphans?: Array<{ backend: TerminalBackend; runtimeName: string; agent?: AgentActivity }>
+  runtime?: { platform: string; terminalBackends: TerminalBackend[] }
 }
 
 const seedTime = '2026-08-06T00:00:00.000Z'

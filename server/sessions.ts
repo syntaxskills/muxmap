@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import type { AgentActivity, AgentKind, TerminalBackend, TerminalSession } from '../src/model.ts'
 import type { WorkspaceStore } from './store.ts'
 import { agentActivityFromEvent, detectAgentKind, readProcesses, type ProcessInfo } from './agents.ts'
+import { platformLabel, terminalBackendsForPlatform, type RuntimePlatform } from '../src/settings.ts'
 
 export type MultiplexerPane = { runtimeName: string; paneId: string; pid: number }
 
@@ -23,7 +24,7 @@ export type TmuxAdapter = Omit<MultiplexerAdapter, 'backend'> & { backend?: 'tmu
 export type MultiplexerAdapters = Partial<Record<TerminalBackend, MultiplexerAdapter>>
 export type AgentLocator = { backend: 'tmux'; paneId: string } | { backend: 'zellij'; runtimeName: string; paneId?: string }
 
-export function defaultTerminalBackend(platform = process.platform): TerminalBackend {
+export function defaultTerminalBackend(platform: RuntimePlatform = process.platform): TerminalBackend {
   return platform === 'win32' ? 'zellij' : 'tmux'
 }
 
@@ -161,10 +162,12 @@ export function createSessionManager(
   allowedRoots: string[],
   processReader: () => ProcessInfo[] = readProcesses,
   defaultBackend?: TerminalBackend,
+  platform: RuntimePlatform = process.platform,
 ) {
   const adapters = normalizeAdapters(input)
-  const selectedDefaultBackend = defaultBackend ?? ('exists' in input ? 'tmux' : defaultTerminalBackend())
+  const selectedDefaultBackend = defaultBackend ?? ('exists' in input ? 'tmux' : defaultTerminalBackend(platform))
   const adapterFor = (backend: TerminalBackend) => {
+    if (!terminalBackendsForPlatform(platform).includes(backend)) throw new Error(`${backend} is not available on ${platformLabel(platform)}`)
     const adapter = adapters[backend]
     if (!adapter) throw new Error(`${backend === 'zellij' ? 'Zellij' : 'tmux'} terminal backend is unavailable`)
     return adapter

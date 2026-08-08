@@ -113,10 +113,12 @@ test('secured workspace and node APIs return persisted graph data', async () => 
     assert.deepEqual(reorderedNodes.nodes.filter((node) => node.id === createdNode.id || node.id === secondNode.id).map((node) => node.id), [secondNode.id, createdNode.id])
 
     const workspace = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } })
-    const graph = await workspace.json() as { nodes: Array<{ id: string; title: string; type: string }> }
+    const graph = await workspace.json() as { nodes: Array<{ id: string; title: string; type: string }>; runtime: { platform: string; terminalBackends: string[] } }
     assert.equal(graph.nodes.some((node) => node.id === createdNode.id), true)
     assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.title, 'Renamed in place')
     assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.type, 'todo')
+    assert.equal(graph.runtime.platform, process.platform)
+    assert.equal(graph.runtime.terminalBackends.includes(process.platform === 'win32' ? 'zellij' : 'tmux'), true)
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })

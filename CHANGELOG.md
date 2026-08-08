@@ -10,6 +10,7 @@ All notable changes to MuxMap are documented here.
 - Added native Windows terminal support through Zellij 0.44.3+, including persistent reattachment, orphan management, agent hooks, and Windows CI coverage.
 - Added explicit local, authenticated LAN, and Tailscale-only network access modes with accurate startup URLs.
 - Added `npm run doctor` for port, authentication, Zellij, Tailscale, and least-privilege Windows Firewall checks.
+- Added a VS Code-style settings editor with 20 live options, compact category UI, editable JSON, browser persistence, and platform-aware terminal backends.
 
 ### Fixed
 

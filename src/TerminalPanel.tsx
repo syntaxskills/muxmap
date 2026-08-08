@@ -23,6 +23,9 @@ type Props = {
   session: TerminalSession
   node: WorkNode
   opacity: number
+  fontSize: number
+  cursorBlink: boolean
+  scrollback: number
   floating: boolean
   disabled: boolean
   onClose(): void
@@ -37,7 +40,7 @@ const nodeTypes: Array<[NodeType, string]> = [
   ['note', 'Note'], ['todo', 'Todo'], ['terminal', 'Terminal task'],
 ]
 
-export function TerminalPanel({ session, node, opacity, floating, disabled, onClose, onStop, onToggleFloating, onStatus, onUpdate }: Props) {
+export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, scrollback, floating, disabled, onClose, onStop, onToggleFloating, onStatus, onUpdate }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const drag = useRef<{ pointerId: number; origin: { x: number; y: number }; start: { x: number; y: number } } | null>(null)
   const [status, setStatus] = useState<TerminalStatus>(session.status)
@@ -49,9 +52,10 @@ export function TerminalPanel({ session, node, opacity, floating, disabled, onCl
   useEffect(() => {
     if (!container.current) return
     const terminal = new Terminal({
-      cursorBlink: true,
+      cursorBlink,
       fontFamily: 'SFMono-Regular, Consolas, Liberation Mono, monospace',
-      fontSize: 12,
+      fontSize,
+      scrollback,
       lineHeight: 1.25,
       macOptionClickForcesSelection: true,
       theme: { background: '#101311', foreground: '#d8ddd7', cursor: '#d49a4d', selectionBackground: '#4b3d29' },
@@ -143,7 +147,7 @@ export function TerminalPanel({ session, node, opacity, floating, disabled, onCl
       socket.close()
       terminal.dispose()
     }
-  }, [onStatus, session.id])
+  }, [cursorBlink, fontSize, onStatus, scrollback, session.id])
 
   function beginDrag(event: ReactPointerEvent<HTMLDivElement>) {
     if (!floating || isFullscreen || event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea')) return

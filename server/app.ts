@@ -22,6 +22,7 @@ import {
 } from './sessions.ts'
 import { createStore } from './store.ts'
 import type { ProcessInfo } from './agents.ts'
+import { terminalBackendsForPlatform, type RuntimePlatform } from '../src/settings.ts'
 
 export type PtyHandle = {
   onData(listener: (data: string) => void): void
@@ -48,6 +49,7 @@ type ServerOptions = {
   staticDirectory?: string
   allowedOrigins?: string[]
   processReader?: () => ProcessInfo[]
+  platform?: RuntimePlatform
 }
 
 const mimeTypes: Record<string, string> = {
@@ -161,7 +163,8 @@ export function createMuxMapServer(options: ServerOptions) {
   const multiplexers = options.multiplexers ?? (options.tmux
     ? { tmux: Object.assign(options.tmux, { backend: 'tmux' as const }) }
     : { tmux: realTmux, zellij: realZellij })
-  const sessions = createSessionManager(store, multiplexers, options.allowedRoots, options.processReader, options.defaultBackend ?? defaultTerminalBackend())
+  const platform = options.platform ?? process.platform
+  const sessions = createSessionManager(store, multiplexers, options.allowedRoots, options.processReader, options.defaultBackend ?? defaultTerminalBackend(platform), platform)
   const ptyFactory = options.ptyFactory ?? defaultPtyFactory
   const staticDirectory = resolve(options.staticDirectory ?? 'dist')
   const allowedOrigins = options.allowedOrigins ?? []
@@ -210,7 +213,7 @@ export function createMuxMapServer(options: ServerOptions) {
           sessions.reconcile(new Set(clients.keys()))
           const inventory = sessions.inventory()
           const graph = store.getWorkspace(workspaceMatch[1])
-          return sendJson(response, 200, { ...graph, sessions: sessions.decorate(graph.sessions, inventory), orphans: sessions.listOrphans(inventory) })
+          return sendJson(response, 200, { ...graph, sessions: sessions.decorate(graph.sessions, inventory), orphans: sessions.listOrphans(inventory), runtime: { platform, terminalBackends: terminalBackendsForPlatform(platform) } })
         }
 
         const nodeMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/nodes$/)

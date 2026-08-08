@@ -80,6 +80,28 @@ test('terminal cwd is restricted to configured repository roots', () => {
   }
 })
 
+test('Windows rejects tmux even when a tmux adapter is present', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-windows-backend-')))
+  const store = createStore(':memory:')
+  const tmux = fakeTmux()
+  const zellij: MultiplexerAdapter = { ...fakeTmux(), backend: 'zellij' }
+  const manager = createSessionManager(store, { tmux: Object.assign(tmux, { backend: 'tmux' as const }), zellij }, [directory], undefined, 'zellij', 'win32')
+
+  try {
+    const node = store.createNode('default', {
+      parentId: 'workspace',
+      title: 'Windows shell',
+      type: 'terminal',
+      repoPath: directory,
+    })
+    assert.throws(() => manager.attach(node.id, undefined, 'tmux'), /tmux.*Windows/i)
+    assert.equal(manager.attach(node.id).backend, 'zellij')
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('startup reconciliation marks missing tmux sessions stopped', () => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-reconcile-')))
   const store = createStore(':memory:')

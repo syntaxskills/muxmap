@@ -22,6 +22,8 @@ import { scanAgentNotifications } from './agentNotifications.ts'
 import { dragIntent, dropPositionAt } from './nodeReorderInteraction.ts'
 import { contextMenuPosition, duplicateNodeInput } from './nodeContextMenu.ts'
 import { AgentIcon } from './AgentIcon.tsx'
+import { SettingsPanel } from './SettingsPanel.tsx'
+import { loadSettings, type AppSettings } from './settings.ts'
 import { ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, Pencil2Icon, PlusIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
@@ -47,6 +49,7 @@ const typeLabels: Record<NodeType, string> = {
 }
 
 function App() {
+  const [clientPlatform] = useState(() => /Win/i.test(navigator.platform) ? 'win32' : /Mac/i.test(navigator.platform) ? 'darwin' : 'linux')
   const [initialView] = useState(() => readViewState(window.location.search))
   const [graph, setGraph] = useState<WorkspaceGraph | null>(null)
   const [selectedId, setSelectedId] = useState(initialView.selectedId ?? 'dev-1420')
@@ -66,8 +69,15 @@ function App() {
     terminalSessionId: initialView.terminalSessionId,
     terminalFloating: initialView.terminalFloating,
   }))
-  const [terminalSplit, setTerminalSplit] = useState(() => normalizeTerminalSplit(window.localStorage.getItem('muxmap:terminal-split')))
-  const [terminalOpacity, setTerminalOpacity] = useState(() => normalizeTerminalOpacity(window.localStorage.getItem('muxmap:terminal-opacity')))
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const stored = window.localStorage.getItem('muxmap:settings')
+    const loaded = loadSettings(stored, clientPlatform)
+    if (!stored) {
+      loaded['terminal.opacity'] = normalizeTerminalOpacity(window.localStorage.getItem('muxmap:terminal-opacity'))
+      loaded['terminal.splitPercent'] = normalizeTerminalSplit(window.localStorage.getItem('muxmap:terminal-split'))
+    }
+    return loaded
+  })
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => 'Notification' in window ? Notification.permission : 'unsupported')
   const [deleteNodeId, setDeleteNodeId] = useState<string | null>(null)
   const [confirmStopSession, setConfirmStopSession] = useState<string | null>(null)
@@ -85,6 +95,7 @@ function App() {
   const notifiedAgentEvents = useRef(new Map<string, string>())
   const notificationBaselineReady = useRef(false)
   const splitDragRef = useRef<number | null>(null)
+  const settingsPlatformRef = useRef(clientPlatform)
   const { rightPanel, terminalSessionId, terminalFloating } = surface
 
   const loadWorkspace = useCallback(async () => {
@@ -121,8 +132,13 @@ function App() {
       window.removeEventListener('resize', dismissOnResize)
     }
   }, [contextMenu])
-  useEffect(() => window.localStorage.setItem('muxmap:terminal-opacity', String(terminalOpacity)), [terminalOpacity])
-  useEffect(() => window.localStorage.setItem('muxmap:terminal-split', String(terminalSplit)), [terminalSplit])
+  useEffect(() => window.localStorage.setItem('muxmap:settings', JSON.stringify(settings)), [settings])
+  useEffect(() => {
+    const platform = graph?.runtime?.platform
+    if (!platform || platform === settingsPlatformRef.current) return
+    settingsPlatformRef.current = platform
+    setSettings(loadSettings(window.localStorage.getItem('muxmap:settings'), platform))
+  }, [graph?.runtime?.platform])
   useEffect(() => {
     if (!graph) return
     const scanned = scanAgentNotifications(graph, notifiedAgentEvents.current, notificationBaselineReady.current)
@@ -133,6 +149,7 @@ function App() {
     }
     if (!('Notification' in window) || Notification.permission !== 'granted') return
     for (const event of scanned.notifications) {
+      if (event.key.startsWith('needs_input:') ? !settings['notifications.needsInput'] : !settings['notifications.completed']) continue
       try {
         const notification = new Notification(event.title, {
           body: event.body,
@@ -150,7 +167,7 @@ function App() {
         // Browser notification failures must not interrupt workspace polling.
       }
     }
-  }, [graph])
+  }, [graph, settings])
   useEffect(() => {
     const search = writeViewState(window.location.search, { selectedId, terminalSessionId, terminalFloating })
     const nextUrl = `${window.location.pathname}${search}${window.location.hash}`
@@ -182,17 +199,17 @@ function App() {
     const pinchZoom = (event: WheelEvent) => {
       event.preventDefault()
       if (!event.ctrlKey) {
-        setPan(wheelPan(pan, { x: event.deltaX, y: event.deltaY }))
+        setPan(wheelPan(pan, { x: event.deltaX * settings['canvas.panSensitivity'], y: event.deltaY * settings['canvas.panSensitivity'] }))
         return
       }
       const bounds = canvas.getBoundingClientRect()
-      const nextScale = Math.max(0.45, Math.min(1.4, scale * Math.exp(-event.deltaY * 0.01)))
+      const nextScale = Math.max(0.45, Math.min(1.4, scale * Math.exp(-event.deltaY * settings['canvas.zoomSensitivity'])))
       setPan(zoomAtPoint(pan, scale, nextScale, { x: event.clientX - bounds.left, y: event.clientY - bounds.top }))
       setScale(nextScale)
     }
     canvas.addEventListener('wheel', pinchZoom, { passive: false })
     return () => canvas.removeEventListener('wheel', pinchZoom)
-  }, [graph, pan, scale])
+  }, [graph, pan, scale, settings])
 
   const nodes = useMemo(
     () => visibleNodes(graph?.nodes ?? [], collapsed, query),
@@ -203,8 +220,8 @@ function App() {
     .filter((node) => node.id === selectedId || node.id === hoveredId)
     .map((node) => [node.id, expandedNodeHeight(node, Boolean(sessionsByNode.get(node.id)?.agent))])), [hoveredId, nodes, selectedId, sessionsByNode])
   const positions = useMemo(
-    () => layoutTree(nodes, graph?.workspace.rootNodeId ?? 'workspace', 240, 30, nodeHeights),
-    [graph?.workspace.rootNodeId, nodeHeights, nodes],
+    () => layoutTree(nodes, graph?.workspace.rootNodeId ?? 'workspace', settings['mindmap.columnGap'], settings['mindmap.rowGap'], nodeHeights),
+    [graph?.workspace.rootNodeId, nodeHeights, nodes, settings],
   )
   const selected = graph?.nodes.find((node) => node.id === selectedId) ?? graph?.nodes[0]
   const session = graph?.sessions.find((item) => item.nodeId === selected?.id)
@@ -230,10 +247,10 @@ function App() {
   }, [height, scale, width])
 
   useEffect(() => {
-    if (!graph || centeredOnce.current) return
+    if (!graph || centeredOnce.current || !settings['canvas.autoFitOnLoad']) return
     centeredOnce.current = true
     requestAnimationFrame(fitView)
-  }, [fitView, graph])
+  }, [fitView, graph, settings])
 
   function fitProject() {
     if (!selected) return
@@ -470,7 +487,9 @@ function App() {
   }
 
   function openTerminal(id: string) {
-    setSurface((current) => openTerminalSurface(current, id))
+    setSurface((current) => settings['terminal.defaultPlacement'] === 'floating'
+      ? { rightPanel: current.rightPanel ?? 'details', terminalSessionId: id, terminalFloating: true }
+      : openTerminalSurface(current, id))
   }
 
   async function enableAgentNotifications() {
@@ -493,7 +512,7 @@ function App() {
   function resizeTerminal(event: ReactPointerEvent<HTMLDivElement>) {
     if (splitDragRef.current !== event.pointerId || !workspaceRef.current) return
     const bounds = workspaceRef.current.getBoundingClientRect()
-    setTerminalSplit(normalizeTerminalSplit(((event.clientX - bounds.left) / bounds.width) * 100))
+    setSettings((current) => ({ ...current, 'terminal.splitPercent': normalizeTerminalSplit(((event.clientX - bounds.left) / bounds.width) * 100) }))
   }
 
   function endTerminalResize(event: ReactPointerEvent<HTMLDivElement>) {
@@ -507,7 +526,7 @@ function App() {
     try {
       const response = await api<{ session: TerminalSession }>(`/api/nodes/${selected.id}/session`, {
         method: 'POST',
-        body: JSON.stringify({ cwd: selected.repoPath }),
+        body: JSON.stringify({ cwd: selected.repoPath, backend: settings['terminal.backend'] }),
       })
       await loadWorkspace()
       openTerminal(response.session.id)
@@ -633,7 +652,10 @@ function App() {
         key={activeTerminal.id}
         session={activeTerminal}
         node={activeTerminalNode}
-        opacity={terminalOpacity}
+        opacity={settings['terminal.opacity']}
+        fontSize={settings['terminal.fontSize']}
+        cursorBlink={settings['terminal.cursorBlink']}
+        scrollback={settings['terminal.scrollback']}
         floating={terminalFloating}
         onToggleFloating={() => setSurface(floatTerminal)}
         onStatus={updateSessionStatus}
@@ -647,9 +669,10 @@ function App() {
   const terminalDocked = Boolean(terminalPanel && !terminalFloating)
   const sidePanelOpen = Boolean(rightPanel && !terminalDocked)
   const background = gridBackground(pan, scale)
+  const platform = graph.runtime?.platform ?? clientPlatform
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell density-${settings['workbench.density']} ${settings['workbench.reduceMotion'] ? 'reduce-motion' : ''}`}>
       <header className="topbar">
         <a className="brand" href="#workspace" aria-label="MuxMap workspace"><img className="brand-mark" src="/favicon.svg" alt="" /><span>MuxMap</span></a>
         <label className="search-box">
@@ -669,12 +692,12 @@ function App() {
 
       {error && <div className="error-banner" role="alert"><span>{error}</span><button type="button" onClick={() => setError('')}>Dismiss</button></div>}
 
-      <section className={`workspace ${terminalDocked ? 'has-docked-terminal' : ''} ${sidePanelOpen ? 'has-side-panel' : ''}`} id="workspace" ref={workspaceRef} style={{ '--terminal-split': `${terminalSplit}%` } as CSSProperties}>
+      <section className={`workspace ${terminalDocked ? 'has-docked-terminal' : ''} ${sidePanelOpen ? 'has-side-panel' : ''}`} id="workspace" ref={workspaceRef} style={{ '--terminal-split': `${settings['terminal.splitPercent']}%` } as CSSProperties}>
         <div
           className={`canvas ${isPanning ? 'is-panning' : ''}`}
           ref={canvasRef}
           aria-label="Workspace mindmap"
-          style={{ backgroundPosition: background.position, backgroundSize: background.size }}
+          style={{ backgroundPosition: background.position, backgroundSize: background.size, backgroundImage: settings['canvas.showGrid'] ? undefined : 'none' }}
           onPointerDown={beginPan}
           onPointerMove={movePan}
           onPointerUp={endPan}
@@ -722,7 +745,7 @@ function App() {
                       key={node.id}
                       style={style}
                       data-node-id={node.id}
-                      onMouseEnter={() => { if (!nodeDragRef.current) setHoveredId(node.id) }}
+                      onMouseEnter={() => { if (!nodeDragRef.current && settings['mindmap.expandOnHover']) setHoveredId(node.id) }}
                       onMouseLeave={() => { if (!nodeDragRef.current) setHoveredId((current) => current === node.id ? null : current) }}
                       onPointerDown={(event) => beginNodeReorder(event, node)}
                       onPointerMove={moveNodeReorder}
@@ -753,7 +776,7 @@ function App() {
                               autoFocus
                             />
                           ) : <span className="node-title">{node.title}</span>}
-                          <span className="node-type">{typeLabels[node.type]}</span>
+                          {settings['mindmap.showNodeType'] && <span className="node-type">{typeLabels[node.type]}</span>}
                           {expanded && (
                             <span className="node-expanded-content">
                               {node.project && <span><b>Project</b>{node.project}</span>}
@@ -795,7 +818,7 @@ function App() {
             )
           })()}
 
-          <div className="canvas-legend"><span><i className="legend-line" /> relationship</span><span><b>&gt;_</b> terminal</span><span>drag to pan</span><span><kbd>C</kbd> center</span><span><kbd>N</kbd> new node</span></div>
+          {settings['canvas.showLegend'] && <div className="canvas-legend"><span><i className="legend-line" /> relationship</span><span><b>&gt;_</b> terminal</span><span>drag to pan</span><span><kbd>C</kbd> center</span><span><kbd>N</kbd> new node</span></div>}
         </div>
 
         {sidePanelOpen && rightPanel === 'details' && <aside className="side-panel detail-panel" aria-label="Node details" aria-live="polite">
@@ -855,36 +878,7 @@ function App() {
           )}
         </aside>}
 
-        {sidePanelOpen && rightPanel === 'settings' && (
-          <aside className="side-panel settings-panel" aria-label="Settings">
-            <header className="side-panel-header">
-              <div><span>Workspace</span><h2>Settings</h2></div>
-              <button className="side-panel-close" type="button" onClick={() => setSurface((current) => ({ ...current, rightPanel: null }))} aria-label="Close settings" title="Close panel"><Cross2Icon /></button>
-            </header>
-            <section className="settings-section">
-              <div className="settings-section-heading"><h3>Terminal appearance</h3><p>Saved in this browser.</p></div>
-              <label htmlFor="terminal-opacity" className="setting-control">
-                <span><strong>Window opacity</strong><small>Applies to docked, floating, and full-screen terminals.</small></span>
-                <output>{terminalOpacity}%</output>
-              </label>
-              <input id="terminal-opacity" type="range" min="45" max="100" value={terminalOpacity} onChange={(event) => setTerminalOpacity(normalizeTerminalOpacity(event.target.value))} />
-              <label htmlFor="terminal-split" className="setting-control">
-                <span><strong>Mindmap width</strong><small>Share kept for the mindmap when a terminal is docked.</small></span>
-                <output>{terminalSplit}%</output>
-              </label>
-              <input id="terminal-split" type="range" min="25" max="75" value={terminalSplit} onChange={(event) => setTerminalSplit(normalizeTerminalSplit(event.target.value))} />
-            </section>
-            <section className="settings-section">
-              <div className="settings-section-heading"><h3>Agent notifications</h3><p>Chrome alerts while this MuxMap page is open.</p></div>
-              <div className="setting-control">
-                <span><strong>Completion and input</strong><small>Clicking an alert opens its linked terminal.</small></span>
-                <output aria-live="polite">{notificationPermission === 'granted' ? 'Enabled' : notificationPermission === 'denied' ? 'Blocked' : notificationPermission === 'unsupported' ? 'Unavailable' : 'Off'}</output>
-              </div>
-              {notificationPermission === 'default' && <button className="settings-button" type="button" onClick={() => void enableAgentNotifications()}>Enable notifications</button>}
-              {notificationPermission === 'denied' && <p className="settings-hint">Allow notifications in Chrome site settings, then reload MuxMap.</p>}
-            </section>
-          </aside>
-        )}
+        {sidePanelOpen && rightPanel === 'settings' && <SettingsPanel settings={settings} platform={platform} notificationPermission={notificationPermission} onChange={setSettings} onEnableNotifications={() => void enableAgentNotifications()} onClose={() => setSurface((current) => ({ ...current, rightPanel: null }))} />}
 
         {sidePanelOpen && rightPanel === 'sessions' && (
           <aside className="side-panel session-manager" aria-label="Terminal session manager">
@@ -932,7 +926,7 @@ function App() {
           </aside>
         )}
 
-        {terminalDocked && <div className="terminal-splitter" role="separator" aria-label="Resize terminal" aria-orientation="vertical" aria-valuemin={25} aria-valuemax={75} aria-valuenow={terminalSplit} tabIndex={0} onPointerDown={beginTerminalResize} onPointerMove={resizeTerminal} onPointerUp={endTerminalResize} onPointerCancel={endTerminalResize} onDoubleClick={() => setTerminalSplit(50)} onKeyDown={(event) => { if (event.key === 'ArrowLeft') setTerminalSplit((value) => normalizeTerminalSplit(value - 2)); if (event.key === 'ArrowRight') setTerminalSplit((value) => normalizeTerminalSplit(value + 2)) }}><span /></div>}
+        {terminalDocked && <div className="terminal-splitter" role="separator" aria-label="Resize terminal" aria-orientation="vertical" aria-valuemin={25} aria-valuemax={75} aria-valuenow={settings['terminal.splitPercent']} tabIndex={0} onPointerDown={beginTerminalResize} onPointerMove={resizeTerminal} onPointerUp={endTerminalResize} onPointerCancel={endTerminalResize} onDoubleClick={() => setSettings((current) => ({ ...current, 'terminal.splitPercent': 50 }))} onKeyDown={(event) => { if (event.key === 'ArrowLeft') setSettings((current) => ({ ...current, 'terminal.splitPercent': normalizeTerminalSplit(current['terminal.splitPercent'] - 2) })); if (event.key === 'ArrowRight') setSettings((current) => ({ ...current, 'terminal.splitPercent': normalizeTerminalSplit(current['terminal.splitPercent'] + 2) })) }}><span /></div>}
         {terminalDocked && terminalPanel}
       </section>
 
