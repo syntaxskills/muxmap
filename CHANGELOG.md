@@ -8,13 +8,14 @@ All notable changes to MuxMap are documented here.
 
 - Shortened the README around the core workflow, one product screenshot, and setup path.
 - Added native Windows terminal support through Zellij 0.44.3+, including persistent reattachment, orphan management, agent hooks, and Windows CI coverage.
-- Added opt-in authenticated LAN binding through `HOST` and `MUXMAP_TOKEN`.
+- Added explicit local, authenticated LAN, and Tailscale-only network access modes with accurate startup URLs.
 
 ### Fixed
 
 - Made terminal gestures navigate tmux history without becoming arrow keys while preserving text selection and native copying.
 - Hid tmux-specific delete choices when a node branch has no live session.
 - Stopped injecting detach keystrokes into Windows terminals and enabled Zellij's font-safe UI.
+- Kept authenticated Agent hooks working outside localhost while preserving the strict local hook path.
 
 ## [0.1.0] - 2026-08-07
 

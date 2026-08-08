@@ -175,19 +175,9 @@ export function createMuxMapServer(options: ServerOptions) {
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`)
 
     try {
-      if (requireBasicAuth && cookieValue(request, 'muxmap_token') !== token && !hasBasicToken(request, token)) {
-        response.setHeader('www-authenticate', 'Basic realm="MuxMap", charset="UTF-8"')
-        return sendJson(response, 401, { error: 'Authentication required' })
-      }
-
-      if (request.method === 'GET' && url.pathname === '/api/auth') {
-        response.setHeader('set-cookie', `muxmap_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/`)
-        return sendJson(response, 200, { authenticated: true })
-      }
-
       if (request.method === 'POST' && url.pathname === '/api/agent-events') {
         const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress ?? '')
-        if (!local || request.headers.origin || request.headers['x-muxmap-hook'] !== '1') return sendJson(response, 403, { error: 'Local hook required' })
+        if ((!local && !hasBasicToken(request, token)) || request.headers.origin || request.headers['x-muxmap-hook'] !== '1') return sendJson(response, 403, { error: 'Local or authenticated hook required' })
         const body = await readJson(request)
         const locator = body.locator && typeof body.locator === 'object'
           ? body.locator as Record<string, unknown>
@@ -197,6 +187,16 @@ export function createMuxMapServer(options: ServerOptions) {
         }
         const activity = sessions.recordAgentEvent(locator as import('./sessions.ts').AgentLocator, body.kind as 'codex' | 'claude' | 'pi', body.event as Record<string, unknown>)
         return sendJson(response, 202, { activity })
+      }
+
+      if (requireBasicAuth && cookieValue(request, 'muxmap_token') !== token && !hasBasicToken(request, token)) {
+        response.setHeader('www-authenticate', 'Basic realm="MuxMap", charset="UTF-8"')
+        return sendJson(response, 401, { error: 'Authentication required' })
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/auth') {
+        response.setHeader('set-cookie', `muxmap_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/`)
+        return sendJson(response, 200, { authenticated: true })
       }
 
       if (url.pathname.startsWith('/api/')) {

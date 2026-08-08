@@ -9,9 +9,11 @@ const locator = tmuxPane
 
 if (locator && ['codex', 'claude'].includes(kind)) {
   try {
+    const headers = { 'content-type': 'application/json', 'x-muxmap-hook': '1' }
+    if (process.env.MUXMAP_TOKEN) headers.authorization = `Basic ${Buffer.from(`muxmap:${process.env.MUXMAP_TOKEN}`).toString('base64')}`
     await fetch(`${process.env.MUXMAP_URL ?? 'http://127.0.0.1:4782'}/api/agent-events`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-muxmap-hook': '1' },
+      headers,
       body: JSON.stringify({ kind, locator, event: input ? JSON.parse(input) : {} }),
       signal: AbortSignal.timeout(1500),
     })

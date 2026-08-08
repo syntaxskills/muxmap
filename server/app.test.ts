@@ -477,6 +477,7 @@ test('local agent hooks update automatically detected tmux activity', async () =
     databasePath: ':memory:',
     allowedRoots: [root],
     token: 'test-token',
+    requireBasicAuth: true,
     tmux,
     processReader: () => [
       { pid: 700, ppid: 1, command: 'bash' },
@@ -500,7 +501,9 @@ test('local agent hooks update automatically detected tmux activity', async () =
     })
     assert.equal(event.status, 202)
 
-    const auth = await fetch(`${base}/api/auth`)
+    const auth = await fetch(`${base}/api/auth`, {
+      headers: { authorization: `Basic ${Buffer.from('muxmap:test-token').toString('base64')}` },
+    })
     const cookie = auth.headers.get('set-cookie')?.split(';')[0] ?? ''
     const graph = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as {
       orphans: Array<{ agent?: { kind: string; state: string; since?: string } }>

@@ -600,10 +600,12 @@ On backend startup:
 
 ## 17. Security
 
-For MVP local-first version:
+For the local-first version:
 
-* Bind server to localhost.
-* Use local auth token.
+* Default to `local` mode bound to `127.0.0.1`.
+* Offer explicit authenticated `lan` and Tailscale-IP-only modes.
+* Require a persistent token and Basic Auth outside localhost.
+* Keep localhost Agent hooks strictly validated and authenticate non-local hooks.
 * Check WebSocket origin.
 * Restrict allowed repo paths.
 * Do not expose arbitrary command execution over public network.
