@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process'
 import { addCommandHooks } from '../server/agents.ts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const available = (command: string) => spawnSync('sh', ['-lc', `command -v ${command}`], { stdio: 'ignore' }).status === 0
+const available = (command: string) => spawnSync(command, ['--version'], { shell: process.platform === 'win32', stdio: 'ignore' }).status === 0
 
 function installJson(path: string, kind: 'codex' | 'claude', events: string[]) {
   const config = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown> : {}

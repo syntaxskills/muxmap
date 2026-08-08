@@ -10,15 +10,30 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
-      - run: sudo apt-get update && sudo apt-get install -y tmux
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'zellij.zip'
+          $install = Join-Path $PWD '.zellij'
+          Invoke-WebRequest 'https://github.com/zellij-org/zellij/releases/download/v0.44.3/zellij-x86_64-pc-windows-msvc.zip' -OutFile $archive
+          Expand-Archive $archive -DestinationPath $install
+          Add-Content $env:GITHUB_PATH $install
       - run: npm ci
+      - if: runner.os == 'Windows'
+        run: zellij --version
       - run: npm test
       - run: npm run lint
       - run: npm run build

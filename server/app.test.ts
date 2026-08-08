@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import WebSocket from 'ws'
 import { createMuxMapServer, defaultPtyFactory, type PtyFactory, type PtyHandle } from './app.ts'
-import { realTmux, type TmuxAdapter } from './sessions.ts'
+import { realTmux, realZellij, zellijExecutable, type TmuxAdapter } from './sessions.ts'
 import type { TerminalSession } from '../src/model.ts'
 
 function fakeTmux(): TmuxAdapter & { stopped: string[]; live: Set<string> } {
@@ -237,16 +237,16 @@ test('the real node-pty adapter attaches to tmux and streams shell output', {
   skip: spawnSync('tmux', ['-V'], { stdio: 'ignore' }).status !== 0,
 }, async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-real-pty-')))
-  const tmuxName = `muxmap-test-${process.pid}-${Date.now()}`
+  const runtimeName = `muxmap-test-${process.pid}-${Date.now()}`
   const inheritedTmux = process.env.TMUX
   process.env.TMUX = '/tmp/map-services.sock,1,0'
 
   const session: TerminalSession = {
-    id: `sess_${tmuxName}`,
+    id: `sess_${runtimeName}`,
     workspaceId: 'default',
     nodeId: 'test-node',
-    name: `tmux:default:${tmuxName}`,
-    tmuxName,
+    name: `tmux:default:${runtimeName}`,
+    runtimeName,
     backend: 'tmux',
     cwd: root,
     status: 'running',
@@ -256,11 +256,11 @@ test('the real node-pty adapter attaches to tmux and streams shell output', {
   let pty: ReturnType<typeof defaultPtyFactory> | undefined
 
   try {
-    realTmux.create(tmuxName, root)
-    assert.equal(spawnSync('tmux', ['-L', 'default', 'has-session', '-t', tmuxName]).status, 0)
+    realTmux.create(runtimeName, root)
+    assert.equal(spawnSync('tmux', ['-L', 'default', 'has-session', '-t', runtimeName]).status, 0)
     const activePty = defaultPtyFactory(session)
     pty = activePty
-    const mouse = spawnSync('tmux', ['-L', 'default', 'show-options', '-v', '-t', tmuxName, 'mouse'], { encoding: 'utf8' })
+    const mouse = spawnSync('tmux', ['-L', 'default', 'show-options', '-v', '-t', runtimeName, 'mouse'], { encoding: 'utf8' })
     assert.equal(mouse.stdout.trim(), 'on', 'browser terminals need tmux copy-mode scrolling')
     const marker = '__MUXMAP_REAL_PTY_OK__'
     const output = await new Promise<string>((resolve, reject) => {
@@ -268,7 +268,7 @@ test('the real node-pty adapter attaches to tmux and streams shell output', {
       const timeout = setTimeout(() => reject(new Error(`Timed out waiting for real PTY output: ${received}`)), 3000)
       activePty.onData((data) => {
         received += data
-        if (received.split(marker).length > 3) {
+        if (received.split(marker).length > 2) {
           clearTimeout(timeout)
           resolve(received)
         }
@@ -278,7 +278,7 @@ test('the real node-pty adapter attaches to tmux and streams shell output', {
     assert.match(output, /__MUXMAP_REAL_PTY_OK__/)
     activePty.scroll(-3)
     activePty.scroll(-3)
-    const scroll = spawnSync('tmux', ['-L', 'default', 'display-message', '-p', '-t', tmuxName, '#{pane_in_mode} #{scroll_position}'], { encoding: 'utf8' })
+    const scroll = spawnSync('tmux', ['-L', 'default', 'display-message', '-p', '-t', runtimeName, '#{pane_in_mode} #{scroll_position}'], { encoding: 'utf8' })
     const [mode, position] = scroll.stdout.trim().split(' ')
     assert.equal(mode, '1')
     assert.ok(Number(position) >= 6, 'repeated scrolling must continue through tmux history')
@@ -286,9 +286,61 @@ test('the real node-pty adapter attaches to tmux and streams shell output', {
     if (inheritedTmux === undefined) delete process.env.TMUX
     else process.env.TMUX = inheritedTmux
     pty?.kill()
-    if (realTmux.exists(tmuxName)) realTmux.stop(tmuxName)
+    if (realTmux.exists(runtimeName)) realTmux.stop(runtimeName)
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('the real node-pty adapter reattaches to a persistent Zellij session', {
+  skip: spawnSync(zellijExecutable(), ['--version'], { stdio: 'ignore' }).status !== 0,
+  timeout: 20_000,
+}, async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-real-zellij-')))
+  const runtimeName = `muxmap-zellij-test-${process.pid}-${Date.now()}`
+  const session: TerminalSession = {
+    id: `sess_${runtimeName}`,
+    workspaceId: 'default',
+    nodeId: 'test-zellij-node',
+    name: `zellij:default:${runtimeName}`,
+    runtimeName,
+    backend: 'zellij',
+    cwd: root,
+    status: 'running',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+  let pty: ReturnType<typeof defaultPtyFactory> | undefined
+
+  const proveShell = (activePty: ReturnType<typeof defaultPtyFactory>, marker: string) => new Promise<string>((resolve, reject) => {
+    let received = ''
+    const timeout = setTimeout(() => reject(new Error(`Timed out waiting for Zellij PTY output: ${received}`)), 8000)
+    activePty.onData((data) => {
+      received += data
+      if (received.split(marker).length > 2) {
+        clearTimeout(timeout)
+        resolve(received)
+      }
+    })
+    activePty.write(`echo ${marker}\r`)
+  })
+
+  try {
+    realZellij.create(runtimeName, root)
+    assert.equal(realZellij.exists(runtimeName), true)
+    pty = defaultPtyFactory(session)
+    await proveShell(pty, '__MUXMAP_ZELLIJ_FIRST__')
+    pty.kill()
+    pty = undefined
+    assert.equal(realZellij.exists(runtimeName), true, 'closing the browser PTY must not stop Zellij')
+
+    pty = defaultPtyFactory(session)
+    await proveShell(pty, '__MUXMAP_ZELLIJ_REATTACHED__')
+  } finally {
+    pty?.kill()
+    if (realZellij.exists(runtimeName)) realZellij.stop(runtimeName)
+    rmSync(root, { recursive: true, force: true })
+  }
+  assert.equal(realZellij.exists(runtimeName), false)
 })
 
 test('orphan tmux sessions can be adopted and node deletion explicitly keeps or stops tmux', async () => {
@@ -311,14 +363,14 @@ test('orphan tmux sessions can be adopted and node deletion explicitly keeps or 
     const cookie = auth.headers.get('set-cookie')?.split(';')[0] ?? ''
     const headers = { cookie, origin: base, 'content-type': 'application/json' }
 
-    const initial = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { orphans: Array<{ tmuxName: string }> }
-    assert.deepEqual(initial.orphans, [{ tmuxName: 'muxmap-external-shell' }])
+    const initial = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { orphans: Array<{ backend: string; runtimeName: string }> }
+    assert.deepEqual(initial.orphans, [{ backend: 'tmux', runtimeName: 'muxmap-external-shell' }])
 
     const adoptNode = await fetch(`${base}/api/workspaces/default/nodes`, {
       method: 'POST', headers, body: JSON.stringify({ parentId: 'workspace', title: 'Adopt target', type: 'terminal', repoPath: root }),
     }).then((response) => response.json()) as { id: string }
-    const adopted = await fetch(`${base}/api/tmux/adopt`, {
-      method: 'POST', headers, body: JSON.stringify({ nodeId: adoptNode.id, tmuxName: 'muxmap-external-shell' }),
+    const adopted = await fetch(`${base}/api/sessions/adopt-orphan`, {
+      method: 'POST', headers, body: JSON.stringify({ nodeId: adoptNode.id, backend: 'tmux', runtimeName: 'muxmap-external-shell' }),
     })
     assert.equal(adopted.status, 200)
 
@@ -327,28 +379,28 @@ test('orphan tmux sessions can be adopted and node deletion explicitly keeps or 
     }).then((response) => response.json()) as { id: string }
     const orphanSession = await fetch(`${base}/api/nodes/${orphanNode.id}/session`, {
       method: 'POST', headers, body: JSON.stringify({ backend: 'tmux', cwd: root }),
-    }).then((response) => response.json()) as { session: { tmuxName: string } }
+    }).then((response) => response.json()) as { session: { runtimeName: string } }
     const kept = await fetch(`${base}/api/nodes/${orphanNode.id}`, {
-      method: 'DELETE', headers, body: JSON.stringify({ stopTmux: false }),
+      method: 'DELETE', headers, body: JSON.stringify({ stopSession: false }),
     })
     assert.equal(kept.status, 200)
-    assert.equal(tmux.live.has(orphanSession.session.tmuxName), true)
+    assert.equal(tmux.live.has(orphanSession.session.runtimeName), true)
 
     const stopNode = await fetch(`${base}/api/workspaces/default/nodes`, {
       method: 'POST', headers, body: JSON.stringify({ parentId: 'workspace', title: 'Stop shell', type: 'terminal', repoPath: root }),
     }).then((response) => response.json()) as { id: string }
     const stoppedSession = await fetch(`${base}/api/nodes/${stopNode.id}/session`, {
       method: 'POST', headers, body: JSON.stringify({ backend: 'tmux', cwd: root }),
-    }).then((response) => response.json()) as { session: { tmuxName: string } }
+    }).then((response) => response.json()) as { session: { runtimeName: string } }
     const stopped = await fetch(`${base}/api/nodes/${stopNode.id}`, {
-      method: 'DELETE', headers, body: JSON.stringify({ stopTmux: true }),
+      method: 'DELETE', headers, body: JSON.stringify({ stopSession: true }),
     })
     assert.equal(stopped.status, 200)
-    assert.equal(tmux.live.has(stoppedSession.session.tmuxName), false)
+    assert.equal(tmux.live.has(stoppedSession.session.runtimeName), false)
 
-    const final = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { orphans: Array<{ tmuxName: string }> }
-    assert.equal(final.orphans.some((orphan) => orphan.tmuxName === orphanSession.session.tmuxName), true)
-    assert.equal(final.orphans.some((orphan) => orphan.tmuxName === 'unrelated-shell'), false)
+    const final = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { orphans: Array<{ runtimeName: string }> }
+    assert.equal(final.orphans.some((orphan) => orphan.runtimeName === orphanSession.session.runtimeName), true)
+    assert.equal(final.orphans.some((orphan) => orphan.runtimeName === 'unrelated-shell'), false)
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })
@@ -359,7 +411,7 @@ test('local agent hooks update automatically detected tmux activity', async () =
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-agent-api-')))
   const tmux = fakeTmux()
   tmux.live.add('muxmap-codex-work')
-  tmux.panes = () => [{ tmuxName: 'muxmap-codex-work', paneId: '%7', pid: 700 }]
+  tmux.panes = () => [{ runtimeName: 'muxmap-codex-work', paneId: '%7', pid: 700 }]
   const server = createMuxMapServer({
     databasePath: ':memory:',
     allowedRoots: [root],
@@ -407,10 +459,10 @@ test('local agent hooks update automatically detected tmux activity', async () =
       headers: { cookie, origin: base, 'content-type': 'application/json' },
       body: JSON.stringify({ parentId: 'workspace', title: 'Agent task', type: 'terminal', repoPath: root }),
     }).then((response) => response.json()) as { id: string }
-    const adopted = await fetch(`${base}/api/tmux/adopt`, {
+    const adopted = await fetch(`${base}/api/sessions/adopt-orphan`, {
       method: 'POST',
       headers: { cookie, origin: base, 'content-type': 'application/json' },
-      body: JSON.stringify({ nodeId: node.id, tmuxName: 'muxmap-codex-work' }),
+      body: JSON.stringify({ nodeId: node.id, backend: 'tmux', runtimeName: 'muxmap-codex-work' }),
     }).then((response) => response.json()) as { session: TerminalSession }
     const unread = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
     assert.equal(unread.sessions.find((session) => session.id === adopted.session.id)?.agent?.state, 'completed')

@@ -7,6 +7,7 @@ All notable changes to MuxMap are documented here.
 ### Changed
 
 - Shortened the README around the core workflow, one product screenshot, and setup path.
+- Added native Windows terminal support through Zellij 0.44.3+, including persistent reattachment, orphan management, agent hooks, and Windows CI coverage.
 
 ### Fixed
 

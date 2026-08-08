@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { createSessionManager, type TmuxAdapter } from './sessions.ts'
+import { createSessionManager, defaultTerminalBackend, parseZellijSessions, type MultiplexerAdapter, type TmuxAdapter } from './sessions.ts'
 import { createStore } from './store.ts'
 
 function fakeTmux(): TmuxAdapter & { created: string[]; stopped: string[]; live: Set<string> } {
@@ -112,16 +112,16 @@ test('all live muxmap-prefixed tmux sessions are inventoried and orphans can be 
   const manager = createSessionManager(store, adapter, [directory])
 
   try {
-    assert.deepEqual(manager.listOrphans(), [{ tmuxName: 'muxmap-orphan-shell' }])
+    assert.deepEqual(manager.listOrphans(), [{ backend: 'tmux', runtimeName: 'muxmap-orphan-shell' }])
     const node = store.createNode('default', {
       parentId: 'workspace',
       title: 'Adopted shell',
       type: 'terminal',
       repoPath: directory,
     })
-    const session = manager.adopt(node.id, 'muxmap-orphan-shell')
+    const session = manager.adopt(node.id, 'tmux', 'muxmap-orphan-shell')
     assert.equal(session.nodeId, node.id)
-    assert.equal(session.tmuxName, 'muxmap-orphan-shell')
+    assert.equal(session.runtimeName, 'muxmap-orphan-shell')
     assert.deepEqual(manager.listOrphans(), [])
   } finally {
     store.close()
@@ -134,15 +134,15 @@ test('tmux descendant agents are detected and hook activity survives refresh', (
   const store = createStore(':memory:')
   const adapter = fakeTmux()
   adapter.live.add('muxmap-agent-shell')
-  adapter.panes = () => [{ tmuxName: 'muxmap-agent-shell', paneId: '%9', pid: 100 }]
+  adapter.panes = () => [{ runtimeName: 'muxmap-agent-shell', paneId: '%9', pid: 100 }]
   const manager = createSessionManager(store, adapter, [directory], () => [
     { pid: 100, ppid: 1, command: 'bash' },
     { pid: 101, ppid: 100, command: 'node /usr/local/bin/codex' },
   ])
 
   try {
-    assert.deepEqual(manager.listOrphans(), [{ tmuxName: 'muxmap-agent-shell', agent: { kind: 'codex', state: 'unavailable' } }])
-    manager.recordAgentEvent('%9', 'codex', { hook_event_name: 'UserPromptSubmit' }, '2026-08-07T10:00:00.000Z')
+    assert.deepEqual(manager.listOrphans(), [{ backend: 'tmux', runtimeName: 'muxmap-agent-shell', agent: { kind: 'codex', state: 'unavailable' } }])
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%9' }, 'codex', { hook_event_name: 'UserPromptSubmit' }, '2026-08-07T10:00:00.000Z')
     assert.equal(manager.listOrphans()[0].agent?.state, 'working')
     assert.equal(manager.listOrphans()[0].agent?.since, '2026-08-07T10:00:00.000Z')
   } finally {
@@ -156,14 +156,14 @@ test('completed agent activity stays read after reopening the workspace', () => 
   const database = join(directory, 'muxmap.db')
   let store = createStore(database)
   const adapter = fakeTmux()
-  adapter.panes = () => [{ tmuxName: 'muxmap-default-read-me', paneId: '%10', pid: 200 }]
+  adapter.panes = () => [{ runtimeName: 'muxmap-default-read-me', paneId: '%10', pid: 200 }]
   const processes = () => [{ pid: 200, ppid: 1, command: 'codex' }]
   const manager = createSessionManager(store, adapter, [directory], processes)
 
   try {
     const node = store.createNode('default', { parentId: 'workspace', title: 'Read me', type: 'terminal', repoPath: directory })
     const session = manager.attach(node.id)
-    manager.recordAgentEvent('%10', 'codex', { hook_event_name: 'Stop' }, '2026-08-07T10:00:00.000Z')
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%10' }, 'codex', { hook_event_name: 'Stop' }, '2026-08-07T10:00:00.000Z')
     assert.equal(manager.decorate([session])[0].agent?.state, 'completed')
     manager.acknowledge(session.id)
     store.close()
@@ -173,4 +173,43 @@ test('completed agent activity stays read after reopening the workspace', () => 
     store.close()
     rmSync(directory, { recursive: true, force: true })
   }
+})
+
+test('Windows defaults to persistent Zellij sessions and accepts hook events by session name', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-zellij-')))
+  const store = createStore(':memory:')
+  const zellij: MultiplexerAdapter & { created: string[]; stopped: string[]; live: Set<string> } = {
+    backend: 'zellij',
+    live: new Set(),
+    created: [],
+    stopped: [],
+    exists(name) { return this.live.has(name) },
+    list() { return [...this.live] },
+    create(name) { this.created.push(name); this.live.add(name) },
+    stop(name) { this.stopped.push(name); this.live.delete(name) },
+  }
+  const manager = createSessionManager(store, { zellij }, [directory], () => [], defaultTerminalBackend('win32'))
+
+  try {
+    const node = store.createNode('default', { parentId: 'workspace', title: 'Windows task', type: 'terminal', repoPath: directory })
+    const session = manager.attach(node.id)
+    assert.equal(session.backend, 'zellij')
+    assert.equal(session.runtimeName, 'muxmap-zellij-default-windows-task')
+    assert.deepEqual(zellij.created, [session.runtimeName])
+
+    manager.recordAgentEvent({ backend: 'zellij', runtimeName: session.runtimeName, paneId: '1' }, 'codex', { hook_event_name: 'UserPromptSubmit' })
+    assert.equal(manager.decorate([session])[0].agent?.state, 'working')
+
+    manager.stop(session.id)
+    assert.deepEqual(zellij.stopped, [session.runtimeName])
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('Zellij session output is parsed without terminal formatting assumptions', () => {
+  assert.equal(defaultTerminalBackend('linux'), 'tmux')
+  assert.equal(defaultTerminalBackend('win32'), 'zellij')
+  assert.deepEqual(parseZellijSessions('muxmap-one\r\nmuxmap-two\r\n'), ['muxmap-one', 'muxmap-two'])
 })

@@ -24,6 +24,7 @@ export type WorkNode = {
 }
 
 export type TerminalStatus = 'running' | 'detached' | 'stopped' | 'error'
+export type TerminalBackend = 'tmux' | 'zellij'
 
 export type AgentKind = 'codex' | 'claude' | 'pi' | 'ssh'
 export type AgentActivity = {
@@ -37,8 +38,8 @@ export type TerminalSession = {
   workspaceId: string
   nodeId: string
   name: string
-  tmuxName: string
-  backend: 'tmux'
+  runtimeName: string
+  backend: TerminalBackend
   cwd: string
   status: TerminalStatus
   createdAt: string
@@ -59,7 +60,7 @@ export type WorkspaceGraph = {
   workspace: Workspace
   nodes: WorkNode[]
   sessions: TerminalSession[]
-  orphans?: Array<{ tmuxName: string; agent?: AgentActivity }>
+  orphans?: Array<{ backend: TerminalBackend; runtimeName: string; agent?: AgentActivity }>
 }
 
 const seedTime = '2026-08-06T00:00:00.000Z'

@@ -43,6 +43,7 @@
 - [x] WebSocket input, output, resize, and status protocol
 - [x] node-pty bridge to tmux
 - [x] Real tmux + node-pty integration smoke test when tmux is installed
+- [x] Windows defaults to Zellij 0.44.3+ and CI verifies create, attach, detach, reattach, and stop through node-pty
 - [x] Deterministic session names and reuse
 - [x] Refresh and reconnect to existing sessions
 - [x] Browser disconnect detaches the PTY client without killing tmux

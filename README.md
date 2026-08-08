@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/syntaxskills/muxmap/actions/workflows/ci.yml/badge.svg)](https://github.com/syntaxskills/muxmap/actions/workflows/ci.yml)
 
-MuxMap is a local-first mindmap for organizing development work and persistent tmux terminals.
+MuxMap is a local-first mindmap for organizing development work and persistent terminals.
 
 - Create, rename, duplicate, color, collapse, and reorder nodes.
 - Dock, float, resize, or full-screen terminal sessions.
@@ -14,7 +14,7 @@ MuxMap is a local-first mindmap for organizing development work and persistent t
 
 ## Quick start
 
-Requires Node.js 22+, tmux, and native build tools for `node-pty`.
+Requires Node.js 22+ and native build tools for `node-pty`. Install tmux on macOS/Linux or [Zellij 0.44.3+](https://github.com/zellij-org/zellij/releases) on Windows.
 
 ```bash
 npm install

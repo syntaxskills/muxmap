@@ -6,8 +6,19 @@ import type { AddressInfo } from 'node:net'
 import { extname, join, resolve } from 'node:path'
 import { spawn as spawnPty } from 'node-pty'
 import { WebSocketServer, type WebSocket } from 'ws'
-import type { TerminalSession } from '../src/model.ts'
-import { createSessionManager, defaultTmuxArgs, defaultTmuxEnv, realTmux, type TmuxAdapter } from './sessions.ts'
+import type { TerminalBackend, TerminalSession } from '../src/model.ts'
+import {
+  createSessionManager,
+  defaultTerminalBackend,
+  defaultTmuxArgs,
+  defaultTmuxEnv,
+  defaultZellijEnv,
+  realTmux,
+  realZellij,
+  zellijExecutable,
+  type MultiplexerAdapters,
+  type TmuxAdapter,
+} from './sessions.ts'
 import { createStore } from './store.ts'
 import type { ProcessInfo } from './agents.ts'
 
@@ -29,6 +40,8 @@ type ServerOptions = {
   allowedRoots: string[]
   token?: string
   tmux?: TmuxAdapter
+  multiplexers?: MultiplexerAdapters
+  defaultBackend?: TerminalBackend
   ptyFactory?: PtyFactory
   staticDirectory?: string
   allowedOrigins?: string[]
@@ -45,9 +58,29 @@ const mimeTypes: Record<string, string> = {
 }
 
 export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows: 30 }) => {
-  const mouse = spawnSync('tmux', defaultTmuxArgs('set-option', '-t', session.tmuxName, 'mouse', 'on'), { encoding: 'utf8', env: defaultTmuxEnv() })
+  if (session.backend === 'zellij') {
+    const pty = spawnPty(zellijExecutable(), ['attach', session.runtimeName], {
+      name: 'xterm-256color',
+      cols: size.cols,
+      rows: size.rows,
+      cwd: session.cwd,
+      env: { ...defaultZellijEnv(), TERM: 'xterm-256color' } as Record<string, string>,
+    })
+    return {
+      onData: (listener) => { pty.onData(listener) },
+      onExit: (listener) => { pty.onExit(listener) },
+      write: (data) => { pty.write(data) },
+      scroll: (lines) => {
+        const count = Math.min(200, Math.abs(Math.trunc(lines)))
+        if (count) pty.write(`\x1b[<${lines < 0 ? 64 : 65};1;1M`.repeat(Math.ceil(count / 3)))
+      },
+      resize: (cols, rows) => { pty.resize(cols, rows) },
+      kill: () => { pty.kill() },
+    }
+  }
+  const mouse = spawnSync('tmux', defaultTmuxArgs('set-option', '-t', session.runtimeName, 'mouse', 'on'), { encoding: 'utf8', env: defaultTmuxEnv() })
   if (mouse.status !== 0) throw new Error(mouse.stderr.trim() || 'Unable to enable tmux scrolling')
-  const pty = spawnPty('tmux', defaultTmuxArgs('attach-session', '-t', session.tmuxName), {
+  const pty = spawnPty('tmux', defaultTmuxArgs('attach-session', '-t', session.runtimeName), {
     name: 'xterm-256color',
     cols: size.cols,
     rows: size.rows,
@@ -62,10 +95,10 @@ export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows:
       const count = Math.min(200, Math.abs(Math.trunc(lines)))
       if (!count) return
       if (lines < 0) {
-        const mode = spawnSync('tmux', defaultTmuxArgs('display-message', '-p', '-t', session.tmuxName, '#{pane_in_mode}'), { encoding: 'utf8', env: defaultTmuxEnv() })
-        if (mode.stdout.trim() !== '1') spawnSync('tmux', defaultTmuxArgs('copy-mode', '-e', '-t', session.tmuxName), { env: defaultTmuxEnv() })
+        const mode = spawnSync('tmux', defaultTmuxArgs('display-message', '-p', '-t', session.runtimeName, '#{pane_in_mode}'), { encoding: 'utf8', env: defaultTmuxEnv() })
+        if (mode.stdout.trim() !== '1') spawnSync('tmux', defaultTmuxArgs('copy-mode', '-e', '-t', session.runtimeName), { env: defaultTmuxEnv() })
       }
-      spawnSync('tmux', defaultTmuxArgs('send-keys', '-X', '-N', String(count), '-t', session.tmuxName, lines < 0 ? 'scroll-up' : 'scroll-down'), { env: defaultTmuxEnv() })
+      spawnSync('tmux', defaultTmuxArgs('send-keys', '-X', '-N', String(count), '-t', session.runtimeName, lines < 0 ? 'scroll-up' : 'scroll-down'), { env: defaultTmuxEnv() })
     },
     resize: (cols, rows) => { pty.resize(cols, rows) },
     kill: () => { pty.kill() },
@@ -113,8 +146,10 @@ function rejectUpgrade(socket: import('node:stream').Duplex, status: number, mes
 export function createMuxMapServer(options: ServerOptions) {
   const token = options.token ?? process.env.MUXMAP_TOKEN ?? randomUUID()
   const store = createStore(options.databasePath)
-  const tmux = options.tmux ?? realTmux
-  const sessions = createSessionManager(store, tmux, options.allowedRoots, options.processReader)
+  const multiplexers = options.multiplexers ?? (options.tmux
+    ? { tmux: Object.assign(options.tmux, { backend: 'tmux' as const }) }
+    : { tmux: realTmux, zellij: realZellij })
+  const sessions = createSessionManager(store, multiplexers, options.allowedRoots, options.processReader, options.defaultBackend ?? defaultTerminalBackend())
   const ptyFactory = options.ptyFactory ?? defaultPtyFactory
   const staticDirectory = resolve(options.staticDirectory ?? 'dist')
   const allowedOrigins = options.allowedOrigins ?? []
@@ -137,10 +172,13 @@ export function createMuxMapServer(options: ServerOptions) {
         const local = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress ?? '')
         if (!local || request.headers.origin || request.headers['x-muxmap-hook'] !== '1') return sendJson(response, 403, { error: 'Local hook required' })
         const body = await readJson(request)
-        if (!['codex', 'claude', 'pi'].includes(String(body.kind)) || typeof body.tmuxPane !== 'string' || !body.event || typeof body.event !== 'object') {
-          throw new Error('kind, tmuxPane, and event are required')
+        const locator = body.locator && typeof body.locator === 'object'
+          ? body.locator as Record<string, unknown>
+          : typeof body.tmuxPane === 'string' ? { backend: 'tmux', paneId: body.tmuxPane } : undefined
+        if (!['codex', 'claude', 'pi'].includes(String(body.kind)) || !locator || !['tmux', 'zellij'].includes(String(locator.backend)) || !body.event || typeof body.event !== 'object') {
+          throw new Error('kind, terminal locator, and event are required')
         }
-        const activity = sessions.recordAgentEvent(body.tmuxPane, body.kind as 'codex' | 'claude' | 'pi', body.event as Record<string, unknown>)
+        const activity = sessions.recordAgentEvent(locator as import('./sessions.ts').AgentLocator, body.kind as 'codex' | 'claude' | 'pi', body.event as Record<string, unknown>)
         return sendJson(response, 202, { activity })
       }
 
@@ -178,8 +216,8 @@ export function createMuxMapServer(options: ServerOptions) {
         const attachMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/session$/)
         if (request.method === 'POST' && attachMatch) {
           const body = await readJson(request)
-          if (body.backend !== undefined && body.backend !== 'tmux') throw new Error('Only tmux is supported')
-          return sendJson(response, 201, { session: sessions.attach(attachMatch[1], typeof body.cwd === 'string' ? body.cwd : undefined) })
+          if (body.backend !== undefined && !['tmux', 'zellij'].includes(String(body.backend))) throw new Error('Invalid terminal backend')
+          return sendJson(response, 201, { session: sessions.attach(attachMatch[1], typeof body.cwd === 'string' ? body.cwd : undefined, body.backend as TerminalBackend | undefined) })
         }
 
         const reorderMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/reorder$/)
@@ -202,7 +240,7 @@ export function createMuxMapServer(options: ServerOptions) {
         }
         if (request.method === 'DELETE' && updateNodeMatch) {
           const body = await readJson(request)
-          if (typeof body.stopTmux !== 'boolean') throw new Error('stopTmux must be a boolean')
+          if (typeof body.stopSession !== 'boolean') throw new Error('stopSession must be a boolean')
           const node = store.getNode(updateNodeMatch[1])
           if (!node) throw new Error('Node not found')
           const graph = store.getWorkspace(node.workspaceId)
@@ -218,31 +256,31 @@ export function createMuxMapServer(options: ServerOptions) {
             }
           }
           const branchSessions = graph.sessions.filter((session) => nodeIds.has(session.nodeId))
-          if (body.stopTmux) {
+          if (body.stopSession) {
             for (const session of branchSessions) {
               for (const pty of ptys.get(session.id) ?? []) pty.kill()
               ptys.delete(session.id)
-              sessions.stopTmux(session.tmuxName)
+              sessions.stopRuntime(session.backend, session.runtimeName)
             }
           }
           const deletedNodeIds = store.deleteNode(node.id)
           return sendJson(response, 200, {
             deletedNodeIds,
-            orphanedTmuxNames: body.stopTmux ? [] : branchSessions.map((session) => session.tmuxName),
+            orphanedSessionNames: body.stopSession ? [] : branchSessions.map((session) => session.runtimeName),
           })
         }
 
-        if (request.method === 'POST' && url.pathname === '/api/tmux/adopt') {
+        if (request.method === 'POST' && url.pathname === '/api/sessions/adopt-orphan') {
           const body = await readJson(request)
-          if (typeof body.nodeId !== 'string' || typeof body.tmuxName !== 'string') throw new Error('nodeId and tmuxName are required')
-          return sendJson(response, 200, { session: sessions.adopt(body.nodeId, body.tmuxName) })
+          if (typeof body.nodeId !== 'string' || !['tmux', 'zellij'].includes(String(body.backend)) || typeof body.runtimeName !== 'string') throw new Error('nodeId, backend, and runtimeName are required')
+          return sendJson(response, 200, { session: sessions.adopt(body.nodeId, body.backend as TerminalBackend, body.runtimeName) })
         }
 
-        if (request.method === 'POST' && url.pathname === '/api/tmux/stop') {
+        if (request.method === 'POST' && url.pathname === '/api/sessions/stop-orphan') {
           const body = await readJson(request)
-          if (typeof body.tmuxName !== 'string') throw new Error('tmuxName is required')
-          sessions.stopTmux(body.tmuxName)
-          return sendJson(response, 200, { stopped: body.tmuxName })
+          if (!['tmux', 'zellij'].includes(String(body.backend)) || typeof body.runtimeName !== 'string') throw new Error('backend and runtimeName are required')
+          sessions.stopRuntime(body.backend as TerminalBackend, body.runtimeName)
+          return sendJson(response, 200, { stopped: body.runtimeName })
         }
 
         const stopMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/stop$/)
@@ -285,7 +323,7 @@ export function createMuxMapServer(options: ServerOptions) {
     if (cookieValue(request, 'muxmap_token') !== token) return rejectUpgrade(socket, 401, 'Unauthorized')
     if (!isAllowedOrigin(request, allowedOrigins)) return rejectUpgrade(socket, 403, 'Forbidden')
     const session = store.getSession(match[1])
-    if (!session || session.status === 'stopped' || !tmux.exists(session.tmuxName)) {
+    if (!session || session.status === 'stopped' || !sessions.exists(session)) {
       return rejectUpgrade(socket, 409, 'Session Not Running')
     }
 

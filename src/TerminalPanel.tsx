@@ -177,17 +177,17 @@ export function TerminalPanel({ session, node, opacity, floating, disabled, onCl
   return (
     <section className={`terminal terminal-window ${floating ? 'is-floating' : 'is-docked'} ${isFullscreen ? 'is-fullscreen' : ''}`} role="dialog" aria-label={`Terminal for ${node.title}`} style={style}>
       <div className={`terminal-header ${showNodeEditor ? 'has-node-editor' : ''} ${stopConfirming ? 'has-stop-confirm' : ''}`} onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
-        <button className="terminal-title" type="button" onClick={() => setShowNodeEditor((value) => !value)} aria-expanded={showNodeEditor} title={[node.type, node.project, node.jiraKey, node.repoPath, node.note].filter(Boolean).join('\n')}><span className="terminal-node-link"><Link2Icon /> linked</span><strong>{node.title}</strong><span className="terminal-session-name">{session.tmuxName}</span><span className="terminal-details-hint">Details <ChevronDownIcon aria-hidden="true" /></span></button>
+        <button className="terminal-title" type="button" onClick={() => setShowNodeEditor((value) => !value)} aria-expanded={showNodeEditor} title={[node.type, node.project, node.jiraKey, node.repoPath, node.note].filter(Boolean).join('\n')}><span className="terminal-node-link"><Link2Icon /> linked</span><strong>{node.title}</strong><span className="terminal-session-name">{session.runtimeName}</span><span className="terminal-details-hint">Details <ChevronDownIcon aria-hidden="true" /></span></button>
         <div className="terminal-actions">
-          <span className={`runtime-state ${session.agent ? `is-${session.agent.state}` : `is-${status}`}`} title={session.agent ? 'Detected from this tmux pane' : `Terminal ${status}`}>{session.agent && <AgentIcon kind={session.agent.kind} />}{session.agent ? agentStatusText(session.agent) : status}</span>
+          <span className={`runtime-state ${session.agent ? `is-${session.agent.state}` : `is-${status}`}`} title={session.agent ? `Detected from this ${session.backend} session` : `Terminal ${status}`}>{session.agent && <AgentIcon kind={session.agent.kind} />}{session.agent ? agentStatusText(session.agent) : status}</span>
           <span className="terminal-action-divider" aria-hidden="true" />
-          <button className="terminal-icon-button is-danger" type="button" onClick={requestStop} disabled={disabled} aria-expanded={stopConfirming} aria-label="Stop tmux session" title="Stop tmux session"><StopIcon /></button>
+          <button className="terminal-icon-button is-danger" type="button" onClick={requestStop} disabled={disabled} aria-expanded={stopConfirming} aria-label="Stop terminal session" title="Stop terminal session"><StopIcon /></button>
           <button className="terminal-icon-button" type="button" onClick={onToggleFloating} aria-label={floating ? 'Dock terminal' : 'Float terminal'} title={floating ? 'Dock terminal' : 'Float terminal'}>{floating ? <DrawingPinIcon /> : <OpenInNewWindowIcon />}</button>
           <button className="terminal-icon-button" type="button" onClick={() => setFullscreen((value) => !value)} aria-pressed={isFullscreen} aria-label={isFullscreen ? 'Restore terminal window' : 'Make terminal full screen'} title={isFullscreen ? 'Restore window' : 'Full screen'}>{isFullscreen ? <ExitFullScreenIcon /> : <EnterFullScreenIcon />}</button>
-          <button className="terminal-icon-button" type="button" onClick={onClose} aria-label="Minimize terminal; tmux keeps running" title="Minimize terminal; tmux keeps running"><MinusIcon /></button>
+          <button className="terminal-icon-button" type="button" onClick={onClose} aria-label={`Minimize terminal; ${session.backend} keeps running`} title={`Minimize terminal; ${session.backend} keeps running`}><MinusIcon /></button>
         </div>
         {stopConfirming && <div className="terminal-stop-confirm" role="alertdialog" aria-labelledby="terminal-stop-title" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); setStopConfirming(false) } }}>
-          <strong id="terminal-stop-title">Stop tmux session?</strong>
+          <strong id="terminal-stop-title">Stop terminal session?</strong>
           <span>This terminates the session and its running processes.</span>
           <div><button type="button" onClick={() => setStopConfirming(false)} autoFocus>Cancel</button><button className="is-danger" type="button" onClick={requestStop} disabled={disabled}>Stop session</button></div>
         </div>}

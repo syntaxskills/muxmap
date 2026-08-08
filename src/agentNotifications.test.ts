@@ -11,7 +11,7 @@ function graph(state: 'working' | 'needs_input' | 'completed' | 'read', since: s
       { id: 'task', workspaceId: 'default', parentId: 'root', title: 'Release task', type: 'terminal', color: '#fff', sortOrder: 0, createdAt: '', updatedAt: '' },
     ],
     sessions: [{
-      id: 'session', workspaceId: 'default', nodeId: 'task', name: 'tmux:task', tmuxName: 'muxmap-task', backend: 'tmux', cwd: '/repo', status: 'running', createdAt: '', updatedAt: '',
+      id: 'session', workspaceId: 'default', nodeId: 'task', name: 'tmux:task', runtimeName: 'muxmap-task', backend: 'tmux', cwd: '/repo', status: 'running', createdAt: '', updatedAt: '',
       agent: { kind: 'claude', state, since },
     }],
   }

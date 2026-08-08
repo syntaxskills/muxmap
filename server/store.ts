@@ -4,6 +4,7 @@ import {
   seedNodes,
   type NodeType,
   type AgentActivity,
+  type TerminalBackend,
   type TerminalSession,
   type TerminalStatus,
   type WorkNode,
@@ -135,8 +136,8 @@ export function createStore(path: string) {
       workspaceId: String(row.workspace_id),
       nodeId: String(row.node_id),
       name: String(row.name),
-      tmuxName: String(row.tmux_name),
-      backend: 'tmux',
+      runtimeName: String(row.tmux_name),
+      backend: String(row.backend) as TerminalBackend,
       cwd: String(row.cwd),
       status: String(row.status) as TerminalStatus,
       createdAt: String(row.created_at),
@@ -282,8 +283,8 @@ export function createStore(path: string) {
       return row ? mapSession(row) : undefined
     },
 
-    getSessionByTmuxName(tmuxName: string) {
-      const row = database.prepare('SELECT * FROM sessions WHERE tmux_name = ?').get(tmuxName) as Record<string, unknown> | undefined
+    getSessionByRuntimeName(runtimeName: string) {
+      const row = database.prepare('SELECT * FROM sessions WHERE tmux_name = ?').get(runtimeName) as Record<string, unknown> | undefined
       return row ? mapSession(row) : undefined
     },
 
@@ -292,17 +293,17 @@ export function createStore(path: string) {
       return rows.map(mapSession)
     },
 
-    getAgentActivity(tmuxName: string) {
-      const row = database.prepare('SELECT * FROM agent_activity WHERE tmux_name = ?').get(tmuxName) as Record<string, unknown> | undefined
+    getAgentActivity(runtimeName: string) {
+      const row = database.prepare('SELECT * FROM agent_activity WHERE tmux_name = ?').get(runtimeName) as Record<string, unknown> | undefined
       return row ? mapAgentActivity(row) : undefined
     },
 
-    upsertAgentActivity(tmuxName: string, activity: AgentActivity) {
+    upsertAgentActivity(runtimeName: string, activity: AgentActivity) {
       database.prepare(`
         INSERT INTO agent_activity (tmux_name, kind, state, since) VALUES (?, ?, ?, ?)
         ON CONFLICT(tmux_name) DO UPDATE SET kind = excluded.kind, state = excluded.state, since = excluded.since
-      `).run(tmuxName, activity.kind, activity.state, activity.since ?? new Date().toISOString())
-      return this.getAgentActivity(tmuxName)!
+      `).run(runtimeName, activity.kind, activity.state, activity.since ?? new Date().toISOString())
+      return this.getAgentActivity(runtimeName)!
     },
 
     upsertSession(input: SessionInput) {
@@ -318,12 +319,13 @@ export function createStore(path: string) {
         ON CONFLICT(node_id) DO UPDATE SET
           name = excluded.name,
           tmux_name = excluded.tmux_name,
+          backend = excluded.backend,
           cwd = excluded.cwd,
           status = excluded.status,
           updated_at = excluded.updated_at,
           last_attached_at = excluded.last_attached_at
       `).run(
-        id, input.workspaceId, input.nodeId, input.name, input.tmuxName,
+        id, input.workspaceId, input.nodeId, input.name, input.runtimeName,
         input.backend, input.cwd, input.status, createdAt, now,
         input.lastAttachedAt ?? null,
       )

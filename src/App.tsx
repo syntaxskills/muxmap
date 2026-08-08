@@ -13,7 +13,7 @@ import './App.css'
 import { api } from './api.ts'
 import { branchHasLiveSession, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleNodes } from './graph.ts'
 import { centerPan, dragPan, gridBackground, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
-import type { NodeType, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
+import type { NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { normalizeTerminalOpacity, normalizeTerminalSplit } from './terminalInteraction.ts'
 import { readViewState, writeViewState } from './viewState.ts'
@@ -70,7 +70,7 @@ function App() {
   const [terminalOpacity, setTerminalOpacity] = useState(() => normalizeTerminalOpacity(window.localStorage.getItem('muxmap:terminal-opacity')))
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => 'Notification' in window ? Notification.permission : 'unsupported')
   const [deleteNodeId, setDeleteNodeId] = useState<string | null>(null)
-  const [confirmStopTmux, setConfirmStopTmux] = useState<string | null>(null)
+  const [confirmStopSession, setConfirmStopSession] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const workspaceRef = useRef<HTMLElement>(null)
@@ -507,7 +507,7 @@ function App() {
     try {
       const response = await api<{ session: TerminalSession }>(`/api/nodes/${selected.id}/session`, {
         method: 'POST',
-        body: JSON.stringify({ backend: 'tmux', cwd: selected.repoPath }),
+        body: JSON.stringify({ cwd: selected.repoPath }),
       })
       await loadWorkspace()
       openTerminal(response.session.id)
@@ -533,22 +533,22 @@ function App() {
     }
   }
 
-  async function stopTmux(tmuxName: string) {
+  async function stopOrphan(backend: TerminalBackend, runtimeName: string) {
     setBusy(true)
     setError('')
     try {
-      await api('/api/tmux/stop', { method: 'POST', body: JSON.stringify({ tmuxName }) })
-      if (activeTerminal?.tmuxName === tmuxName) setSurface(closeTerminal)
-      setConfirmStopTmux(null)
+      await api('/api/sessions/stop-orphan', { method: 'POST', body: JSON.stringify({ backend, runtimeName }) })
+      if (activeTerminal?.backend === backend && activeTerminal.runtimeName === runtimeName) setSurface(closeTerminal)
+      setConfirmStopSession(null)
       await loadWorkspace()
     } catch (stopError) {
-      setError(stopError instanceof Error ? stopError.message : 'Unable to stop tmux session')
+      setError(stopError instanceof Error ? stopError.message : 'Unable to stop terminal session')
     } finally {
       setBusy(false)
     }
   }
 
-  async function adoptTmux(tmuxName: string, createNode: boolean) {
+  async function adoptOrphan(backend: TerminalBackend, runtimeName: string, createNode: boolean) {
     if (!graph || !selected) return
     setBusy(true)
     setError('')
@@ -561,33 +561,33 @@ function App() {
           method: 'POST',
           body: JSON.stringify({
             parentId: root.id,
-            title: tmuxName.replace(/^muxmap-?/, '') || 'Orphan terminal',
+            title: runtimeName.replace(/^muxmap-?/, '') || 'Orphan terminal',
             type: 'terminal',
           }),
         })
       }
-      const response = await api<{ session: TerminalSession }>('/api/tmux/adopt', {
+      const response = await api<{ session: TerminalSession }>('/api/sessions/adopt-orphan', {
         method: 'POST',
-        body: JSON.stringify({ nodeId: target.id, tmuxName }),
+        body: JSON.stringify({ nodeId: target.id, backend, runtimeName }),
       })
       setSelectedId(target.id)
       openTerminal(response.session.id)
       await loadWorkspace()
     } catch (adoptError) {
-      setError(adoptError instanceof Error ? adoptError.message : 'Unable to adopt tmux session')
+      setError(adoptError instanceof Error ? adoptError.message : 'Unable to adopt terminal session')
     } finally {
       setBusy(false)
     }
   }
 
-  async function deleteSelected(stopTmuxWithNode: boolean) {
+  async function deleteSelected(stopSessionWithNode: boolean) {
     if (!graph || !selected || selected.id === graph.workspace.rootNodeId) return
     setBusy(true)
     setError('')
     try {
       await api(`/api/nodes/${selected.id}`, {
         method: 'DELETE',
-        body: JSON.stringify({ stopTmux: stopTmuxWithNode }),
+        body: JSON.stringify({ stopSession: stopSessionWithNode }),
       })
       setSelectedId(graph.workspace.rootNodeId)
       setSurface(closeTerminal)
@@ -625,7 +625,7 @@ function App() {
   }
 
   const hasChildren = graph.nodes.some((node) => node.parentId === selected.id)
-  const branchHasTmux = branchHasLiveSession(graph.nodes, graph.sessions, selected.id)
+  const branchHasSession = branchHasLiveSession(graph.nodes, graph.sessions, selected.id)
   const contextCount = [selected.project, selected.jiraKey, selected.repoPath, selected.note].filter(Boolean).length
   const terminalPanel = activeTerminal && activeTerminalNode && activeTerminal.status !== 'stopped' ? (
     <Suspense fallback={<section className={`terminal terminal-window terminal-loading ${terminalFloating ? 'is-floating' : 'is-docked'}`} aria-label="Loading terminal"><span /><span /></section>}>
@@ -806,10 +806,10 @@ function App() {
 
           {deleteNodeId === selected.id && <div className="delete-choice is-prominent" role="alertdialog" aria-label={`Delete ${selected.title}`}>
             <strong>Delete this {hasChildren ? 'branch' : 'node'}?</strong>
-            {branchHasTmux ? <>
-              <span>Choose what happens to its tmux sessions.</span>
-              <button type="button" onClick={() => void deleteSelected(false)} disabled={busy}>Keep tmux as orphan</button>
-              <button className="danger-button" type="button" onClick={() => void deleteSelected(true)} disabled={busy}>Delete and stop tmux</button>
+            {branchHasSession ? <>
+              <span>Choose what happens to its terminal sessions.</span>
+              <button type="button" onClick={() => void deleteSelected(false)} disabled={busy}>Keep as orphan</button>
+              <button className="danger-button" type="button" onClick={() => void deleteSelected(true)} disabled={busy}>Delete and stop session</button>
             </> : <>
               <span>This cannot be undone.</span>
               <button className="danger-button" type="button" onClick={() => void deleteSelected(false)} disabled={busy}>Delete {hasChildren ? 'branch' : 'node'}</button>
@@ -836,7 +836,7 @@ function App() {
             {session && session.status !== 'stopped' ? (
               <button className={`terminal-preview ${terminalSessionId === session.id ? 'is-active' : ''}`} type="button" onClick={() => openTerminal(session.id)} aria-label={`Expand terminal for ${selected.title}`} style={{ '--accent': selected.color, '--accent-soft': `color-mix(in srgb, ${selected.color} 20%, transparent)` } as CSSProperties}>
                 <span className="terminal-preview-bar"><i /><i /><i /><strong>{session.agent ? agentStatusText(session.agent) : session.status}</strong></span>
-                <span className="terminal-preview-screen"><code>$ tmux attach</code><code>{session.tmuxName}</code><i /></span>
+                <span className="terminal-preview-screen"><code>$ {session.backend} attach</code><code>{session.runtimeName}</code><i /></span>
                 <span className="terminal-preview-footer"><strong>{selected.title}</strong><small>Click to expand ↗</small></span>
               </button>
             ) : (
@@ -887,7 +887,7 @@ function App() {
         )}
 
         {sidePanelOpen && rightPanel === 'sessions' && (
-          <aside className="side-panel session-manager" aria-label="Tmux session manager">
+          <aside className="side-panel session-manager" aria-label="Terminal session manager">
             <header className="side-panel-header">
               <div><span>Runtime inventory</span><h2>MuxMap sessions</h2></div>
               <button className="side-panel-close" type="button" onClick={() => setSurface((current) => ({ ...current, rightPanel: null }))} aria-label="Close session manager" title="Close panel"><Cross2Icon /></button>
@@ -899,12 +899,12 @@ function App() {
                 const node = graph.nodes.find((candidate) => candidate.id === item.nodeId)
                 return (
                   <article className={`session-row ${terminalSessionId === item.id || selected.id === item.nodeId ? 'is-current' : ''}`} key={item.id}>
-                    <div><strong>{node?.title ?? item.name}</strong><code>{item.tmuxName}</code><small className={item.agent ? `is-${item.agent.state}` : undefined}>{item.agent && <AgentIcon kind={item.agent.kind} />}{item.agent ? agentStatusText(item.agent) : item.status}</small></div>
+                    <div><strong>{node?.title ?? item.name}</strong><code>{item.runtimeName}</code><small className={item.agent ? `is-${item.agent.state}` : undefined}>{item.agent && <AgentIcon kind={item.agent.kind} />}{item.agent ? agentStatusText(item.agent) : item.status}</small></div>
                     <div className="session-row-actions">
                       {item.status !== 'stopped' && <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button>}
-                      {item.status !== 'stopped' && (confirmStopTmux === item.tmuxName ? (
-                        <><button className="danger-button" type="button" onClick={() => void stopTmux(item.tmuxName)} disabled={busy}>Confirm stop</button><button type="button" onClick={() => setConfirmStopTmux(null)}>Cancel</button></>
-                      ) : <button type="button" onClick={() => setConfirmStopTmux(item.tmuxName)}>Stop</button>)}
+                      {item.status !== 'stopped' && (confirmStopSession === `${item.backend}:${item.runtimeName}` ? (
+                        <><button className="danger-button" type="button" onClick={() => void stopSession(item.id)} disabled={busy}>Confirm stop</button><button type="button" onClick={() => setConfirmStopSession(null)}>Cancel</button></>
+                      ) : <button type="button" onClick={() => setConfirmStopSession(`${item.backend}:${item.runtimeName}`)}>Stop</button>)}
                     </div>
                   </article>
                 )
@@ -916,14 +916,14 @@ function App() {
               {orphans.length === 0 ? <p>No orphan sessions.</p> : orphans.map((orphan) => {
                 const selectedHasSession = graph.sessions.some((item) => item.nodeId === selected.id && item.status !== 'stopped')
                 return (
-                  <article className="session-row is-orphan" key={orphan.tmuxName}>
-                    <div><strong>{orphan.tmuxName}</strong><small className={orphan.agent ? `is-${orphan.agent.state}` : undefined}>{orphan.agent && <AgentIcon kind={orphan.agent.kind} />}{orphan.agent ? agentStatusText(orphan.agent) : 'Live tmux'} · not linked to a node</small></div>
+                  <article className="session-row is-orphan" key={`${orphan.backend}:${orphan.runtimeName}`}>
+                    <div><strong>{orphan.runtimeName}</strong><small className={orphan.agent ? `is-${orphan.agent.state}` : undefined}>{orphan.agent && <AgentIcon kind={orphan.agent.kind} />}{orphan.agent ? agentStatusText(orphan.agent) : `Live ${orphan.backend}`} · not linked to a node</small></div>
                     <div className="session-row-actions">
-                      <button type="button" onClick={() => void adoptTmux(orphan.tmuxName, false)} disabled={busy || selectedHasSession}>Attach to selected</button>
-                      <button type="button" onClick={() => void adoptTmux(orphan.tmuxName, true)} disabled={busy}>Create root node</button>
-                      {confirmStopTmux === orphan.tmuxName ? (
-                        <><button className="danger-button" type="button" onClick={() => void stopTmux(orphan.tmuxName)} disabled={busy}>Confirm stop</button><button type="button" onClick={() => setConfirmStopTmux(null)}>Cancel</button></>
-                      ) : <button type="button" onClick={() => setConfirmStopTmux(orphan.tmuxName)}>Close tmux</button>}
+                      <button type="button" onClick={() => void adoptOrphan(orphan.backend, orphan.runtimeName, false)} disabled={busy || selectedHasSession}>Attach to selected</button>
+                      <button type="button" onClick={() => void adoptOrphan(orphan.backend, orphan.runtimeName, true)} disabled={busy}>Create root node</button>
+                      {confirmStopSession === `${orphan.backend}:${orphan.runtimeName}` ? (
+                        <><button className="danger-button" type="button" onClick={() => void stopOrphan(orphan.backend, orphan.runtimeName)} disabled={busy}>Confirm stop</button><button type="button" onClick={() => setConfirmStopSession(null)}>Cancel</button></>
+                      ) : <button type="button" onClick={() => setConfirmStopSession(`${orphan.backend}:${orphan.runtimeName}`)}>Close session</button>}
                     </div>
                   </article>
                 )

@@ -298,10 +298,11 @@ Backend Server
 ├── Workspace graph API
 ├── Session registry
 ├── WebSocket terminal gateway
-└── tmux / PTY adapter
+└── tmux / Zellij / PTY adapter
 
 Execution Layer
-├── tmux sessions
+├── tmux sessions, macOS/Linux
+├── Zellij sessions, Windows
 ├── local shell
 ├── remote shell, optional later
 └── sandbox backend, optional later
@@ -313,7 +314,7 @@ Recommended MVP stack:
 * Mindmap: SVG first, Canvas later if needed
 * Terminal: xterm.js
 * Backend: Node.js
-* Terminal process: `tmux` + `node-pty`
+* Terminal process: `tmux` on macOS/Linux or Zellij 0.44.3+ on Windows, bridged by `node-pty`
 * Persistence: SQLite
 * Transport: WebSocket
 
@@ -365,7 +366,7 @@ type TerminalSession = {
   nodeId: string;
 
   name: string; // example: tmux:DEV-1420
-  backend: "tmux" | "pty" | "ssh" | "sandbox";
+  backend: "tmux" | "zellij" | "pty" | "ssh" | "sandbox";
   cwd?: string;
 
   status: "running" | "detached" | "stopped" | "error";

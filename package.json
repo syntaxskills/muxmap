@@ -16,7 +16,7 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "sh -c 'node --experimental-strip-types server/index.ts & server_pid=$!; trap \"kill $server_pid\" EXIT INT TERM; vite'",
+    "dev": "node scripts/dev.mjs",
     "dev:server": "node --experimental-strip-types server/index.ts",
     "dev:ui": "vite",
     "build": "tsc -b && vite build",
