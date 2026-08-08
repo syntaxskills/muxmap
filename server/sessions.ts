@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { realpathSync } from 'node:fs'
+import { readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import type { AgentActivity, AgentKind, TerminalBackend, TerminalSession } from '../src/model.ts'
@@ -83,12 +83,28 @@ export function parseZellijSessions(output: string) {
   return output.split(/\r?\n/).map((name) => name.trim()).filter(Boolean)
 }
 
+function windowsZellijSessions() {
+  try {
+    const processes = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf8' }).stdout
+    const livePids = new Set([...processes.matchAll(/^"[^"]+","(\d+)"/gm)].map((match) => match[1]))
+    const root = process.env.ZELLIJ_SOCKET_DIR ?? join(tmpdir(), 'zellij')
+    return readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith('contract_version_'))
+      .flatMap((contract) => readdirSync(join(root, contract.name), { withFileTypes: true })
+        .filter((entry) => entry.isFile() && livePids.has(readFileSync(join(root, contract.name, entry.name), 'utf8').trim()))
+        .map((entry) => entry.name))
+  } catch {
+    return []
+  }
+}
+
 export const realZellij: MultiplexerAdapter = {
   backend: 'zellij',
   exists(name) {
     return this.list().includes(name)
   },
   list() {
+    if (process.platform === 'win32') return windowsZellijSessions()
     const result = spawnSync(zellijExecutable(), ['list-sessions', '--short', '--no-formatting'], { encoding: 'utf8', env: defaultZellijEnv() })
     return result.status === 0 ? parseZellijSessions(result.stdout) : []
   },
