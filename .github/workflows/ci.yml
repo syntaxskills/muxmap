@@ -35,5 +35,11 @@ jobs:
       - if: runner.os == 'Windows'
         run: zellij --version
       - run: npm test
+      - if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          zellij list-sessions
+          Get-Process zellij -ErrorAction SilentlyContinue
+          Get-ChildItem $env:LOCALAPPDATA -Recurse -Filter zellij.log -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_.FullName; Get-Content $_.FullName -Tail 200 }
       - run: npm run lint
       - run: npm run build

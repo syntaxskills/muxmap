@@ -286,10 +286,13 @@ test('the real node-pty adapter attaches to tmux and streams shell output', {
     assert.match(output, /__MUXMAP_REAL_PTY_OK__/)
     activePty.scroll(-3)
     activePty.scroll(-3)
-    const scroll = spawnSync('tmux', ['-L', 'default', 'display-message', '-p', '-t', runtimeName, '#{pane_in_mode} #{scroll_position}'], { encoding: 'utf8' })
-    const [mode, position] = scroll.stdout.trim().split(' ')
-    assert.equal(mode, '1')
-    assert.ok(Number(position) >= 6, 'repeated scrolling must continue through tmux history')
+    let scrollPosition = ''
+    await eventually(() => {
+      scrollPosition = spawnSync('tmux', ['-L', 'default', 'display-message', '-p', '-t', runtimeName, '#{pane_in_mode} #{scroll_position}'], { encoding: 'utf8' }).stdout.trim()
+      const [mode, position] = scrollPosition.split(' ')
+      return mode === '1' && Number(position) >= 6
+    })
+    assert.match(scrollPosition, /^1 /, 'repeated scrolling must continue through tmux history')
   } finally {
     if (inheritedTmux === undefined) delete process.env.TMUX
     else process.env.TMUX = inheritedTmux
