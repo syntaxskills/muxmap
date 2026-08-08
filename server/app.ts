@@ -76,7 +76,11 @@ export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows:
         if (count) pty.write(`\x1b[<${lines < 0 ? 64 : 65};1;1M`.repeat(Math.ceil(count / 3)))
       },
       resize: (cols, rows) => { pty.resize(cols, rows) },
-      kill: () => { if (process.platform === 'win32') process.kill(pty.pid); else pty.kill() },
+      kill: () => {
+        if (process.platform !== 'win32') return pty.kill()
+        process.kill(pty.pid)
+        setTimeout(() => pty.kill(), 250)
+      },
     }
   }
   const mouse = spawnSync('tmux', defaultTmuxArgs('set-option', '-t', session.runtimeName, 'mouse', 'on'), { encoding: 'utf8', env: defaultTmuxEnv() })
