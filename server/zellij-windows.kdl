@@ -1,3 +1,4 @@
 show_release_notes false
 show_startup_tips false
+support_kitty_keyboard_protocol false
 default_shell "powershell.exe"

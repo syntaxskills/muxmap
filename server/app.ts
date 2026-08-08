@@ -78,7 +78,7 @@ export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows:
       resize: (cols, rows) => { pty.resize(cols, rows) },
       kill: () => {
         if (process.platform !== 'win32') return pty.kill()
-        pty.write('\x1b[111;5ud')
+        pty.write('\x0fd')
       },
     }
   }
