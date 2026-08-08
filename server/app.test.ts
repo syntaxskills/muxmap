@@ -57,6 +57,7 @@ test('secured workspace and node APIs return persisted graph data', async () => 
   const server = createMuxMapServer({
     databasePath: ':memory:',
     allowedRoots: [root],
+    platform: 'linux',
     token: 'test-token',
     tmux: fakeTmux(),
     ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
@@ -117,8 +118,8 @@ test('secured workspace and node APIs return persisted graph data', async () => 
     assert.equal(graph.nodes.some((node) => node.id === createdNode.id), true)
     assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.title, 'Renamed in place')
     assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.type, 'todo')
-    assert.equal(graph.runtime.platform, process.platform)
-    assert.equal(graph.runtime.terminalBackends.includes(process.platform === 'win32' ? 'zellij' : 'tmux'), true)
+    assert.equal(graph.runtime.platform, 'linux')
+    assert.equal(graph.runtime.terminalBackends.includes('tmux'), true)
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })
@@ -130,6 +131,7 @@ test('LAN mode requires persistent basic auth before issuing its session cookie'
   const server = createMuxMapServer({
     databasePath: ':memory:',
     allowedRoots: [root],
+    platform: 'linux',
     token: 'persistent-token',
     requireBasicAuth: true,
     tmux: fakeTmux(),
@@ -162,6 +164,7 @@ test('websocket detaches safely and workspace refresh surfaces a missing tmux se
   const server = createMuxMapServer({
     databasePath: ':memory:',
     allowedRoots: [root],
+    platform: 'linux',
     token: 'test-token',
     tmux,
     ptyFactory: fakePtyFactory(ptyRecord),
@@ -239,6 +242,7 @@ test('a PTY launch failure closes only the terminal connection and keeps the API
   const server = createMuxMapServer({
     databasePath: ':memory:',
     allowedRoots: [root],
+    platform: 'linux',
     token: 'test-token',
     tmux,
     ptyFactory: () => { throw new Error('posix_spawnp failed') },
@@ -414,6 +418,7 @@ test('orphan tmux sessions can be adopted and node deletion explicitly keeps or 
   const server = createMuxMapServer({
     databasePath: ':memory:',
     allowedRoots: [root],
+    platform: 'linux',
     token: 'test-token',
     tmux,
     ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
@@ -478,6 +483,7 @@ test('local agent hooks update automatically detected tmux activity', async () =
   const server = createMuxMapServer({
     databasePath: ':memory:',
     allowedRoots: [root],
+    platform: 'linux',
     token: 'test-token',
     requireBasicAuth: true,
     tmux,

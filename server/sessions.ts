@@ -162,12 +162,13 @@ export function createSessionManager(
   allowedRoots: string[],
   processReader: () => ProcessInfo[] = readProcesses,
   defaultBackend?: TerminalBackend,
-  platform: RuntimePlatform = process.platform,
+  platform?: RuntimePlatform,
 ) {
+  const runtimePlatform = platform ?? ('exists' in input ? 'linux' : process.platform)
   const adapters = normalizeAdapters(input)
-  const selectedDefaultBackend = defaultBackend ?? ('exists' in input ? 'tmux' : defaultTerminalBackend(platform))
+  const selectedDefaultBackend = defaultBackend ?? ('exists' in input ? 'tmux' : defaultTerminalBackend(runtimePlatform))
   const adapterFor = (backend: TerminalBackend) => {
-    if (!terminalBackendsForPlatform(platform).includes(backend)) throw new Error(`${backend} is not available on ${platformLabel(platform)}`)
+    if (!terminalBackendsForPlatform(runtimePlatform).includes(backend)) throw new Error(`${backend} is not available on ${platformLabel(runtimePlatform)}`)
     const adapter = adapters[backend]
     if (!adapter) throw new Error(`${backend === 'zellij' ? 'Zellij' : 'tmux'} terminal backend is unavailable`)
     return adapter
@@ -215,7 +216,7 @@ export function createSessionManager(
 
     exists(session: TerminalSession) {
       return adapterFor(session.backend).exists(session.runtimeName)
-        || process.platform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped'
+        || runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped'
     },
 
     markRunning(id: string) {
@@ -230,14 +231,14 @@ export function createSessionManager(
       const session = store.getSession(id)
       if (!session) throw new Error('Session not found')
       const adapter = adapterFor(session.backend)
-      if (adapter.exists(session.runtimeName) || process.platform === 'win32' && session.backend === 'zellij') adapter.stop(session.runtimeName)
+      if (adapter.exists(session.runtimeName) || runtimePlatform === 'win32' && session.backend === 'zellij') adapter.stop(session.runtimeName)
       return store.updateSessionStatus(id, 'stopped')
     },
 
     stopRuntime(backend: TerminalBackend, runtimeName: string) {
       if (!runtimeName.startsWith('muxmap')) throw new Error('Only muxmap sessions can be managed')
       const adapter = adapterFor(backend)
-      if (adapter.exists(runtimeName) || process.platform === 'win32' && backend === 'zellij') adapter.stop(runtimeName)
+      if (adapter.exists(runtimeName) || runtimePlatform === 'win32' && backend === 'zellij') adapter.stop(runtimeName)
       const tracked = store.getSessionByRuntimeName(runtimeName)
       if (tracked?.backend === backend) store.updateSessionStatus(tracked.id, 'stopped')
     },
@@ -307,7 +308,7 @@ export function createSessionManager(
         const running = live.get(session.backend)?.has(session.runtimeName)
         const status = running
           ? activeSessionIds.has(session.id) ? 'running' : 'detached'
-          : process.platform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped' ? 'detached' : 'stopped'
+          : runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped' ? 'detached' : 'stopped'
         store.updateSessionStatus(session.id, status)
       }
     },
