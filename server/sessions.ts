@@ -77,6 +77,7 @@ export function zellijExecutable(platform = process.platform) {
 }
 
 const zellijConfig = fileURLToPath(new URL('./zellij.kdl', import.meta.url))
+const zellijWindowsConfig = fileURLToPath(new URL('./zellij-windows.kdl', import.meta.url))
 
 export function parseZellijSessions(output: string) {
   return output.split(/\r?\n/).map((name) => name.trim()).filter(Boolean)
@@ -92,9 +93,10 @@ export const realZellij: MultiplexerAdapter = {
     return result.status === 0 ? parseZellijSessions(result.stdout) : []
   },
   create(name, cwd) {
-    const result = spawnSync(zellijExecutable(), ['--config', zellijConfig, 'attach', '--create-background', name], { cwd, encoding: 'utf8', env: defaultZellijEnv() })
+    const config = process.platform === 'win32' ? zellijWindowsConfig : zellijConfig
+    const result = spawnSync(zellijExecutable(), ['--config', config, 'attach', '--create-background', name], { cwd, encoding: 'utf8', env: defaultZellijEnv() })
     if (result.status !== 0) throw new Error(result.stderr.trim() || 'Unable to create Zellij session. Install Zellij 0.44.3 or newer.')
-    for (let attempt = 0; attempt < 20 && !this.exists(name); attempt++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+    if (process.platform === 'win32') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)
     if (!this.exists(name)) throw new Error('Zellij reported success but the session did not start')
   },
   stop(name) {
