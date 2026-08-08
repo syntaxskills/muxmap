@@ -123,6 +123,36 @@ test('secured workspace and node APIs return persisted graph data', async () => 
   }
 })
 
+test('LAN mode requires persistent basic auth before issuing its session cookie', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-lan-auth-')))
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    token: 'persistent-token',
+    requireBasicAuth: true,
+    tmux: fakeTmux(),
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const denied = await fetch(`${base}/api/auth`)
+    assert.equal(denied.status, 401)
+    assert.match(denied.headers.get('www-authenticate') ?? '', /^Basic /)
+
+    const auth = await fetch(`${base}/api/auth`, {
+      headers: { authorization: `Basic ${Buffer.from('muxmap:persistent-token').toString('base64')}` },
+    })
+    assert.equal(auth.status, 200)
+    const cookie = auth.headers.get('set-cookie')?.split(';')[0] ?? ''
+    assert.equal((await fetch(`${base}/api/workspaces/default`, { headers: { cookie } })).status, 200)
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('websocket detaches safely and workspace refresh surfaces a missing tmux session', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-ws-')))
   const tmux = fakeTmux()

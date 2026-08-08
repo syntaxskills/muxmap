@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
@@ -40,6 +40,7 @@ type ServerOptions = {
   databasePath: string
   allowedRoots: string[]
   token?: string
+  requireBasicAuth?: boolean
   tmux?: TmuxAdapter
   multiplexers?: MultiplexerAdapters
   defaultBackend?: TerminalBackend
@@ -66,6 +67,7 @@ export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows:
       rows: size.rows,
       cwd: session.cwd,
       env: { ...defaultZellijEnv(), TERM: 'xterm-256color' } as Record<string, string>,
+      useConptyDll: process.platform === 'win32',
     })
     return {
       onData: (listener) => { pty.onData(listener) },
@@ -76,11 +78,7 @@ export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows:
         if (count) pty.write(`\x1b[<${lines < 0 ? 64 : 65};1;1M`.repeat(Math.ceil(count / 3)))
       },
       resize: (cols, rows) => { pty.resize(cols, rows) },
-      kill: () => {
-        if (process.platform !== 'win32') return pty.kill()
-        pty.write('\x0f')
-        setTimeout(() => pty.write('d'), 50)
-      },
+      kill: () => { pty.kill() },
     }
   }
   const mouse = spawnSync('tmux', defaultTmuxArgs('set-option', '-t', session.runtimeName, 'mouse', 'on'), { encoding: 'utf8', env: defaultTmuxEnv() })
@@ -118,6 +116,14 @@ function cookieValue(request: IncomingMessage, name: string) {
   }
 }
 
+function hasBasicToken(request: IncomingMessage, token: string) {
+  const encoded = request.headers.authorization?.match(/^Basic (.+)$/i)?.[1]
+  if (encoded === undefined) return false
+  const supplied = Buffer.from(encoded, 'base64')
+  const expected = Buffer.from(`muxmap:${token}`)
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected)
+}
+
 function sendJson(response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
   response.end(JSON.stringify(body))
@@ -150,6 +156,7 @@ function rejectUpgrade(socket: import('node:stream').Duplex, status: number, mes
 
 export function createMuxMapServer(options: ServerOptions) {
   const token = options.token ?? process.env.MUXMAP_TOKEN ?? randomUUID()
+  const requireBasicAuth = options.requireBasicAuth ?? false
   const store = createStore(options.databasePath)
   const multiplexers = options.multiplexers ?? (options.tmux
     ? { tmux: Object.assign(options.tmux, { backend: 'tmux' as const }) }
@@ -168,6 +175,11 @@ export function createMuxMapServer(options: ServerOptions) {
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`)
 
     try {
+      if (requireBasicAuth && cookieValue(request, 'muxmap_token') !== token && !hasBasicToken(request, token)) {
+        response.setHeader('www-authenticate', 'Basic realm="MuxMap", charset="UTF-8"')
+        return sendJson(response, 401, { error: 'Authentication required' })
+      }
+
       if (request.method === 'GET' && url.pathname === '/api/auth') {
         response.setHeader('set-cookie', `muxmap_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/`)
         return sendJson(response, 200, { authenticated: true })
@@ -405,10 +417,10 @@ export function createMuxMapServer(options: ServerOptions) {
 
   return {
     store,
-    listen(port: number) {
+    listen(port: number, host = '127.0.0.1') {
       return new Promise<AddressInfo>((resolveListen, reject) => {
         http.once('error', reject)
-        http.listen(port, '127.0.0.1', () => resolveListen(http.address() as AddressInfo))
+        http.listen(port, host, () => resolveListen(http.address() as AddressInfo))
       })
     },
     close() {

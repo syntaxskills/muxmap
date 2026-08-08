@@ -39,4 +39,6 @@ npm run build
 
 MuxMap is privileged local software. Keep it on localhost and restrict terminal paths with `MUXMAP_ALLOWED_ROOTS`.
 
+For trusted LAN access, set `HOST=0.0.0.0` and a persistent `MUXMAP_TOKEN`, then allow TCP 4782 through the host firewall. Sign in as `muxmap` with that token; non-local binding is refused without it.
+
 [PRD](docs/PRD.md) · [Acceptance](docs/ACCEPTANCE.md) · [Changelog](CHANGELOG.md) · [MIT License](LICENSE)

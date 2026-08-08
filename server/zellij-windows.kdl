@@ -1,4 +1,6 @@
 show_release_notes false
 show_startup_tips false
 support_kitty_keyboard_protocol false
+simplified_ui true
+on_force_close "detach"
 default_shell "powershell.exe"
