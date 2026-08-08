@@ -35,6 +35,7 @@ npm run hooks:install
 npm test
 npm run lint
 npm run build
+npm run doctor
 ```
 
 MuxMap is privileged software. Restrict terminal paths with `MUXMAP_ALLOWED_ROOTS` and choose an explicit access mode:
@@ -47,6 +48,8 @@ MuxMap is privileged software. Restrict terminal paths with `MUXMAP_ALLOWED_ROOT
 
 LAN/Tailscale browsers use Basic Auth with username `muxmap` and password `MUXMAP_TOKEN`. Hooks send the same credential when the token is in their environment; for direct Tailscale binding, also set `MUXMAP_URL` to the logged Tailscale URL. `HOST=0.0.0.0` remains a compatibility alias for LAN mode.
 
+Run `npm run doctor` before exposing MuxMap. It checks the selected address and URLs, port availability, authentication, Zellij and Tailscale, and Windows Firewall. When a Windows network rule is missing, it writes an administrator PowerShell script under `MUXMAP_DATA_DIR` (or `.muxmap`) restricted to the current LAN subnet; Tailscale rules allow only `100.64.0.0/10`.
+
 On Windows, allow only Tailscale IPv4 clients from an Administrator PowerShell:
 
 ```powershell
@@ -54,5 +57,7 @@ New-NetFirewallRule -DisplayName "MuxMap Tailscale" -Direction Inbound -Protocol
 ```
 
 Alternatively, keep local mode and run `tailscale serve --bg 4782` for tailnet-only HTTPS.
+
+[Windows LAN/Tailscale setup](docs/WINDOWS-NETWORK.md)
 
 [PRD](docs/PRD.md) · [Acceptance](docs/ACCEPTANCE.md) · [Changelog](CHANGELOG.md) · [MIT License](LICENSE)

@@ -36,5 +36,8 @@ jobs:
       - if: runner.os == 'Windows'
         run: zellij --version
       - run: npm test
+      - run: npm run doctor
+        env:
+          PORT: 14782
       - run: npm run lint
       - run: npm run build

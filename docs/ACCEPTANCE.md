@@ -68,6 +68,7 @@
 - [x] LAN mode binds all interfaces only with a persistent token
 - [x] Tailscale mode detects and binds only its Tailscale IPv4 address
 - [x] Non-local browsers use Basic Auth and Agent hooks remain authenticated
+- [x] Network doctor diagnoses startup requirements and generates narrow Windows Firewall repair scripts
 - [x] HttpOnly local authentication token
 - [x] Origin checks for mutations and WebSockets
 - [x] Allowed repository-root enforcement
