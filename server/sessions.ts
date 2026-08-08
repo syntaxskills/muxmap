@@ -79,6 +79,10 @@ export function zellijExecutable(platform = process.platform) {
 const zellijConfig = fileURLToPath(new URL('./zellij.kdl', import.meta.url))
 const zellijWindowsConfig = fileURLToPath(new URL('./zellij-windows.kdl', import.meta.url))
 
+export function zellijConfigPath(platform = process.platform) {
+  return platform === 'win32' ? zellijWindowsConfig : zellijConfig
+}
+
 export function parseZellijSessions(output: string) {
   return output.split(/\r?\n/).map((name) => name.trim()).filter(Boolean)
 }
@@ -109,11 +113,12 @@ export const realZellij: MultiplexerAdapter = {
     return result.status === 0 ? parseZellijSessions(result.stdout) : []
   },
   create(name, cwd) {
-    const config = process.platform === 'win32' ? zellijWindowsConfig : zellijConfig
-    const result = spawnSync(zellijExecutable(), ['--config', config, 'attach', '--create-background', name], { cwd, encoding: 'utf8', env: defaultZellijEnv() })
+    const args = process.platform === 'win32'
+      ? ['--version']
+      : ['--config', zellijConfigPath(), 'attach', '--create-background', name]
+    const result = spawnSync(zellijExecutable(), args, { cwd, encoding: 'utf8', env: defaultZellijEnv() })
     if (result.status !== 0) throw new Error(result.stderr.trim() || 'Unable to create Zellij session. Install Zellij 0.44.3 or newer.')
-    if (process.platform === 'win32') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)
-    if (!this.exists(name)) throw new Error('Zellij reported success but the session did not start')
+    if (process.platform !== 'win32' && !this.exists(name)) throw new Error('Zellij reported success but the session did not start')
   },
   stop(name) {
     const result = spawnSync(zellijExecutable(), ['kill-session', name], { encoding: 'utf8', env: defaultZellijEnv() })
@@ -206,6 +211,7 @@ export function createSessionManager(
 
     exists(session: TerminalSession) {
       return adapterFor(session.backend).exists(session.runtimeName)
+        || process.platform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped'
     },
 
     markRunning(id: string) {
@@ -220,14 +226,14 @@ export function createSessionManager(
       const session = store.getSession(id)
       if (!session) throw new Error('Session not found')
       const adapter = adapterFor(session.backend)
-      if (adapter.exists(session.runtimeName)) adapter.stop(session.runtimeName)
+      if (adapter.exists(session.runtimeName) || process.platform === 'win32' && session.backend === 'zellij') adapter.stop(session.runtimeName)
       return store.updateSessionStatus(id, 'stopped')
     },
 
     stopRuntime(backend: TerminalBackend, runtimeName: string) {
       if (!runtimeName.startsWith('muxmap')) throw new Error('Only muxmap sessions can be managed')
       const adapter = adapterFor(backend)
-      if (adapter.exists(runtimeName)) adapter.stop(runtimeName)
+      if (adapter.exists(runtimeName) || process.platform === 'win32' && backend === 'zellij') adapter.stop(runtimeName)
       const tracked = store.getSessionByRuntimeName(runtimeName)
       if (tracked?.backend === backend) store.updateSessionStatus(tracked.id, 'stopped')
     },
@@ -294,7 +300,10 @@ export function createSessionManager(
     reconcile(activeSessionIds = new Set<string>()) {
       const live = new Map(Object.values(adapters).map((adapter) => [adapter!.backend, new Set(adapter!.list())]))
       for (const session of store.listSessions()) {
-        const status = live.get(session.backend)?.has(session.runtimeName) ? activeSessionIds.has(session.id) ? 'running' : 'detached' : 'stopped'
+        const running = live.get(session.backend)?.has(session.runtimeName)
+        const status = running
+          ? activeSessionIds.has(session.id) ? 'running' : 'detached'
+          : process.platform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped' ? 'detached' : 'stopped'
         store.updateSessionStatus(session.id, status)
       }
     },

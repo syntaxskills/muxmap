@@ -335,13 +335,13 @@ test('the real node-pty adapter reattaches to a persistent Zellij session', {
   })
 
   try {
-    realZellij.create(runtimeName, root)
-    assert.equal(realZellij.exists(runtimeName), true)
     pty = defaultPtyFactory(session)
+    await new Promise((resolve) => setTimeout(resolve, 1500))
     await proveShell(pty, '__MUXMAP_ZELLIJ_FIRST__')
+    await eventually(() => realZellij.exists(runtimeName), 5000)
     pty.kill()
     pty = undefined
-    assert.equal(realZellij.exists(runtimeName), true, 'closing the browser PTY must not stop Zellij')
+    await eventually(() => realZellij.exists(runtimeName), 5000)
 
     pty = defaultPtyFactory(session)
     await proveShell(pty, '__MUXMAP_ZELLIJ_REATTACHED__')

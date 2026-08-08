@@ -15,6 +15,7 @@ import {
   defaultZellijEnv,
   realTmux,
   realZellij,
+  zellijConfigPath,
   zellijExecutable,
   type MultiplexerAdapters,
   type TmuxAdapter,
@@ -59,7 +60,7 @@ const mimeTypes: Record<string, string> = {
 
 export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows: 30 }) => {
   if (session.backend === 'zellij') {
-    const pty = spawnPty(zellijExecutable(), ['attach', session.runtimeName], {
+    const pty = spawnPty(zellijExecutable(), ['--config', zellijConfigPath(), 'attach', '--create', session.runtimeName], {
       name: 'xterm-256color',
       cols: size.cols,
       rows: size.rows,
