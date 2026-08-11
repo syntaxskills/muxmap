@@ -15,6 +15,7 @@ import {
   defaultZellijEnv,
   realTmux,
   realZellij,
+  tmuxExecutable,
   zellijConfigPath,
   zellijExecutable,
   type MultiplexerAdapters,
@@ -84,9 +85,10 @@ export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows:
       kill: () => { pty.kill() },
     }
   }
-  const mouse = spawnSync('tmux', defaultTmuxArgs('set-option', '-t', session.runtimeName, 'mouse', 'on'), { encoding: 'utf8', env: defaultTmuxEnv() })
+  const tmux = tmuxExecutable()
+  const mouse = spawnSync(tmux, defaultTmuxArgs('set-option', '-t', session.runtimeName, 'mouse', 'on'), { encoding: 'utf8', env: defaultTmuxEnv() })
   if (mouse.status !== 0) throw new Error(mouse.stderr.trim() || 'Unable to enable tmux scrolling')
-  const pty = spawnPty('tmux', defaultTmuxArgs('attach-session', '-t', session.runtimeName), {
+  const pty = spawnPty(tmux, defaultTmuxArgs('attach-session', '-t', session.runtimeName), {
     name: 'xterm-256color',
     cols: size.cols,
     rows: size.rows,

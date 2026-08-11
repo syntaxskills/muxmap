@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import test from 'node:test'
-import { createSessionManager, defaultTerminalBackend, parseZellijSessions, type MultiplexerAdapter, type TmuxAdapter } from './sessions.ts'
+import { createSessionManager, defaultTerminalBackend, parseZellijSessions, tmuxExecutable, type MultiplexerAdapter, type TmuxAdapter } from './sessions.ts'
 import { createStore } from './store.ts'
 
 function fakeTmux(): TmuxAdapter & { created: string[]; createCommands: Array<string[] | undefined>; stopped: string[]; live: Set<string> } {
@@ -286,4 +286,21 @@ test('Zellij session output is parsed without terminal formatting assumptions', 
   assert.equal(defaultTerminalBackend('linux'), 'tmux')
   assert.equal(defaultTerminalBackend('win32'), 'zellij')
   assert.deepEqual(parseZellijSessions('muxmap-one\r\nmuxmap-two\r\n'), ['muxmap-one', 'muxmap-two'])
+})
+
+test('tmux executable can be configured or resolved from PATH for PTY compatibility', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'muxmap-tmux-bin-'))
+  const executable = join(directory, 'tmux')
+
+  try {
+    writeFileSync(executable, '#!/bin/sh\nexit 0\n')
+    chmodSync(executable, 0o755)
+
+    assert.equal(tmuxExecutable('darwin', { MUXMAP_TMUX_BIN: '/custom/tmux', PATH: '' }), '/custom/tmux')
+    assert.equal(tmuxExecutable('darwin', { PATH: ['/missing', directory].join(delimiter) }), executable)
+    assert.equal(tmuxExecutable('darwin', { PATH: '/missing' }), 'tmux')
+    assert.equal(tmuxExecutable('win32', { PATH: directory }), 'tmux')
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
 })

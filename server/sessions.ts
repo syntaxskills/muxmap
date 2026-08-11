@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { homedir, tmpdir } from 'node:os'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { readFileSync, readdirSync, realpathSync } from 'node:fs'
+import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { accessSync, constants, readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import type { AgentActivity, AgentKind, TerminalBackend, TerminalSession } from '../src/model.ts'
@@ -36,6 +36,25 @@ export function defaultTmuxEnv() {
   return env
 }
 
+function executableFromPath(binary: string, pathValue = process.env.PATH ?? '') {
+  for (const directory of pathValue.split(delimiter).filter(Boolean)) {
+    const candidate = join(directory, binary)
+    try {
+      accessSync(candidate, constants.X_OK)
+      return candidate
+    } catch {
+      // Keep searching PATH.
+    }
+  }
+}
+
+export function tmuxExecutable(platform = process.platform, env = process.env) {
+  const configured = env.MUXMAP_TMUX_BIN?.trim()
+  if (configured) return configured
+  if (platform === 'win32') return 'tmux'
+  return executableFromPath('tmux', env.PATH) ?? 'tmux'
+}
+
 export function defaultZellijEnv() {
   const env = { ...process.env }
   delete env.ZELLIJ
@@ -49,22 +68,22 @@ export const defaultTmuxArgs = (...args: string[]) => ['-L', 'default', ...args]
 export const realTmux: MultiplexerAdapter = {
   backend: 'tmux',
   exists(name) {
-    return spawnSync('tmux', defaultTmuxArgs('has-session', '-t', name), { env: defaultTmuxEnv(), stdio: 'ignore' }).status === 0
+    return spawnSync(tmuxExecutable(), defaultTmuxArgs('has-session', '-t', name), { env: defaultTmuxEnv(), stdio: 'ignore' }).status === 0
   },
   list() {
-    const result = spawnSync('tmux', defaultTmuxArgs('list-sessions', '-F', '#S'), { encoding: 'utf8', env: defaultTmuxEnv() })
+    const result = spawnSync(tmuxExecutable(), defaultTmuxArgs('list-sessions', '-F', '#S'), { encoding: 'utf8', env: defaultTmuxEnv() })
     return result.status === 0 ? result.stdout.trim().split('\n').filter(Boolean) : []
   },
   create(name, cwd, command) {
-    const result = spawnSync('tmux', defaultTmuxArgs('new-session', '-d', '-s', name, '-c', cwd, ...(command ?? [])), { encoding: 'utf8', env: defaultTmuxEnv() })
+    const result = spawnSync(tmuxExecutable(), defaultTmuxArgs('new-session', '-d', '-s', name, '-c', cwd, ...(command ?? [])), { encoding: 'utf8', env: defaultTmuxEnv() })
     if (result.status !== 0) throw new Error(result.stderr.trim() || 'Unable to create tmux session')
   },
   stop(name) {
-    const result = spawnSync('tmux', defaultTmuxArgs('kill-session', '-t', name), { encoding: 'utf8', env: defaultTmuxEnv() })
+    const result = spawnSync(tmuxExecutable(), defaultTmuxArgs('kill-session', '-t', name), { encoding: 'utf8', env: defaultTmuxEnv() })
     if (result.status !== 0) throw new Error(result.stderr.trim() || 'Unable to stop tmux session')
   },
   panes() {
-    const result = spawnSync('tmux', defaultTmuxArgs('list-panes', '-a', '-F', '#{session_name}\t#{pane_id}\t#{pane_pid}'), { encoding: 'utf8', env: defaultTmuxEnv() })
+    const result = spawnSync(tmuxExecutable(), defaultTmuxArgs('list-panes', '-a', '-F', '#{session_name}\t#{pane_id}\t#{pane_pid}'), { encoding: 'utf8', env: defaultTmuxEnv() })
     if (result.status !== 0) return []
     return result.stdout.trim().split('\n').filter(Boolean).flatMap((line) => {
       const [runtimeName, paneId, pid] = line.split('\t')
