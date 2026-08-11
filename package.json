@@ -24,6 +24,8 @@
     "test": "node --experimental-strip-types --test src/*.test.ts server/*.test.ts",
     "doctor": "node --experimental-strip-types server/doctor.ts",
     "hooks:install": "node --experimental-strip-types scripts/install-agent-hooks.ts",
+    "hooks:update": "node --experimental-strip-types scripts/install-agent-hooks.ts",
+    "hooks:status": "node --experimental-strip-types scripts/install-agent-hooks.ts status",
     "start": "node --experimental-strip-types server/index.ts",
     "preview": "npm run build && npm start"
   },

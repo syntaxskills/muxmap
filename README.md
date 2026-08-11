@@ -28,7 +28,10 @@ Optional Agent lifecycle hooks:
 
 ```bash
 npm run hooks:install
+npm run hooks:status
 ```
+
+After pulling MuxMap updates, run `npm run hooks:update`. It is idempotent and replaces stale MuxMap hook paths without changing your other Codex or Claude hooks.
 
 ## Verify
 

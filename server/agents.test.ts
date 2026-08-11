@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { addCommandHooks, agentActivityFromEvent, agentSessionInfoFromEvent, detectAgentKind, type ProcessInfo } from './agents.ts'
+import { addCommandHooks, agentActivityFromEvent, agentSessionInfoFromEvent, detectAgentKind, isMuxMapAgentHookCommand, type ProcessInfo } from './agents.ts'
 
 const processes: ProcessInfo[] = [
   { pid: 10, ppid: 1, command: 'bash' },
@@ -62,4 +62,27 @@ test('hook installation preserves existing handlers and is idempotent', () => {
   assert.equal((twice.hooks as { Stop: unknown[] }).Stop.length, 2)
   assert.equal((twice.hooks as { UserPromptSubmit: unknown[] }).UserPromptSubmit.length, 1)
   assert.equal(twice.setting, true)
+})
+
+test('hook installation updates stale MuxMap hook paths without touching user hooks', () => {
+  const existing = {
+    hooks: {
+      Stop: [
+        { hooks: [{ type: 'command', command: 'existing' }] },
+        { hooks: [{ type: 'command', command: 'node "/old/repo/muxmap/server/agent-hook.mjs" codex', timeout: 3 }] },
+      ],
+      UserPromptSubmit: [
+        { hooks: [{ type: 'command', command: 'node "/old/repo/muxmap/server/agent-hook.mjs" codex', timeout: 3 }] },
+      ],
+    },
+  }
+  const next = addCommandHooks(existing, ['Stop', 'UserPromptSubmit'], 'node "/new/repo/muxmap/server/agent-hook.mjs" codex', 'codex')
+  const hooks = next.hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>
+  const stopCommands = hooks.Stop.flatMap((group) => group.hooks.map((hook) => hook.command))
+  const promptCommands = hooks.UserPromptSubmit.flatMap((group) => group.hooks.map((hook) => hook.command))
+
+  assert.deepEqual(stopCommands, ['existing', 'node "/new/repo/muxmap/server/agent-hook.mjs" codex'])
+  assert.deepEqual(promptCommands, ['node "/new/repo/muxmap/server/agent-hook.mjs" codex'])
+  assert.equal(isMuxMapAgentHookCommand('node "/new/repo/muxmap/server/agent-hook.mjs" codex', 'codex'), true)
+  assert.equal(isMuxMapAgentHookCommand('node "/new/repo/muxmap/server/agent-hook.mjs" claude', 'codex'), false)
 })

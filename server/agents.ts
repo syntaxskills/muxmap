@@ -80,17 +80,30 @@ export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: R
   return { kind, state, since: now, ...agentSessionInfoFromEvent(input) }
 }
 
-export function addCommandHooks(config: Record<string, unknown>, events: string[], command: string) {
+export function isMuxMapAgentHookCommand(command: unknown, kind: AgentKind) {
+  return typeof command === 'string'
+    && /(^|[/\\])agent-hook\.mjs["']?\s+/.test(command)
+    && new RegExp(`\\b${kind}\\b`).test(command)
+}
+
+export function addCommandHooks(config: Record<string, unknown>, events: string[], command: string, kind?: AgentKind) {
   const next = structuredClone(config)
   const hooks = next.hooks && typeof next.hooks === 'object' ? next.hooks as Record<string, unknown> : {}
   next.hooks = hooks
   for (const event of events) {
     const groups = Array.isArray(hooks[event]) ? hooks[event] as Array<Record<string, unknown>> : []
-    const exists = groups.some((group) => Array.isArray(group.hooks) && group.hooks.some((hook) => (
+    const cleanGroups = kind ? groups.flatMap((group) => {
+      if (!Array.isArray(group.hooks)) return [group]
+      const cleanHooks = group.hooks.filter((hook) => (
+        !hook || typeof hook !== 'object' || !isMuxMapAgentHookCommand((hook as Record<string, unknown>).command, kind)
+      ))
+      return cleanHooks.length > 0 ? [{ ...group, hooks: cleanHooks }] : []
+    }) : groups
+    const exists = cleanGroups.some((group) => Array.isArray(group.hooks) && group.hooks.some((hook) => (
       hook && typeof hook === 'object' && (hook as Record<string, unknown>).command === command
     )))
-    if (!exists) groups.push({ hooks: [{ type: 'command', command, timeout: 3 }] })
-    hooks[event] = groups
+    if (!exists) cleanGroups.push({ hooks: [{ type: 'command', command, timeout: 3 }] })
+    hooks[event] = cleanGroups
   }
   return next
 }
