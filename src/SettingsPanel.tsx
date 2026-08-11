@@ -12,6 +12,7 @@ import {
   type SettingDefinition,
   type SettingKey,
 } from './settings.ts'
+import { systemNotificationResultText, type SystemNotificationResult } from './systemNotifications.ts'
 
 type Props = {
   settings: AppSettings
@@ -19,6 +20,7 @@ type Props = {
   notificationPermission: NotificationPermission | 'unsupported'
   onChange(settings: AppSettings): void
   onEnableNotifications(): void
+  onTestSystemNotification(): Promise<SystemNotificationResult>
   onClose(): void
 }
 
@@ -28,12 +30,13 @@ function settingValue(definition: SettingDefinition, settings: AppSettings) {
   return settings[definition.key]
 }
 
-export function SettingsPanel({ settings, platform, notificationPermission, onChange, onEnableNotifications, onClose }: Props) {
+export function SettingsPanel({ settings, platform, notificationPermission, onChange, onEnableNotifications, onTestSystemNotification, onClose }: Props) {
   const [mode, setMode] = useState<'ui' | 'json'>('ui')
   const [category, setCategory] = useState<SettingCategory>('Appearance')
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState(() => settingsJson(settings))
   const [jsonErrors, setJsonErrors] = useState<string[]>([])
+  const [notificationTest, setNotificationTest] = useState<SystemNotificationResult | null>(null)
 
   useEffect(() => {
     if (mode === 'ui') setDraft(settingsJson(settings))
@@ -87,7 +90,13 @@ export function SettingsPanel({ settings, platform, notificationPermission, onCh
                 </span>
               </label>
             })}
-            {category === 'Notifications' && !query && <div className="notification-permission"><span><strong>Browser permission</strong><small>Required before MuxMap can show agent alerts.</small></span><button type="button" onClick={onEnableNotifications} disabled={notificationPermission !== 'default'}>{notificationPermission === 'granted' ? 'Enabled' : notificationPermission === 'denied' ? 'Blocked by browser' : notificationPermission === 'unsupported' ? 'Unavailable' : 'Enable'}</button></div>}
+            {category === 'Notifications' && !query && <div className="notification-permission">
+              <span><strong>System notifications</strong><small>Your browser delivers agent alerts to the operating system notification center.</small>{notificationTest && <small className={`notification-test-result is-${notificationTest}`} role="status">{systemNotificationResultText(notificationTest)}</small>}</span>
+              <span className="notification-actions">
+                <button type="button" onClick={onEnableNotifications} disabled={notificationPermission !== 'default'}>{notificationPermission === 'granted' ? 'Enabled' : notificationPermission === 'denied' ? 'Blocked' : notificationPermission === 'unsupported' ? 'Unavailable' : 'Enable'}</button>
+                <button type="button" onClick={() => void onTestSystemNotification().then(setNotificationTest)} disabled={notificationPermission === 'unsupported'}>Send test</button>
+              </span>
+            </div>}
           </div>
         </div>
       </> : <div className="settings-json-editor">

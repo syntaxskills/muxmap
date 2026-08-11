@@ -1126,6 +1126,19 @@ kbd {
   gap: 4px;
 }
 
+.notification-actions {
+  min-width: 76px;
+}
+
+.notification-test-result.is-sent {
+  color: var(--accent);
+}
+
+.notification-test-result.is-permission-denied,
+.notification-test-result.is-failed {
+  color: #b07167;
+}
+
 .notification-permission button,
 .settings-json-heading button,
 .settings-json-actions button {

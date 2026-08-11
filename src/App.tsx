@@ -25,6 +25,7 @@ import { AgentIcon } from './AgentIcon.tsx'
 import { SettingsPanel } from './SettingsPanel.tsx'
 import { ArchivePanel } from './ArchivePanel.tsx'
 import { loadSettings, SETTINGS_VERSION, type AppSettings } from './settings.ts'
+import { sendTestSystemNotification } from './systemNotifications.ts'
 import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
@@ -543,6 +544,12 @@ function App() {
     setNotificationPermission(await Notification.requestPermission())
   }
 
+  async function testSystemNotification() {
+    const result = await sendTestSystemNotification('Notification' in window ? Notification : undefined, () => window.focus())
+    if ('Notification' in window) setNotificationPermission(Notification.permission)
+    return result
+  }
+
   function toggleSessionManager() {
     const opening = rightPanel !== 'sessions'
     setSurface((current) => openRightPanel(current, 'sessions'))
@@ -990,7 +997,7 @@ function App() {
           )}
         </aside>}
 
-        {sidePanelOpen && rightPanel === 'settings' && <SettingsPanel settings={settings} platform={platform} notificationPermission={notificationPermission} onChange={setSettings} onEnableNotifications={() => void enableAgentNotifications()} onClose={() => setSurface((current) => ({ ...current, rightPanel: null }))} />}
+        {sidePanelOpen && rightPanel === 'settings' && <SettingsPanel settings={settings} platform={platform} notificationPermission={notificationPermission} onChange={setSettings} onEnableNotifications={() => void enableAgentNotifications()} onTestSystemNotification={testSystemNotification} onClose={() => setSurface((current) => ({ ...current, rightPanel: null }))} />}
 
         {sidePanelOpen && rightPanel === 'archive' && <ArchivePanel nodes={graph.nodes} sessions={graph.sessions} busy={busy} onRestore={(nodeId) => void restoreNode(nodeId)} onClose={() => setSurface((current) => ({ ...current, rightPanel: null }))} />}
 

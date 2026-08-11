@@ -6,6 +6,7 @@ All notable changes to MuxMap are documented here.
 
 ### Changed
 
+- Added a Settings action that sends a real browser-mediated system notification and reports permission or delivery errors in place.
 - Made agent completion visible across the full node, added a clickable in-app alert fallback, and hid node types by default.
 - Added explicit password-free LAN/Tailscale access and a mobile layout with an 80% bottom Terminal sheet, focused nodes, safe-area support, and compact touch navigation.
 - Added reversible node and branch archiving with preserved hierarchy, search, restore, and terminal sessions.
