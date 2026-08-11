@@ -174,8 +174,10 @@ export function createMuxMapServer(options: ServerOptions) {
   const ptys = new Map<string, Set<PtyHandle>>()
   const lastActivityWrites = new Map<string, number>()
   const activityWriteIntervalMs = options.activityWriteIntervalMs ?? 5_000
+  let closing = false
 
   const recordSessionActivity = (sessionId: string) => {
+    if (closing) return
     const now = Date.now()
     if (now - (lastActivityWrites.get(sessionId) ?? 0) < activityWriteIntervalMs) return
     lastActivityWrites.set(sessionId, now)
@@ -430,6 +432,7 @@ export function createMuxMapServer(options: ServerOptions) {
       pty.kill()
       handles.delete(pty)
       if (handles.size === 0) ptys.delete(session.id)
+      if (closing) return
       const remaining = Math.max(0, (clients.get(session.id) ?? 1) - 1)
       if (remaining === 0) {
         clients.delete(session.id)
@@ -449,6 +452,7 @@ export function createMuxMapServer(options: ServerOptions) {
       })
     },
     close() {
+      closing = true
       for (const handles of ptys.values()) for (const pty of handles) pty.kill()
       for (const client of webSockets.clients) client.close()
       return new Promise<void>((resolveClose, reject) => {

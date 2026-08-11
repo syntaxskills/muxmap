@@ -283,6 +283,7 @@ test('terminal input and output both advance persisted last activity', async () 
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-terminal-activity-')))
   const tmux = fakeTmux()
   const ptyRecord = { writes: [] as string[], resizes: [] as number[][], kills: [] as number[], emitData: undefined as ((data: string) => void) | undefined }
+  let serverClosed = false
   const server = createMuxMapServer({
     databasePath: ':memory:', allowedRoots: [root], platform: 'linux', token: 'test-token', tmux,
     ptyFactory: fakePtyFactory(ptyRecord), activityWriteIntervalMs: 0,
@@ -312,8 +313,11 @@ test('terminal input and output both advance persisted last activity', async () 
     await eventually(() => Date.parse(server.store.getSession(session.session.id)?.lastActivityAt ?? '') > outputAt)
     ws.close()
     await new Promise((resolve) => ws.once('close', resolve))
-  } finally {
     await server.close()
+    serverClosed = true
+    assert.doesNotThrow(() => ptyRecord.emitData?.('late terminal output'))
+  } finally {
+    if (!serverClosed) await server.close()
     rmSync(root, { recursive: true, force: true })
   }
 })
