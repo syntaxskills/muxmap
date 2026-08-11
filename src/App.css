@@ -1646,6 +1646,19 @@ kbd {
   gap: 9px;
 }
 
+.recover-codex-card {
+  display: grid;
+  gap: 6px;
+}
+
+.recover-codex-card small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 9px/1.4 var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .terminal-preview {
   min-height: 132px;
   display: grid;

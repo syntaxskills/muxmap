@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, visibleNodes } from './graph.ts'
 import type { WorkNode } from './model.ts'
 
 const base = {
@@ -28,19 +28,42 @@ test('collapse hides descendants and search retains matching ancestors', () => {
 test('node selection opens only its live terminal and otherwise minimizes the current one', () => {
   const sessions = [
     { id: 'running', nodeId: 'a', status: 'running' },
+    { id: 'missing', nodeId: 'missing', status: 'running', runtimeExists: false },
     { id: 'stopped', nodeId: 'b', status: 'stopped' },
   ]
   assert.equal(liveSessionIdForNode(sessions, 'a'), 'running')
+  assert.equal(liveSessionIdForNode(sessions, 'missing'), null)
   assert.equal(liveSessionIdForNode(sessions, 'b'), null)
   assert.equal(liveSessionIdForNode(sessions, 'c'), null)
 })
 
 test('delete choices mention tmux only when the branch contains a live session', () => {
   assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'ticket', status: 'running' }], 'repo'), true)
+  assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'ticket', status: 'running', runtimeExists: false }], 'repo'), false)
   assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'ticket', status: 'stopped' }], 'repo'), false)
   assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'other', status: 'running' }], 'repo'), false)
   const archived = nodes.map((node) => node.id === 'repo' ? { ...node, archivedAt: '2026-08-11T00:00:00.000Z' } : node)
   assert.equal(branchHasLiveSession(archived, [{ nodeId: 'ticket', status: 'detached' }], 'repo'), true)
+})
+
+test('Codex recovery is based on missing runtime and a saved Codex session id', () => {
+  assert.equal(canRecoverCodexSession({
+    backend: 'tmux',
+    status: 'running',
+    runtimeExists: false,
+    agent: { kind: 'codex', externalSessionId: '019fd54a-12a9-72c2-8a66-ee62fc1c546e' },
+  }), true)
+  assert.equal(canRecoverCodexSession({
+    backend: 'tmux',
+    status: 'stopped',
+    agent: { kind: 'codex', externalSessionId: '019fd54a-12a9-72c2-8a66-ee62fc1c546e' },
+  }), true)
+  assert.equal(canRecoverCodexSession({
+    backend: 'tmux',
+    status: 'running',
+    runtimeExists: true,
+    agent: { kind: 'codex', externalSessionId: '019fd54a-12a9-72c2-8a66-ee62fc1c546e' },
+  }), false)
 })
 
 test('reordering moves nodes only within their existing sibling group', () => {

@@ -189,6 +189,14 @@ export function createSessionManager(
     return saved?.kind === kind ? saved : { kind, state: 'unavailable' }
   }
 
+  function runtimeExists(session: TerminalSession) {
+    return adapterFor(session.backend).exists(session.runtimeName)
+  }
+
+  function canRecoverCodex(session: TerminalSession, agent: AgentActivity | undefined, exists: boolean) {
+    return session.backend === 'tmux' && !exists && agent?.kind === 'codex' && Boolean(agent.externalSessionId)
+  }
+
   return {
     attach(nodeId: string, requestedCwd?: string, requestedBackend = selectedDefaultBackend): TerminalSession {
       const node = store.getNode(nodeId)
@@ -215,7 +223,7 @@ export function createSessionManager(
     },
 
     exists(session: TerminalSession) {
-      return adapterFor(session.backend).exists(session.runtimeName)
+      return runtimeExists(session)
         || runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped'
     },
 
@@ -261,7 +269,8 @@ export function createSessionManager(
     decorate(items: TerminalSession[], inventory = agentInventory()) {
       return items.map((session) => {
         const agent = agentFor(session.runtimeName, inventory)
-        return agent ? { ...session, agent } : session
+        const exists = runtimeExists(session)
+        return { ...session, ...(agent ? { agent } : {}), runtimeExists: exists, canRecoverCodex: canRecoverCodex(session, agent, exists) }
       })
     },
 

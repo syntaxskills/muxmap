@@ -674,11 +674,15 @@ test('Codex recovery recreates a missing tracked tmux session with codex resume'
     await fetch(`${base}/api/agent-events`, {
       method: 'POST',
       headers: { 'x-muxmap-hook': '1', 'content-type': 'application/json' },
-      body: JSON.stringify({ kind: 'codex', tmuxPane: '%12', event: { hook_event_name: 'Stop', session_id: '019fd54a-12a9-72c2-8a66-ee62fc1c546e' } }),
+      body: JSON.stringify({ kind: 'codex', tmuxPane: '%12', event: { hook_event_name: 'UserPromptSubmit', session_id: '019fd54a-12a9-72c2-8a66-ee62fc1c546e' } }),
     })
     tmux.live.clear()
     const stoppedGraph = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
-    assert.equal(stoppedGraph.sessions.find((item) => item.id === attached.session.id)?.status, 'stopped')
+    const stoppedSession = stoppedGraph.sessions.find((item) => item.id === attached.session.id)
+    assert.equal(stoppedSession?.status, 'stopped')
+    assert.equal(stoppedSession?.agent?.state, 'working')
+    assert.equal(stoppedSession?.runtimeExists, false)
+    assert.equal(stoppedSession?.canRecoverCodex, true)
 
     const recovered = await fetch(`${base}/api/sessions/${attached.session.id}/recover-codex`, {
       method: 'POST',

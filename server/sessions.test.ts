@@ -200,6 +200,30 @@ test('stopped Codex sessions can be recreated with codex resume', () => {
   }
 })
 
+test('working Codex activity is recoverable when its tmux runtime is missing', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-codex-working-recover-')))
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  adapter.panes = () => [{ runtimeName: 'muxmap-default-working-recover', paneId: '%13', pid: 310 }]
+  const manager = createSessionManager(store, adapter, [directory])
+
+  try {
+    const node = store.createNode('default', { parentId: 'workspace', title: 'Working recover', type: 'terminal', repoPath: directory })
+    const session = manager.attach(node.id)
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%13' }, 'codex', { hook_event_name: 'UserPromptSubmit', session_id: '019fd54a-12a9-72c2-8a66-ee62fc1c546e' })
+    adapter.live.clear()
+    manager.reconcile()
+
+    const decorated = manager.decorate([store.getSession(session.id)!])[0]
+    assert.equal(decorated.agent?.state, 'working')
+    assert.equal(decorated.runtimeExists, false)
+    assert.equal(decorated.canRecoverCodex, true)
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('completed agent activity stays read after reopening the workspace', () => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-agent-read-')))
   const database = join(directory, 'muxmap.db')

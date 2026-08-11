@@ -51,6 +51,8 @@ export type TerminalSession = {
   lastAttachedAt?: string
   lastActivityAt?: string
   agent?: AgentActivity
+  runtimeExists?: boolean
+  canRecoverCodex?: boolean
 }
 
 export type Workspace = {

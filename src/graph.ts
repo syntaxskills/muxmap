@@ -101,14 +101,24 @@ export function reorderSiblings(nodes: WorkNode[], movedId: string, targetId: st
   return nodes.map((node) => orders.has(node.id) ? { ...node, sortOrder: orders.get(node.id)! } : node)
 }
 
-export function liveSessionIdForNode(sessions: Array<{ id: string; nodeId: string; status: string }>, nodeId: string) {
-  return sessions.find((session) => session.nodeId === nodeId && session.status !== 'stopped')?.id ?? null
+export function liveSessionIdForNode(sessions: Array<{ id: string; nodeId: string; status: string; runtimeExists?: boolean }>, nodeId: string) {
+  return sessions.find((session) => session.nodeId === nodeId && session.status !== 'stopped' && session.runtimeExists !== false)?.id ?? null
 }
 
-export function branchHasLiveSession(nodes: WorkNode[], sessions: Array<{ nodeId: string; status: string }>, nodeId: string) {
+export function canRecoverCodexSession(session: {
+  backend: string
+  status: string
+  runtimeExists?: boolean
+  agent?: { kind: string; externalSessionId?: string }
+}) {
+  const runtimeMissing = session.runtimeExists === false || session.status === 'stopped'
+  return session.backend === 'tmux' && runtimeMissing && session.agent?.kind === 'codex' && Boolean(session.agent.externalSessionId)
+}
+
+export function branchHasLiveSession(nodes: WorkNode[], sessions: Array<{ nodeId: string; status: string; runtimeExists?: boolean }>, nodeId: string) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   return sessions.some((session) => {
-    if (session.status === 'stopped') return false
+    if (session.status === 'stopped' || session.runtimeExists === false) return false
     let currentId: string | null = session.nodeId
     while (currentId) {
       if (currentId === nodeId) return true

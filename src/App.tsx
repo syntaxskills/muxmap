@@ -11,7 +11,7 @@ import {
 } from 'react'
 import './App.css'
 import { api } from './api.ts'
-import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleNodes } from './graph.ts'
 import { centerPan, dragPan, gridBackground, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
 import type { NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
@@ -213,7 +213,7 @@ function App() {
     const archivedIds = effectiveArchivedNodeIds(graph.nodes)
     if (!graph.nodes.some((node) => node.id === selectedId) || archivedIds.has(selectedId)) setSelectedId(graph.workspace.rootNodeId)
     if (!terminalSessionId) return
-    const restored = graph.sessions.find((item) => item.id === terminalSessionId && item.status !== 'stopped')
+    const restored = graph.sessions.find((item) => item.id === terminalSessionId && item.status !== 'stopped' && item.runtimeExists !== false)
     if (!restored || archivedIds.has(restored.nodeId)) {
       setSurface(closeTerminal)
       return
@@ -791,7 +791,7 @@ function App() {
   const hasChildren = graph.nodes.some((node) => node.parentId === selected.id)
   const branchHasSession = branchHasLiveSession(graph.nodes, graph.sessions, selected.id)
   const contextCount = [selected.project, selected.jiraKey, selected.repoPath, selected.note].filter(Boolean).length
-  const terminalPanel = activeTerminal && activeTerminalNode && activeTerminal.status !== 'stopped' ? (
+  const terminalPanel = activeTerminal && activeTerminalNode && activeTerminal.status !== 'stopped' && activeTerminal.runtimeExists !== false ? (
     <Suspense fallback={<section className={`terminal terminal-window terminal-loading ${terminalFloating ? 'is-floating' : 'is-docked'}`} aria-label="Loading terminal"><span /><span /></section>}>
       <TerminalPanel
         key={activeTerminal.id}
@@ -830,7 +830,7 @@ function App() {
           {agentCount > 0 && <span>{agentCount} agents</span>}
           <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))} aria-expanded={rightPanel === 'archive'} aria-label={`${archivedCount} archived nodes`} title="Archive"><ArchiveIcon /><span>{archivedCount} archived</span></button>
           <button type="button" onClick={toggleSessionManager} aria-expanded={rightPanel === 'sessions'} aria-label="Terminal sessions" title="Terminal sessions">
-            <DesktopIcon /><span>{graph.sessions.filter((item) => item.status !== 'stopped').length + orphans.length} sessions{orphans.length > 0 ? ` · ${orphans.length} orphan` : ''}</span>
+            <DesktopIcon /><span>{graph.sessions.filter((item) => item.status !== 'stopped' && item.runtimeExists !== false).length + orphans.length} sessions{orphans.length > 0 ? ` · ${orphans.length} orphan` : ''}</span>
           </button>
           <button className="settings-trigger" type="button" onClick={() => setSurface((current) => openRightPanel(current, 'settings'))} aria-expanded={rightPanel === 'settings'} aria-label="Settings" title="Settings"><GearIcon /><span>Settings</span></button>
         </div>
@@ -1036,14 +1036,17 @@ function App() {
           )}
 
           <div className="node-commands">
-            {session && session.status !== 'stopped' ? (
+            {session && session.status !== 'stopped' && session.runtimeExists !== false ? (
               <button className={`terminal-preview ${terminalSessionId === session.id ? 'is-active' : ''}`} type="button" onClick={() => openTerminal(session.id)} aria-label={`Expand terminal for ${selected.title}`} style={{ '--accent': selected.color, '--accent-soft': `color-mix(in srgb, ${selected.color} 20%, transparent)` } as CSSProperties}>
                 <span className="terminal-preview-bar"><i /><i /><i /><strong>{session.agent ? agentStatusText(session.agent) : session.status} · {formatActivityAge(sessionActivityTimestamp(session))}</strong></span>
                 <span className="terminal-preview-screen"><code>$ {session.backend} attach</code><code>{session.runtimeName}</code><i /></span>
                 <span className="terminal-preview-footer"><strong>{selected.title}</strong><small>Click to expand ↗</small></span>
               </button>
-            ) : session?.backend === 'tmux' && session.agent?.kind === 'codex' && session.agent.externalSessionId ? (
-              <button className="attach-button recover-codex-button" type="button" onClick={() => void recoverCodexSession(session.id)} disabled={busy}>Recover Codex</button>
+            ) : session && canRecoverCodexSession(session) ? (
+              <div className="recover-codex-card">
+                <button className="attach-button recover-codex-button" type="button" onClick={() => void recoverCodexSession(session.id)} disabled={busy}>Resume Codex</button>
+                <small>Codex {session.agent?.externalSessionId?.slice(0, 8)} · {session.agent?.externalCwd ?? session.cwd}</small>
+              </div>
             ) : (
               <button className="attach-button" type="button" onClick={() => void attachTerminal()} disabled={busy}>{session ? 'Restart terminal' : 'Attach terminal'}</button>
             )}
@@ -1079,10 +1082,10 @@ function App() {
                 const isArchived = archivedIds.has(item.nodeId)
                 return (
                   <article className={`session-row ${terminalSessionId === item.id || selected.id === item.nodeId ? 'is-current' : ''}`} key={item.id}>
-                    <div><strong>{node?.title ?? item.name}</strong><code>{item.runtimeName}</code><small className={item.agent ? `is-${item.agent.state}` : undefined}>{item.agent && <AgentIcon kind={item.agent.kind} />}{item.agent ? agentStatusText(item.agent) : item.status}</small></div>
+                    <div><strong>{node?.title ?? item.name}</strong><code>{item.runtimeName}</code><small className={item.agent ? `is-${item.agent.state}` : undefined}>{item.agent && <AgentIcon kind={item.agent.kind} />}{item.runtimeExists === false ? 'tmux missing · ' : ''}{item.agent ? agentStatusText(item.agent) : item.status}</small></div>
                     <div className="session-row-actions">
-                      {isArchived ? <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))}>Archived</button> : item.status !== 'stopped' ? <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button> : item.backend === 'tmux' && item.agent?.kind === 'codex' && item.agent.externalSessionId ? <button type="button" onClick={() => { setSelectedId(item.nodeId); void recoverCodexSession(item.id) }} disabled={busy}>Recover Codex</button> : null}
-                      {item.status !== 'stopped' && (confirmStopSession === `${item.backend}:${item.runtimeName}` ? (
+                      {isArchived ? <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))}>Archived</button> : item.status !== 'stopped' && item.runtimeExists !== false ? <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button> : canRecoverCodexSession(item) ? <button type="button" onClick={() => { setSelectedId(item.nodeId); void recoverCodexSession(item.id) }} disabled={busy}>Resume Codex</button> : null}
+                      {item.status !== 'stopped' && item.runtimeExists !== false && (confirmStopSession === `${item.backend}:${item.runtimeName}` ? (
                         <><button className="danger-button" type="button" onClick={() => void stopSession(item.id)} disabled={busy}>Confirm stop</button><button type="button" onClick={() => setConfirmStopSession(null)}>Cancel</button></>
                       ) : <button type="button" onClick={() => setConfirmStopSession(`${item.backend}:${item.runtimeName}`)}>Stop</button>)}
                     </div>
@@ -1094,7 +1097,7 @@ function App() {
             <section>
               <h3>Orphan <span>{orphans.length}</span></h3>
               {orphans.length === 0 ? <p>No orphan sessions.</p> : orphans.map((orphan) => {
-                const selectedHasSession = graph.sessions.some((item) => item.nodeId === selected.id && item.status !== 'stopped')
+                const selectedHasSession = graph.sessions.some((item) => item.nodeId === selected.id && item.status !== 'stopped' && item.runtimeExists !== false)
                 return (
                   <article className="session-row is-orphan" key={`${orphan.backend}:${orphan.runtimeName}`}>
                     <div><strong>{orphan.runtimeName}</strong><small className={orphan.agent ? `is-${orphan.agent.state}` : undefined}>{orphan.agent && <AgentIcon kind={orphan.agent.kind} />}{orphan.agent ? agentStatusText(orphan.agent) : `Live ${orphan.backend}`} · not linked to a node</small></div>
