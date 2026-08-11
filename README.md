@@ -8,7 +8,7 @@ MuxMap is a local-first mindmap for organizing development work and persistent t
 - Dock, float, resize, or full-screen terminal sessions.
 - Reattach after refresh and manage orphan `muxmap*` sessions.
 - Detect Codex, Claude Code, Pi, and SSH activity.
-- Tune 20 workspace options through compact UI or `settings.json`.
+- Tune 21 workspace options through compact UI or `settings.json`.
 - Persist workspaces in SQLite and bind the server to localhost.
 
 ![MuxMap workspace](docs/assets/muxmap-workspace.png)

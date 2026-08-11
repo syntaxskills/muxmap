@@ -18,13 +18,13 @@ import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { normalizeTerminalOpacity, normalizeTerminalSplit } from './terminalInteraction.ts'
 import { readViewState, writeViewState } from './viewState.ts'
 import { agentStatusText } from './agentStatus.ts'
-import { mergeAgentNotifications, scanAgentNotifications, type AgentNotification } from './agentNotifications.ts'
+import { mergeAgentNotifications, routeAgentNotifications, scanAgentNotifications, type AgentNotification } from './agentNotifications.ts'
 import { dragIntent, dropPositionAt, pointerReleaseIntent } from './nodeReorderInteraction.ts'
 import { contextMenuPosition, duplicateNodeInput } from './nodeContextMenu.ts'
 import { AgentIcon } from './AgentIcon.tsx'
 import { SettingsPanel } from './SettingsPanel.tsx'
 import { ArchivePanel } from './ArchivePanel.tsx'
-import { loadSettings, SETTINGS_VERSION, type AppSettings } from './settings.ts'
+import { loadSettings, notificationDeliveryTargets, SETTINGS_VERSION, type AppSettings } from './settings.ts'
 import { sendTestSystemNotification } from './systemNotifications.ts'
 import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
@@ -101,6 +101,7 @@ function App() {
   const splitDragRef = useRef<number | null>(null)
   const settingsPlatformRef = useRef(clientPlatform)
   const { rightPanel, terminalSessionId, terminalFloating } = surface
+  const inPageNotificationsEnabled = notificationDeliveryTargets(settings['notifications.delivery']).inPage
 
   const loadWorkspace = useCallback(async () => {
     setError('')
@@ -154,10 +155,10 @@ function App() {
       notificationBaselineReady.current = true
       return
     }
-    if (scanned.notifications.length > 0) setAgentAlerts((current) => mergeAgentNotifications(current, scanned.notifications))
-    if (!('Notification' in window) || Notification.permission !== 'granted') return
-    for (const event of scanned.notifications) {
-      if (event.key.startsWith('needs_input:') ? !settings['notifications.needsInput'] : !settings['notifications.completed']) continue
+    const routed = routeAgentNotifications(scanned.notifications, settings['notifications.delivery'], settings['notifications.completed'], settings['notifications.needsInput'])
+    if (routed.inPage.length > 0) setAgentAlerts((current) => mergeAgentNotifications(current, routed.inPage))
+    if (routed.system.length === 0 || !('Notification' in window) || Notification.permission !== 'granted') return
+    for (const event of routed.system) {
       try {
         const notification = new Notification(event.title, {
           body: event.body,
@@ -176,6 +177,9 @@ function App() {
       }
     }
   }, [graph, settings])
+  useEffect(() => {
+    if (!inPageNotificationsEnabled) setAgentAlerts([])
+  }, [inPageNotificationsEnabled])
   useEffect(() => {
     const search = writeViewState(window.location.search, { selectedId, terminalSessionId, terminalFloating })
     const nextUrl = `${window.location.pathname}${search}${window.location.hash}`

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mergeAgentNotifications, scanAgentNotifications } from './agentNotifications.ts'
+import { mergeAgentNotifications, routeAgentNotifications, scanAgentNotifications } from './agentNotifications.ts'
 import type { WorkspaceGraph } from './model.ts'
 
 function graph(state: 'working' | 'needs_input' | 'completed' | 'read', since: string): WorkspaceGraph {
@@ -47,4 +47,14 @@ test('in-app agent notifications remain visible and deduplicate repeated polling
   assert.deepEqual(mergeAgentNotifications(completed, needsInput).map((item) => item.key), [
     'needs_input:10:15',
   ])
+})
+
+test('agent notifications route exclusively to the selected delivery channel', () => {
+  const completed = scanAgentNotifications(graph('completed', '10:10'), new Map()).notifications
+
+  assert.deepEqual(routeAgentNotifications(completed, 'system', true, true), { system: completed, inPage: [] })
+  assert.deepEqual(routeAgentNotifications(completed, 'in-page', true, true), { system: [], inPage: completed })
+  assert.deepEqual(routeAgentNotifications(completed, 'both', true, true), { system: completed, inPage: completed })
+  assert.deepEqual(routeAgentNotifications(completed, 'off', true, true), { system: [], inPage: [] })
+  assert.deepEqual(routeAgentNotifications(completed, 'both', false, true), { system: [], inPage: [] })
 })

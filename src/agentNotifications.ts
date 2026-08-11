@@ -1,5 +1,6 @@
 import { agentNames } from './agentStatus.ts'
 import type { WorkspaceGraph } from './model.ts'
+import { notificationDeliveryTargets, type AppSettings } from './settings.ts'
 
 export type AgentNotification = {
   key: string
@@ -13,6 +14,15 @@ export function mergeAgentNotifications(current: AgentNotification[], incoming: 
   const merged = new Map(current.map((item) => [item.sessionId, item]))
   for (const item of incoming) merged.set(item.sessionId, item)
   return [...merged.values()]
+}
+
+export function routeAgentNotifications(notifications: AgentNotification[], delivery: AppSettings['notifications.delivery'], completed: boolean, needsInput: boolean) {
+  const enabled = notifications.filter((event) => event.key.startsWith('needs_input:') ? needsInput : completed)
+  const targets = notificationDeliveryTargets(delivery)
+  return {
+    system: targets.system ? enabled : [],
+    inPage: targets.inPage ? enabled : [],
+  }
 }
 
 export function scanAgentNotifications(graph: WorkspaceGraph, previous: ReadonlyMap<string, string>, emit = true) {

@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   defaultSettings,
   loadSettings,
+  notificationDeliveryTargets,
   parseSettingsJson,
   SETTINGS_VERSION,
   settingDefinitions,
@@ -10,9 +11,9 @@ import {
   terminalBackendsForPlatform,
 } from './settings.ts'
 
-test('the settings schema exposes exactly twenty adjustable settings', () => {
-  assert.equal(settingDefinitions.length, 20)
-  assert.equal(new Set(settingDefinitions.map((item) => item.key)).size, 20)
+test('the settings schema exposes the compact adjustable settings', () => {
+  assert.equal(settingDefinitions.length, 21)
+  assert.equal(new Set(settingDefinitions.map((item) => item.key)).size, 21)
   assert.deepEqual([...new Set(settingDefinitions.map((item) => item.category))], [
     'Appearance',
     'Canvas',
@@ -20,6 +21,15 @@ test('the settings schema exposes exactly twenty adjustable settings', () => {
     'Terminal',
     'Notifications',
   ])
+})
+
+test('notification delivery can target the system, the page, both, or neither', () => {
+  assert.deepEqual(notificationDeliveryTargets('both'), { system: true, inPage: true })
+  assert.deepEqual(notificationDeliveryTargets('system'), { system: true, inPage: false })
+  assert.deepEqual(notificationDeliveryTargets('in-page'), { system: false, inPage: true })
+  assert.deepEqual(notificationDeliveryTargets('off'), { system: false, inPage: false })
+  assert.equal(defaultSettings('linux')['notifications.delivery'], 'both')
+  assert.equal(parseSettingsJson('{"notifications.delivery":"system"}', 'linux').settings?.['notifications.delivery'], 'system')
 })
 
 test('settings JSON accepts partial overrides and round trips all effective values', () => {

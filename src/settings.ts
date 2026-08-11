@@ -23,6 +23,7 @@ export type AppSettings = {
   'terminal.scrollback': number
   'terminal.splitPercent': number
   'terminal.defaultPlacement': 'docked' | 'floating'
+  'notifications.delivery': 'both' | 'system' | 'in-page' | 'off'
   'notifications.completed': boolean
   'notifications.needsInput': boolean
 }
@@ -63,8 +64,9 @@ export const settingDefinitions: SettingDefinition[] = [
   { key: 'terminal.scrollback', category: 'Terminal', label: 'Scrollback', description: 'Maximum terminal history kept in the browser.', control: 'number', min: 1000, max: 50000, step: 1000, unit: 'lines' },
   { key: 'terminal.splitPercent', category: 'Terminal', label: 'Mindmap width', description: 'Share kept for the mindmap when a terminal is docked.', control: 'number', min: 25, max: 75, step: 1, unit: '%' },
   { key: 'terminal.defaultPlacement', category: 'Terminal', label: 'Open terminals', description: 'Chooses the initial terminal window placement.', control: 'select', options: [{ value: 'docked', label: 'Docked right' }, { value: 'floating', label: 'Floating' }] },
-  { key: 'notifications.completed', category: 'Notifications', label: 'Task completed', description: 'Shows a browser alert when an agent finishes.', control: 'boolean' },
-  { key: 'notifications.needsInput', category: 'Notifications', label: 'Needs input', description: 'Shows a persistent alert when an agent asks for help.', control: 'boolean' },
+  { key: 'notifications.delivery', category: 'Notifications', label: 'Delivery', description: 'Choose system notifications, in-page alerts, both, or neither.', control: 'select', options: [{ value: 'both', label: 'System + in-page' }, { value: 'system', label: 'System only' }, { value: 'in-page', label: 'In-page only' }, { value: 'off', label: 'Off' }] },
+  { key: 'notifications.completed', category: 'Notifications', label: 'Task completed', description: 'Alerts when an agent finishes.', control: 'boolean' },
+  { key: 'notifications.needsInput', category: 'Notifications', label: 'Needs input', description: 'Alerts when an agent asks for help.', control: 'boolean' },
 ]
 
 export function terminalBackendsForPlatform(platform: RuntimePlatform): TerminalBackend[] {
@@ -98,8 +100,16 @@ export function defaultSettings(platform: RuntimePlatform): AppSettings {
     'terminal.scrollback': 10000,
     'terminal.splitPercent': 50,
     'terminal.defaultPlacement': 'docked',
+    'notifications.delivery': 'both',
     'notifications.completed': true,
     'notifications.needsInput': true,
+  }
+}
+
+export function notificationDeliveryTargets(delivery: AppSettings['notifications.delivery']) {
+  return {
+    system: delivery === 'both' || delivery === 'system',
+    inPage: delivery === 'both' || delivery === 'in-page',
   }
 }
 
