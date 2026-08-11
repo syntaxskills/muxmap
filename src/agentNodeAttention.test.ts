@@ -11,5 +11,7 @@ test('agent node attention distinguishes working, completed, and input-needed st
   assert.doesNotMatch(css, /\.map-node\.is-agent-completed\s+\.node-select\s*\{[^}]*animation:/s)
   assert.match(css, /\.agent-needs-input-marker\s*\{[^}]*position:\s*absolute/s)
   assert.match(app, /agent-needs-input-marker[\s\S]*>\?<\/span>/)
+  assert.match(app, /const visibleAgent = visibleAgentForSession\(nodeSession\)/)
+  assert.match(app, /visibleAgent \? agentStatusText\(visibleAgent\) : nodeSession\.runtimeExists === false \? 'Terminal runtime missing'/)
   assert.match(css, /prefers-reduced-motion:[^)]+\)[\s\S]*\.map-node\.is-agent-working\s+\.node-select::after[\s\S]*animation:\s*none/)
 })

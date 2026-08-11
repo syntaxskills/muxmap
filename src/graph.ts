@@ -115,6 +115,11 @@ export function canRecoverCodexSession(session: {
   return session.backend === 'tmux' && runtimeMissing && session.agent?.kind === 'codex' && Boolean(session.agent.externalSessionId)
 }
 
+export function visibleAgentForSession<T extends { status: string; runtimeExists?: boolean; agent?: unknown }>(session: T | undefined): T['agent'] | undefined {
+  if (!session || session.status === 'stopped' || session.runtimeExists === false) return undefined
+  return session.agent
+}
+
 export function branchHasLiveSession(nodes: WorkNode[], sessions: Array<{ nodeId: string; status: string; runtimeExists?: boolean }>, nodeId: string) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   return sessions.some((session) => {

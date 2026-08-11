@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, visibleAgentForSession, visibleNodes } from './graph.ts'
 import type { WorkNode } from './model.ts'
 
 const base = {
@@ -47,12 +47,14 @@ test('delete choices mention tmux only when the branch contains a live session',
 })
 
 test('Codex recovery is based on missing runtime and a saved Codex session id', () => {
-  assert.equal(canRecoverCodexSession({
+  const missingWorking = {
     backend: 'tmux',
     status: 'running',
     runtimeExists: false,
     agent: { kind: 'codex', externalSessionId: '019fd54a-12a9-72c2-8a66-ee62fc1c546e' },
-  }), true)
+  }
+  assert.equal(canRecoverCodexSession(missingWorking), true)
+  assert.equal(visibleAgentForSession(missingWorking), undefined)
   assert.equal(canRecoverCodexSession({
     backend: 'tmux',
     status: 'stopped',
@@ -64,6 +66,12 @@ test('Codex recovery is based on missing runtime and a saved Codex session id', 
     runtimeExists: true,
     agent: { kind: 'codex', externalSessionId: '019fd54a-12a9-72c2-8a66-ee62fc1c546e' },
   }), false)
+  assert.deepEqual(visibleAgentForSession({
+    backend: 'tmux',
+    status: 'running',
+    runtimeExists: true,
+    agent: { kind: 'codex', state: 'working' },
+  }), { kind: 'codex', state: 'working' })
 })
 
 test('reordering moves nodes only within their existing sibling group', () => {

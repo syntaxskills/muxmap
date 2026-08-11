@@ -11,7 +11,7 @@ import {
 } from 'react'
 import './App.css'
 import { api } from './api.ts'
-import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
 import { centerPan, dragPan, gridBackground, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
 import type { NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
@@ -267,7 +267,7 @@ function App() {
     .filter((node) => node.id === selectedId || node.id === hoveredId)
     .map((node) => {
       const nodeSession = sessionsByNode.get(node.id)
-      return [node.id, expandedNodeHeight(node, Boolean(nodeSession?.agent), archivedChildCounts.get(node.id) ?? 0, Boolean(nodeSession))]
+      return [node.id, expandedNodeHeight(node, Boolean(visibleAgentForSession(nodeSession)), archivedChildCounts.get(node.id) ?? 0, Boolean(nodeSession))]
     })), [archivedChildCounts, hoveredId, nodes, selectedId, sessionsByNode])
   const positions = useMemo(
     () => layoutTree(nodes, graph?.workspace.rootNodeId ?? 'workspace', settings['mindmap.columnGap'], settings['mindmap.rowGap'], nodeHeights),
@@ -279,7 +279,7 @@ function App() {
   const activeTerminal = graph?.sessions.find((item) => item.id === terminalSessionId)
   const activeTerminalNode = activeGraphNodes.find((node) => node.id === activeTerminal?.nodeId)
   const orphans = graph?.orphans ?? []
-  const agentCount = [...(graph?.sessions ?? []), ...orphans].filter((item) => item.agent).length
+  const agentCount = [...(graph?.sessions ?? []).filter((item) => visibleAgentForSession(item)), ...orphans.filter((item) => item.agent)].length
   const width = Math.max(0, ...[...positions.values()].map(({ x }) => x)) + NODE_WIDTH + 96
   const height = Math.max(0, ...nodes.map((node) => (positions.get(node.id)?.y ?? 0) + (nodeHeights.get(node.id) ?? NODE_HEIGHT))) + 96
 
@@ -896,7 +896,8 @@ function App() {
                   const point = positions.get(node.id)
                   if (!point) return null
                   const nodeSession = sessionsByNode.get(node.id)
-                  const agentState = nodeSession?.agent?.state
+                  const visibleAgent = visibleAgentForSession(nodeSession)
+                  const agentState = visibleAgent?.state
                   const activityTimestamp = nodeSession ? sessionActivityTimestamp(nodeSession) : undefined
                   const activityAge = formatActivityAge(activityTimestamp)
                   const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
@@ -947,7 +948,7 @@ function App() {
                               {node.jiraKey && <span><b>Ticket</b>{node.jiraKey}</span>}
                               {node.repoPath && <span><b>Path</b><code>{node.repoPath}</code></span>}
                               {node.note && <span><b>Note</b><em>{node.note}</em></span>}
-                              {nodeSession?.agent && <span><b>Agent</b>{agentStatusText(nodeSession.agent)}</span>}
+                              {visibleAgent && <span><b>Agent</b>{agentStatusText(visibleAgent)}</span>}
                               {nodeSession && <span><b>Activity</b><time dateTime={activityTimestamp}>{activityAge === 'NOW' ? activityAge : `${activityAge} ago`}</time></span>}
                               {archivedChildCount > 0 && <span><b>Archived</b>{archivedChildCount} {archivedChildCount === 1 ? 'child' : 'children'}</span>}
                               <span><b>Terminal</b>{nodeSession?.status ?? 'None'}</span>
@@ -955,7 +956,7 @@ function App() {
                           )}
                         </span>
                         {childCount > 0 && <span className="child-count">{collapsed.has(node.id) ? '+' : childCount}</span>}
-                        {nodeSession && <span className="node-runtime" title={`Last activity ${new Date(activityTimestamp!).toLocaleString()}`}><time className="node-last-activity" dateTime={activityTimestamp}>{activityAge}</time><span className={`terminal-badge is-${nodeSession.status} ${nodeSession.agent ? `is-${nodeSession.agent.state}` : ''}`} title={nodeSession.agent ? agentStatusText(nodeSession.agent) : `Terminal ${nodeSession.status}`}>{nodeSession.agent ? <AgentIcon kind={nodeSession.agent.kind} /> : '>_'}</span></span>}
+                        {nodeSession && <span className="node-runtime" title={`Last activity ${new Date(activityTimestamp!).toLocaleString()}`}><time className="node-last-activity" dateTime={activityTimestamp}>{activityAge}</time><span className={`terminal-badge is-${nodeSession.status} ${visibleAgent ? `is-${visibleAgent.state}` : ''}`} title={visibleAgent ? agentStatusText(visibleAgent) : nodeSession.runtimeExists === false ? 'Terminal runtime missing' : `Terminal ${nodeSession.status}`}>{visibleAgent ? <AgentIcon kind={visibleAgent.kind} /> : '>_'}</span></span>}
                       </button>
                       {agentState === 'needs_input' && <span className="agent-needs-input-marker" role="img" aria-label={`Agent needs input for ${node.title}`} title="Agent needs input">?</span>}
                       <button className="node-add-action" type="button" onClick={() => void addChild(node)} aria-label={`Add child to ${node.title}`}>+</button>
@@ -1080,9 +1081,13 @@ function App() {
               {graph.sessions.length === 0 ? <p>No linked sessions.</p> : graph.sessions.map((item) => {
                 const node = graph.nodes.find((candidate) => candidate.id === item.nodeId)
                 const isArchived = archivedIds.has(item.nodeId)
+                const visibleAgent = visibleAgentForSession(item)
+                const statusText = item.runtimeExists === false
+                  ? canRecoverCodexSession(item) ? 'tmux missing · Codex resume available' : 'tmux missing'
+                  : visibleAgent ? agentStatusText(visibleAgent) : item.status
                 return (
                   <article className={`session-row ${terminalSessionId === item.id || selected.id === item.nodeId ? 'is-current' : ''}`} key={item.id}>
-                    <div><strong>{node?.title ?? item.name}</strong><code>{item.runtimeName}</code><small className={item.agent ? `is-${item.agent.state}` : undefined}>{item.agent && <AgentIcon kind={item.agent.kind} />}{item.runtimeExists === false ? 'tmux missing · ' : ''}{item.agent ? agentStatusText(item.agent) : item.status}</small></div>
+                    <div><strong>{node?.title ?? item.name}</strong><code>{item.runtimeName}</code><small className={visibleAgent ? `is-${visibleAgent.state}` : undefined}>{visibleAgent && <AgentIcon kind={visibleAgent.kind} />}{statusText}</small></div>
                     <div className="session-row-actions">
                       {isArchived ? <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))}>Archived</button> : item.status !== 'stopped' && item.runtimeExists !== false ? <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button> : canRecoverCodexSession(item) ? <button type="button" onClick={() => { setSelectedId(item.nodeId); void recoverCodexSession(item.id) }} disabled={busy}>Resume Codex</button> : null}
                       {item.status !== 'stopped' && item.runtimeExists !== false && (confirmStopSession === `${item.backend}:${item.runtimeName}` ? (
