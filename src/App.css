@@ -2274,6 +2274,11 @@ kbd {
   }
 }
 
+@keyframes terminal-sheet-in {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
 @keyframes terminal-caret {
   50% { opacity: 0; }
 }
@@ -2439,21 +2444,159 @@ kbd {
   to { opacity: 0.72; }
 }
 
-@media (max-width: 520px) {
+@media (max-width: 640px) {
   .topbar {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .brand {
+    padding: 0 12px;
   }
 
   .brand > span:last-child,
   .search-box > span,
-  .topbar-status span:first-child {
+  .search-box kbd,
+  .topbar-status > span,
+  .topbar-status button span {
     display: none;
+  }
+
+  .search-box {
+    margin: 0;
   }
 
   .topbar-status {
+    display: flex;
+    gap: 2px;
+    padding: 0 8px 0 4px;
+  }
+
+  .topbar-status button,
+  .topbar-status .settings-trigger {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border-left-color: transparent;
+  }
+
+  .topbar-status button svg {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+  }
+
+  .workspace.has-side-panel,
+  .workspace.has-docked-terminal {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .terminal-splitter {
     display: none;
   }
 
+  .side-panel {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 7;
+    width: 100vw;
+    height: min(78dvh, calc(100dvh - 58px));
+    padding-bottom: env(safe-area-inset-bottom);
+    border-top: 1px solid var(--line-strong);
+    border-left: 0;
+    box-shadow: 0 -18px 48px var(--shadow);
+    animation: terminal-sheet-in 220ms cubic-bezier(.2, .82, .2, 1) both;
+  }
+
+  .side-panel-close,
+  .side-panel-actions button {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .terminal-window.is-docked:not(.is-fullscreen),
+  .terminal-window.is-floating:not(.is-fullscreen) {
+    position: fixed;
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 8;
+    width: 100vw;
+    height: 80dvh;
+    min-width: 0;
+    min-height: 0;
+    max-height: calc(100dvh - 48px);
+    padding-bottom: env(safe-area-inset-bottom);
+    transform: none;
+    resize: none;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    box-shadow: 0 -20px 56px rgba(0, 0, 0, .42);
+    animation: terminal-sheet-in 220ms cubic-bezier(.2, .82, .2, 1) both;
+  }
+
+  .terminal-window:not(.is-fullscreen)::before {
+    content: '';
+    position: absolute;
+    top: 5px;
+    left: 50%;
+    z-index: 2;
+    width: 34px;
+    height: 3px;
+    transform: translateX(-50%);
+    background: var(--terminal-muted);
+    opacity: .55;
+    pointer-events: none;
+  }
+
+  .terminal-window:not(.is-fullscreen) .terminal-header {
+    padding-top: 5px;
+  }
+
+  .terminal-window.is-fullscreen {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .terminal-node-editor {
+    max-height: calc(80dvh - 48px);
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .terminal-node-editor .is-wide {
+    grid-column: auto;
+  }
+
+  .terminal-actions .terminal-icon-button {
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+  }
+
+  .terminal-float-action {
+    display: none !important;
+  }
+
+  .canvas-toolbar {
+    right: 10px;
+    left: 10px;
+    grid-template-columns: 32px 48px 32px auto auto;
+  }
+
+  .canvas-toolbar .fit-button:last-child {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
   .search-box {
     margin-right: 12px;
   }
@@ -2462,20 +2605,17 @@ kbd {
     display: none;
   }
 
-  .terminal-window {
-    top: 58px;
-    left: 0;
-    width: 100vw;
-    height: calc(100dvh - 58px);
-    transform: none;
-    border-right: 0;
-    border-bottom: 0;
-    border-left: 0;
-  }
-
   .terminal-title span,
   .runtime-state,
   .terminal-action-divider {
     display: none;
+  }
+}
+
+@media (max-width: 640px) and (prefers-reduced-motion: reduce) {
+  .side-panel,
+  .terminal-window.is-docked:not(.is-fullscreen),
+  .terminal-window.is-floating:not(.is-fullscreen) {
+    animation: none;
   }
 }

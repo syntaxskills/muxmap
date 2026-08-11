@@ -49,6 +49,8 @@ MuxMap is privileged software. Restrict terminal paths with `MUXMAP_ALLOWED_ROOT
 
 LAN/Tailscale browsers use Basic Auth with username `muxmap` and password `MUXMAP_TOKEN`. Hooks send the same credential when the token is in their environment; for direct Tailscale binding, also set `MUXMAP_URL` to the logged Tailscale URL. `HOST=0.0.0.0` remains a compatibility alias for LAN mode.
 
+To deliberately remove the password, set `MUXMAP_AUTH=none` with `MUXMAP_ACCESS=lan` or `tailscale`. This exposes terminal control to every client allowed by the network and firewall, so password authentication remains the default.
+
 Run `npm run doctor` before exposing MuxMap. It checks the selected address and URLs, port availability, authentication, Zellij and Tailscale, and Windows Firewall. When a Windows network rule is missing, it writes an administrator PowerShell script under `MUXMAP_DATA_DIR` (or `.muxmap`) restricted to the current LAN subnet; Tailscale rules allow only `100.64.0.0/10`.
 
 On Windows, allow only Tailscale IPv4 clients from an Administrator PowerShell:

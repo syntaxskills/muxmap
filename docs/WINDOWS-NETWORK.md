@@ -25,3 +25,15 @@ npm run doctor
 MuxMap binds only the address returned by `tailscale ip -4`. If requested, run the generated firewall script as Administrator; it permits only `100.64.0.0/10` on the configured port. For tailnet HTTPS without direct binding, keep `MUXMAP_ACCESS=local` and run `tailscale serve --bg 4782`.
 
 Agent hooks inherit `MUXMAP_TOKEN` and send Basic Auth automatically. If the hook uses direct Tailscale binding, set `MUXMAP_URL` to the URL printed at startup.
+
+## Password-free access
+
+Password authentication can be disabled explicitly for a trusted network:
+
+```bat
+set MUXMAP_ACCESS=lan
+set MUXMAP_AUTH=none
+npm start
+```
+
+This gives every client allowed by Windows Firewall terminal control. Keep the generated subnet-only or Tailscale-only firewall rule in place. Remove `MUXMAP_AUTH` to restore the password requirement.

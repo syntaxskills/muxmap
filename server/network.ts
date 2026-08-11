@@ -3,6 +3,7 @@ import { networkInterfaces } from 'node:os'
 
 export type AccessMode = 'local' | 'lan' | 'tailscale'
 export type NetworkAccess = { mode: AccessMode; host: string; requireBasicAuth: boolean }
+export type AuthMode = 'password' | 'none'
 
 function isTailscaleIPv4(address: string) {
   const parts = address.split('.').map(Number)
@@ -26,14 +27,19 @@ export function requestedAccessMode(env: NodeJS.ProcessEnv): string {
   return env.MUXMAP_ACCESS ?? (env.HOST === '0.0.0.0' ? 'lan' : 'local')
 }
 
-export function resolveNetworkAccess(mode: string, token?: string, tailscaleIPv4?: string): NetworkAccess {
+export function requestedAuthMode(env: NodeJS.ProcessEnv): string {
+  return env.MUXMAP_AUTH ?? 'password'
+}
+
+export function resolveNetworkAccess(mode: string, token?: string, tailscaleIPv4?: string, authMode = 'password'): NetworkAccess {
   if (!['local', 'lan', 'tailscale'].includes(mode)) throw new Error('MUXMAP_ACCESS must be local, lan, or tailscale')
-  if (mode !== 'local' && !token) throw new Error('MUXMAP_TOKEN is required for lan and tailscale access')
+  if (!['password', 'none'].includes(authMode)) throw new Error('MUXMAP_AUTH must be password or none')
+  if (mode !== 'local' && authMode === 'password' && !token) throw new Error('MUXMAP_TOKEN is required for lan and tailscale access')
   if (mode === 'tailscale' && (!tailscaleIPv4 || !isTailscaleIPv4(tailscaleIPv4))) throw new Error('A valid Tailscale IPv4 address is required')
   return {
     mode: mode as AccessMode,
     host: mode === 'local' ? '127.0.0.1' : mode === 'lan' ? '0.0.0.0' : tailscaleIPv4!,
-    requireBasicAuth: mode !== 'local',
+    requireBasicAuth: mode !== 'local' && authMode === 'password',
   }
 }
 

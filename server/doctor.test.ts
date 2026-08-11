@@ -17,6 +17,16 @@ test('doctor validates the default local access mode', async () => {
   assert.match(result.lines.join('\n'), /Mode: local.*127\.0\.0\.1:4782/s)
 })
 
+test('doctor reports explicit password-free network access', async () => {
+  const result = await runDoctor({ MUXMAP_ACCESS: 'lan', MUXMAP_AUTH: 'none' }, {
+    platform: 'linux', interfaces, portAvailable: async () => true,
+    run: () => ({ status: 0, stdout: '', stderr: '' }), writeFile: () => {},
+  })
+
+  assert.equal(result.ok, true)
+  assert.match(result.lines.join('\n'), /WARNING.*without password authentication/i)
+})
+
 test('Windows LAN doctor generates a subnet-only firewall repair script', async () => {
   let written = ''
   let check = ''

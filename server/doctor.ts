@@ -4,7 +4,7 @@ import { createServer } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { accessUrls, parseTailscaleIPv4, requestedAccessMode, resolveNetworkAccess, type AccessMode } from './network.ts'
+import { accessUrls, parseTailscaleIPv4, requestedAccessMode, requestedAuthMode, resolveNetworkAccess, type AccessMode } from './network.ts'
 
 type Interface = { address: string; family: string | number; internal: boolean; netmask: string }
 type CommandResult = { status: number | null; stdout: string; stderr: string }
@@ -93,7 +93,7 @@ export async function runDoctor(env: NodeJS.ProcessEnv, system: DoctorSystem = d
 
   let access
   try {
-    access = resolveNetworkAccess(mode, env.MUXMAP_TOKEN, tailscaleIPv4)
+    access = resolveNetworkAccess(mode, env.MUXMAP_TOKEN, tailscaleIPv4, requestedAuthMode(env))
   } catch (error) {
     lines.push(`[ERROR] ${(error as Error).message}`)
     return { ok: false, lines }
@@ -104,6 +104,7 @@ export async function runDoctor(env: NodeJS.ProcessEnv, system: DoctorSystem = d
   lines.push(`[OK] Listen: ${access.host}:${port}`)
   for (const url of accessUrls(access, port, ipv4.map((entry) => entry.address))) lines.push(`[OK] URL: ${url}`)
   if (access.requireBasicAuth) lines.push('[OK] Basic Auth: username "muxmap", password MUXMAP_TOKEN')
+  if (access.mode !== 'local' && !access.requireBasicAuth) lines.push('[WARNING] Network access is running without password authentication')
 
   let ok = true
   if (await system.portAvailable(access.host, port)) lines.push(`[OK] Port ${port} is available`)

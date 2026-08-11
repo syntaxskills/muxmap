@@ -25,7 +25,7 @@ import { AgentIcon } from './AgentIcon.tsx'
 import { SettingsPanel } from './SettingsPanel.tsx'
 import { ArchivePanel } from './ArchivePanel.tsx'
 import { loadSettings, type AppSettings } from './settings.ts'
-import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, Pencil2Icon, PlusIcon, TrashIcon } from '@radix-ui/react-icons'
+import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
   floatTerminal,
@@ -251,11 +251,25 @@ function App() {
     setPan(centerPan(viewport.clientWidth, viewport.clientHeight, width, height, scale))
   }, [height, scale, width])
 
+  const focusSelectedOnMobile = useCallback(() => {
+    const viewport = canvasRef.current
+    const point = positions.get(selected?.id ?? graph?.workspace.rootNodeId ?? '')
+    if (!viewport || !point || viewport.clientWidth > 640) return false
+    const nextScale = 0.82
+    const nodeHeight = nodeHeights.get(selected?.id ?? '') ?? NODE_HEIGHT
+    setScale(nextScale)
+    setPan({
+      x: viewport.clientWidth / 2 - (point.x + 48 + NODE_WIDTH / 2) * nextScale,
+      y: viewport.clientHeight / 2 - (point.y + 48 + nodeHeight / 2) * nextScale,
+    })
+    return true
+  }, [graph?.workspace.rootNodeId, nodeHeights, positions, selected?.id])
+
   useEffect(() => {
     if (!graph || centeredOnce.current || !settings['canvas.autoFitOnLoad']) return
     centeredOnce.current = true
-    requestAnimationFrame(fitView)
-  }, [fitView, graph, settings])
+    requestAnimationFrame(() => { if (!focusSelectedOnMobile()) fitView() })
+  }, [fitView, focusSelectedOnMobile, graph, settings])
 
   function fitProject() {
     if (!selected) return
@@ -718,11 +732,11 @@ function App() {
         <div className="topbar-status" aria-label="Workspace status">
           <span>{activeGraphNodes.length} nodes</span>
           {agentCount > 0 && <span>{agentCount} agents</span>}
-          <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))} aria-expanded={rightPanel === 'archive'}><ArchiveIcon />{archivedCount} archived</button>
-          <button type="button" onClick={toggleSessionManager} aria-expanded={rightPanel === 'sessions'}>
-            {graph.sessions.filter((item) => item.status !== 'stopped').length + orphans.length} sessions{orphans.length > 0 ? ` · ${orphans.length} orphan` : ''}
+          <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))} aria-expanded={rightPanel === 'archive'} aria-label={`${archivedCount} archived nodes`} title="Archive"><ArchiveIcon /><span>{archivedCount} archived</span></button>
+          <button type="button" onClick={toggleSessionManager} aria-expanded={rightPanel === 'sessions'} aria-label="Terminal sessions" title="Terminal sessions">
+            <DesktopIcon /><span>{graph.sessions.filter((item) => item.status !== 'stopped').length + orphans.length} sessions{orphans.length > 0 ? ` · ${orphans.length} orphan` : ''}</span>
           </button>
-          <button className="settings-trigger" type="button" onClick={() => setSurface((current) => openRightPanel(current, 'settings'))} aria-expanded={rightPanel === 'settings'}>Settings</button>
+          <button className="settings-trigger" type="button" onClick={() => setSurface((current) => openRightPanel(current, 'settings'))} aria-expanded={rightPanel === 'settings'} aria-label="Settings" title="Settings"><GearIcon /><span>Settings</span></button>
         </div>
       </header>
 
