@@ -8,6 +8,7 @@ import { consumeTerminalWheel, dragOffset, forceTerminalTextSelection, shouldCop
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { AgentIcon } from './AgentIcon.tsx'
+import { createTerminalLinkProvider } from './terminalLinks.ts'
 import {
   ChevronDownIcon,
   DrawingPinIcon,
@@ -63,6 +64,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     const fit = new FitAddon()
     terminal.loadAddon(fit)
     terminal.open(container.current)
+    const links = terminal.registerLinkProvider(createTerminalLinkProvider(terminal))
     const forceSelection = (event: MouseEvent) => forceTerminalTextSelection(event, terminal.element?.classList.contains('enable-mouse-events') ?? false)
     terminal.element?.addEventListener('mousedown', forceSelection, true)
     fit.fit()
@@ -141,6 +143,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       lifecycle.dispose()
       resize.disconnect()
       input.dispose()
+      links.dispose()
       terminal.element?.removeEventListener('mousedown', forceSelection, true)
       terminal.element?.removeEventListener('wheel', scroll, true)
       if (scrollTimer !== undefined) window.clearTimeout(scrollTimer)
