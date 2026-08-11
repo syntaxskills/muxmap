@@ -63,6 +63,30 @@ const mimeTypes: Record<string, string> = {
   '.svg': 'image/svg+xml',
 }
 
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, `'"'"'`)}'`
+}
+
+export function tmuxPtyFallbackCommand(tmux: string, args: string[]) {
+  return `exec ${[tmux, ...args].map(shellQuote).join(' ')}`
+}
+
+function spawnTmuxPty(tmux: string, args: string[], session: TerminalSession, size: TerminalSize) {
+  const options = {
+    name: 'xterm-256color',
+    cols: size.cols,
+    rows: size.rows,
+    cwd: session.cwd,
+    env: { ...defaultTmuxEnv(), TERM: 'xterm-256color' } as Record<string, string>,
+  }
+  try {
+    return spawnPty(tmux, args, options)
+  } catch (error) {
+    if (process.platform === 'win32') throw error
+    return spawnPty('/bin/sh', ['-lc', tmuxPtyFallbackCommand(tmux, args)], options)
+  }
+}
+
 export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows: 30 }) => {
   if (session.backend === 'zellij') {
     const pty = spawnPty(zellijExecutable(), ['--config', zellijConfigPath(), 'attach', '--create', session.runtimeName], {
@@ -88,13 +112,7 @@ export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows:
   const tmux = tmuxExecutable()
   const mouse = spawnSync(tmux, defaultTmuxArgs('set-option', '-t', session.runtimeName, 'mouse', 'on'), { encoding: 'utf8', env: defaultTmuxEnv() })
   if (mouse.status !== 0) throw new Error(mouse.stderr.trim() || 'Unable to enable tmux scrolling')
-  const pty = spawnPty(tmux, defaultTmuxArgs('attach-session', '-t', session.runtimeName), {
-    name: 'xterm-256color',
-    cols: size.cols,
-    rows: size.rows,
-    cwd: session.cwd,
-    env: { ...defaultTmuxEnv(), TERM: 'xterm-256color' } as Record<string, string>,
-  })
+  const pty = spawnTmuxPty(tmux, defaultTmuxArgs('attach-session', '-t', session.runtimeName), session, size)
   return {
     onData: (listener) => { pty.onData(listener) },
     onExit: (listener) => { pty.onExit(listener) },

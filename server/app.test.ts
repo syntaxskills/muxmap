@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import xterm from '@xterm/xterm'
 import WebSocket from 'ws'
-import { createMuxMapServer, defaultPtyFactory, type PtyFactory, type PtyHandle } from './app.ts'
+import { createMuxMapServer, defaultPtyFactory, tmuxPtyFallbackCommand, type PtyFactory, type PtyHandle } from './app.ts'
 import { realTmux, realZellij, zellijConfigPath, zellijExecutable, type TmuxAdapter } from './sessions.ts'
 import type { TerminalSession } from '../src/model.ts'
 
@@ -428,6 +428,13 @@ test('the real node-pty adapter attaches to tmux and streams shell output', {
     if (realTmux.exists(runtimeName)) realTmux.stop(runtimeName)
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('tmux PTY fallback shell command safely quotes executable and args', () => {
+  assert.equal(
+    tmuxPtyFallbackCommand('/opt/homebrew/bin/tmux', ['-L', 'default', 'attach-session', '-t', "muxmap-default-jane's-task"]),
+    `exec '/opt/homebrew/bin/tmux' '-L' 'default' 'attach-session' '-t' 'muxmap-default-jane'"'"'s-task'`,
+  )
 })
 
 test('the real node-pty adapter reattaches to a persistent Zellij session', {
