@@ -371,7 +371,9 @@ test('a PTY launch failure closes only the terminal connection and keeps the API
 })
 
 test('the real node-pty adapter attaches to tmux and streams shell output', {
-  skip: spawnSync('tmux', ['-V'], { stdio: 'ignore' }).status !== 0,
+  skip: process.platform === 'darwin' && process.env.CI
+    ? 'GitHub macOS runners cannot allocate a node-pty Unix PTY reliably; run this on a local Mac for real tmux coverage.'
+    : spawnSync('tmux', ['-V'], { stdio: 'ignore' }).status !== 0,
 }, async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-real-pty-')))
   const runtimeName = `muxmap-test-${process.pid}-${Date.now()}`

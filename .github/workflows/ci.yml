@@ -24,8 +24,6 @@ jobs:
           cache: npm
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y tmux
-      - if: runner.os == 'macOS'
-        run: brew install tmux
       - if: runner.os == 'Windows'
         shell: pwsh
         run: |
