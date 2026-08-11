@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { addCommandHooks, agentActivityFromEvent, detectAgentKind, type ProcessInfo } from './agents.ts'
+import { addCommandHooks, agentActivityFromEvent, agentSessionInfoFromEvent, detectAgentKind, type ProcessInfo } from './agents.ts'
 
 const processes: ProcessInfo[] = [
   { pid: 10, ppid: 1, command: 'bash' },
@@ -33,6 +33,21 @@ test('Codex and Claude lifecycle hooks map to working, input, and completed stat
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'agent_needs_input' }, '2026-08-07T10:05:00.000Z').state, 'needs_input')
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Stop' }, '2026-08-07T10:06:00.000Z').state, 'completed')
   assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'SessionStart' }, '2026-08-07T10:07:00.000Z').state, 'read')
+})
+
+test('Codex lifecycle metadata extracts resumable session ids', () => {
+  const direct = agentActivityFromEvent('codex', {
+    hook_event_name: 'Stop',
+    muxmap: {
+      session_id: '019fd54a-12a9-72c2-8a66-ee62fc1c546e',
+      session_path: '/home/user/.codex/sessions/session.jsonl',
+      cwd: '/home/user/project',
+    },
+  })
+  assert.equal(direct.externalSessionId, '019fd54a-12a9-72c2-8a66-ee62fc1c546e')
+  assert.equal(direct.externalSessionPath, '/home/user/.codex/sessions/session.jsonl')
+  assert.equal(direct.externalCwd, '/home/user/project')
+  assert.equal(agentSessionInfoFromEvent({ payload: { session_id: 'abc' } }).externalSessionId, 'abc')
 })
 
 test('Pi extension events map to working and completed states', () => {

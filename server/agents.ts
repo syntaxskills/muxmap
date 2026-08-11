@@ -45,6 +45,30 @@ function asksForInput(message: unknown) {
   return /[?？]\s*$/.test(message.trim()) || /\b(need|requires?|waiting for) (your|user) (input|answer|approval|decision)\b/i.test(message)
 }
 
+function stringField(input: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = input[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+}
+
+export function agentSessionInfoFromEvent(input: Record<string, unknown>) {
+  const muxmap = input.muxmap && typeof input.muxmap === 'object' ? input.muxmap as Record<string, unknown> : undefined
+  const payload = input.payload && typeof input.payload === 'object' ? input.payload as Record<string, unknown> : undefined
+  const externalSessionId = stringField(input, ['session_id', 'sessionId', 'conversation_id'])
+    ?? (muxmap ? stringField(muxmap, ['session_id', 'sessionId', 'codexSessionId', 'externalSessionId']) : undefined)
+    ?? (payload ? stringField(payload, ['session_id', 'sessionId', 'id']) : undefined)
+  const externalSessionPath = (muxmap ? stringField(muxmap, ['session_path', 'sessionPath', 'codexSessionPath', 'externalSessionPath']) : undefined)
+    ?? stringField(input, ['session_path', 'sessionPath'])
+  const externalCwd = (muxmap ? stringField(muxmap, ['cwd', 'externalCwd']) : undefined)
+    ?? stringField(input, ['cwd'])
+  return {
+    ...(externalSessionId ? { externalSessionId } : {}),
+    ...(externalSessionPath ? { externalSessionPath } : {}),
+    ...(externalCwd ? { externalCwd } : {}),
+  }
+}
+
 export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: Record<string, unknown>, now = new Date().toISOString()): AgentActivity {
   const event = String(input.hook_event_name ?? input.type ?? '')
   const notification = String(input.notification_type ?? '')
@@ -53,7 +77,7 @@ export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: R
   if (event === 'Stop' || event === 'agent_end') state = 'completed'
   if (event === 'PermissionRequest' || (event === 'Notification' && /permission_prompt|idle_prompt|agent_needs_input/.test(notification))) state = 'needs_input'
   if (event === 'Stop' && asksForInput(input.last_assistant_message)) state = 'needs_input'
-  return { kind, state, since: now }
+  return { kind, state, since: now, ...agentSessionInfoFromEvent(input) }
 }
 
 export function addCommandHooks(config: Record<string, unknown>, events: string[], command: string) {

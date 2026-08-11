@@ -15,7 +15,7 @@ export type MultiplexerAdapter = {
   backend: TerminalBackend
   exists(name: string): boolean
   list(): string[]
-  create(name: string, cwd: string): void
+  create(name: string, cwd: string, command?: string[]): void
   stop(name: string): void
   panes?(): MultiplexerPane[]
 }
@@ -55,8 +55,8 @@ export const realTmux: MultiplexerAdapter = {
     const result = spawnSync('tmux', defaultTmuxArgs('list-sessions', '-F', '#S'), { encoding: 'utf8', env: defaultTmuxEnv() })
     return result.status === 0 ? result.stdout.trim().split('\n').filter(Boolean) : []
   },
-  create(name, cwd) {
-    const result = spawnSync('tmux', defaultTmuxArgs('new-session', '-d', '-s', name, '-c', cwd), { encoding: 'utf8', env: defaultTmuxEnv() })
+  create(name, cwd, command) {
+    const result = spawnSync('tmux', defaultTmuxArgs('new-session', '-d', '-s', name, '-c', cwd, ...(command ?? [])), { encoding: 'utf8', env: defaultTmuxEnv() })
     if (result.status !== 0) throw new Error(result.stderr.trim() || 'Unable to create tmux session')
   },
   stop(name) {
@@ -233,6 +233,21 @@ export function createSessionManager(
       const adapter = adapterFor(session.backend)
       if (adapter.exists(session.runtimeName) || runtimePlatform === 'win32' && session.backend === 'zellij') adapter.stop(session.runtimeName)
       return store.updateSessionStatus(id, 'stopped')
+    },
+
+    recoverCodex(id: string) {
+      const session = store.getSession(id)
+      if (!session) throw new Error('Session not found')
+      const activity = store.getAgentActivity(session.runtimeName)
+      if (activity?.kind !== 'codex' || !activity.externalSessionId) throw new Error('Codex session id is not available')
+      if (session.backend !== 'tmux') throw new Error('Codex recovery currently requires a tmux-backed session')
+      const adapter = adapterFor(session.backend)
+      if (!adapter.exists(session.runtimeName)) adapter.create(session.runtimeName, session.cwd, ['codex', 'resume', activity.externalSessionId])
+      return store.upsertSession({
+        ...session,
+        status: 'running',
+        lastAttachedAt: new Date().toISOString(),
+      })
     },
 
     stopRuntime(backend: TerminalBackend, runtimeName: string) {

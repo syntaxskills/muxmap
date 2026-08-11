@@ -53,6 +53,22 @@ test('legacy idle agent records migrate to read instead of alerting again', () =
   }
 })
 
+test('agent activity stores external Codex resume metadata', () => {
+  const store = createStore(':memory:')
+  const activity = store.upsertAgentActivity('muxmap-codex', {
+    kind: 'codex',
+    state: 'completed',
+    since: '2026-08-07T10:00:00.000Z',
+    externalSessionId: '019fd54a-12a9-72c2-8a66-ee62fc1c546e',
+    externalSessionPath: '/home/user/.codex/sessions/session.jsonl',
+    externalCwd: '/home/user/project',
+  })
+
+  assert.equal(activity.externalSessionId, '019fd54a-12a9-72c2-8a66-ee62fc1c546e')
+  assert.equal(store.getAgentActivity('muxmap-codex')?.externalSessionPath, '/home/user/.codex/sessions/session.jsonl')
+  store.close()
+})
+
 test('terminal activity persists and legacy sessions fall back to their last attachment', () => {
   const directory = mkdtempSync(join(tmpdir(), 'muxmap-activity-migration-'))
   const database = join(directory, 'muxmap.db')

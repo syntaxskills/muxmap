@@ -6,16 +6,18 @@ import test from 'node:test'
 import { createSessionManager, defaultTerminalBackend, parseZellijSessions, type MultiplexerAdapter, type TmuxAdapter } from './sessions.ts'
 import { createStore } from './store.ts'
 
-function fakeTmux(): TmuxAdapter & { created: string[]; stopped: string[]; live: Set<string> } {
+function fakeTmux(): TmuxAdapter & { created: string[]; createCommands: Array<string[] | undefined>; stopped: string[]; live: Set<string> } {
   const live = new Set<string>()
   return {
     live,
     created: [],
+    createCommands: [],
     stopped: [],
     exists: (name) => live.has(name),
     list: () => [...live],
-    create(name) {
+    create(name, _cwd, command) {
       this.created.push(name)
+      this.createCommands.push(command)
       live.add(name)
     },
     stop(name) {
@@ -164,9 +166,34 @@ test('tmux descendant agents are detected and hook activity survives refresh', (
 
   try {
     assert.deepEqual(manager.listOrphans(), [{ backend: 'tmux', runtimeName: 'muxmap-agent-shell', agent: { kind: 'codex', state: 'unavailable' } }])
-    manager.recordAgentEvent({ backend: 'tmux', paneId: '%9' }, 'codex', { hook_event_name: 'UserPromptSubmit' }, '2026-08-07T10:00:00.000Z')
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%9' }, 'codex', { hook_event_name: 'UserPromptSubmit', session_id: '019fd54a-12a9-72c2-8a66-ee62fc1c546e' }, '2026-08-07T10:00:00.000Z')
     assert.equal(manager.listOrphans()[0].agent?.state, 'working')
     assert.equal(manager.listOrphans()[0].agent?.since, '2026-08-07T10:00:00.000Z')
+    assert.equal(manager.listOrphans()[0].agent?.externalSessionId, '019fd54a-12a9-72c2-8a66-ee62fc1c546e')
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('stopped Codex sessions can be recreated with codex resume', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-codex-recover-')))
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  adapter.panes = () => [{ runtimeName: 'muxmap-default-recover-me', paneId: '%11', pid: 300 }]
+  const manager = createSessionManager(store, adapter, [directory])
+
+  try {
+    const node = store.createNode('default', { parentId: 'workspace', title: 'Recover me', type: 'terminal', repoPath: directory })
+    const session = manager.attach(node.id)
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%11' }, 'codex', { hook_event_name: 'Stop', session_id: '019fd54a-12a9-72c2-8a66-ee62fc1c546e' })
+    adapter.live.clear()
+    manager.reconcile()
+
+    const recovered = manager.recoverCodex(session.id)
+    assert.equal(recovered.status, 'running')
+    assert.equal(adapter.created.at(-1), session.runtimeName)
+    assert.deepEqual(adapter.createCommands.at(-1), ['codex', 'resume', '019fd54a-12a9-72c2-8a66-ee62fc1c546e'])
   } finally {
     store.close()
     rmSync(directory, { recursive: true, force: true })

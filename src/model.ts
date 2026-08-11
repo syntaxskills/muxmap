@@ -32,6 +32,9 @@ export type AgentActivity = {
   kind: AgentKind
   state: 'unavailable' | 'working' | 'needs_input' | 'completed' | 'read'
   since?: string
+  externalSessionId?: string
+  externalSessionPath?: string
+  externalCwd?: string
 }
 
 export type TerminalSession = {

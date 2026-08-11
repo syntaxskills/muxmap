@@ -75,7 +75,10 @@ export function createStore(path: string) {
       tmux_name TEXT PRIMARY KEY,
       kind TEXT NOT NULL,
       state TEXT NOT NULL,
-      since TEXT NOT NULL
+      since TEXT NOT NULL,
+      external_session_id TEXT,
+      external_session_path TEXT,
+      external_cwd TEXT
     );
   `)
 
@@ -91,6 +94,11 @@ export function createStore(path: string) {
   database.exec('UPDATE sessions SET last_activity_at = COALESCE(last_attached_at, created_at) WHERE last_activity_at IS NULL')
 
   database.prepare("UPDATE agent_activity SET state = 'read' WHERE state = 'idle'").run()
+
+  const agentColumns = database.prepare('PRAGMA table_info(agent_activity)').all() as Array<{ name: string }>
+  for (const [column, type] of [['external_session_id', 'TEXT'], ['external_session_path', 'TEXT'], ['external_cwd', 'TEXT']] as const) {
+    if (!agentColumns.some((item) => item.name === column)) database.exec(`ALTER TABLE agent_activity ADD COLUMN ${column} ${type}`)
+  }
 
   if (!database.prepare('SELECT id FROM workspaces WHERE id = ?').get('default')) {
     const now = new Date().toISOString()
@@ -165,6 +173,9 @@ export function createStore(path: string) {
       kind: String(row.kind) as AgentActivity['kind'],
       state: String(row.state) as AgentActivity['state'],
       since: String(row.since),
+      externalSessionId: row.external_session_id ? String(row.external_session_id) : undefined,
+      externalSessionPath: row.external_session_path ? String(row.external_session_path) : undefined,
+      externalCwd: row.external_cwd ? String(row.external_cwd) : undefined,
     }
   }
 
@@ -335,9 +346,20 @@ export function createStore(path: string) {
 
     upsertAgentActivity(runtimeName: string, activity: AgentActivity) {
       database.prepare(`
-        INSERT INTO agent_activity (tmux_name, kind, state, since) VALUES (?, ?, ?, ?)
-        ON CONFLICT(tmux_name) DO UPDATE SET kind = excluded.kind, state = excluded.state, since = excluded.since
-      `).run(runtimeName, activity.kind, activity.state, activity.since ?? new Date().toISOString())
+        INSERT INTO agent_activity (
+          tmux_name, kind, state, since, external_session_id, external_session_path, external_cwd
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(tmux_name) DO UPDATE SET
+          kind = excluded.kind,
+          state = excluded.state,
+          since = excluded.since,
+          external_session_id = COALESCE(excluded.external_session_id, agent_activity.external_session_id),
+          external_session_path = COALESCE(excluded.external_session_path, agent_activity.external_session_path),
+          external_cwd = COALESCE(excluded.external_cwd, agent_activity.external_cwd)
+      `).run(
+        runtimeName, activity.kind, activity.state, activity.since ?? new Date().toISOString(),
+        activity.externalSessionId ?? null, activity.externalSessionPath ?? null, activity.externalCwd ?? null,
+      )
       return this.getAgentActivity(runtimeName)!
     },
 

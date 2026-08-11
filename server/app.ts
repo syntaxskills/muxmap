@@ -330,6 +330,11 @@ export function createMuxMapServer(options: ServerOptions) {
           return sendJson(response, 200, { session: sessions.stop(stopMatch[1]) })
         }
 
+        const recoverCodexMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/recover-codex$/)
+        if (request.method === 'POST' && recoverCodexMatch) {
+          return sendJson(response, 200, { session: sessions.recoverCodex(recoverCodexMatch[1]) })
+        }
+
         const acknowledgeMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/agent\/read$/)
         if (request.method === 'POST' && acknowledgeMatch) {
           return sendJson(response, 200, { activity: sessions.acknowledge(acknowledgeMatch[1]) })

@@ -12,14 +12,18 @@ import type { TerminalSession } from '../src/model.ts'
 
 const { Terminal } = xterm
 
-function fakeTmux(): TmuxAdapter & { stopped: string[]; live: Set<string> } {
+function fakeTmux(): TmuxAdapter & { stopped: string[]; live: Set<string>; createCommands: Array<string[] | undefined> } {
   const live = new Set<string>()
   return {
     live,
     stopped: [],
+    createCommands: [],
     exists: (name) => live.has(name),
     list: () => [...live],
-    create: (name) => { live.add(name) },
+    create(name, _cwd, command) {
+      this.createCommands.push(command)
+      live.add(name)
+    },
     stop(name) {
       this.stopped.push(name)
       live.delete(name)
@@ -591,7 +595,7 @@ test('local agent hooks update automatically detected tmux activity', async () =
     const event = await fetch(`${base}/api/agent-events`, {
       method: 'POST',
       headers: { 'x-muxmap-hook': '1', 'content-type': 'application/json' },
-      body: JSON.stringify({ kind: 'codex', tmuxPane: '%7', event: { hook_event_name: 'UserPromptSubmit' } }),
+      body: JSON.stringify({ kind: 'codex', tmuxPane: '%7', event: { hook_event_name: 'UserPromptSubmit', session_id: '019fd54a-12a9-72c2-8a66-ee62fc1c546e' } }),
     })
     assert.equal(event.status, 202)
 
@@ -600,10 +604,11 @@ test('local agent hooks update automatically detected tmux activity', async () =
     })
     const cookie = auth.headers.get('set-cookie')?.split(';')[0] ?? ''
     const graph = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as {
-      orphans: Array<{ agent?: { kind: string; state: string; since?: string } }>
+      orphans: Array<{ agent?: { kind: string; state: string; since?: string; externalSessionId?: string } }>
     }
     assert.equal(graph.orphans[0].agent?.kind, 'codex')
     assert.equal(graph.orphans[0].agent?.state, 'working')
+    assert.equal(graph.orphans[0].agent?.externalSessionId, '019fd54a-12a9-72c2-8a66-ee62fc1c546e')
     assert.ok(graph.orphans[0].agent?.since)
 
     const completed = await fetch(`${base}/api/agent-events`, {
@@ -631,6 +636,57 @@ test('local agent hooks update automatically detected tmux activity', async () =
     assert.equal(acknowledged.status, 200)
     const read = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
     assert.equal(read.sessions.find((session) => session.id === adopted.session.id)?.agent?.state, 'read')
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('Codex recovery recreates a missing tracked tmux session with codex resume', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-codex-recover-api-')))
+  const tmux = fakeTmux()
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    tmux,
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const auth = await fetch(`${base}/api/auth`)
+    const cookie = auth.headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const node = await fetch(`${base}/api/workspaces/default/nodes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ parentId: 'workspace', title: 'Recoverable Codex', type: 'terminal', repoPath: root }),
+    }).then((response) => response.json()) as { id: string }
+    const attached = await fetch(`${base}/api/nodes/${node.id}/session`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ backend: 'tmux', cwd: root }),
+    }).then((response) => response.json()) as { session: TerminalSession }
+    tmux.panes = () => [{ runtimeName: attached.session.runtimeName, paneId: '%12', pid: 1200 }]
+    await fetch(`${base}/api/agent-events`, {
+      method: 'POST',
+      headers: { 'x-muxmap-hook': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'codex', tmuxPane: '%12', event: { hook_event_name: 'Stop', session_id: '019fd54a-12a9-72c2-8a66-ee62fc1c546e' } }),
+    })
+    tmux.live.clear()
+    const stoppedGraph = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
+    assert.equal(stoppedGraph.sessions.find((item) => item.id === attached.session.id)?.status, 'stopped')
+
+    const recovered = await fetch(`${base}/api/sessions/${attached.session.id}/recover-codex`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    }).then((response) => response.json()) as { session: TerminalSession }
+    assert.equal(recovered.session.status, 'running')
+    assert.deepEqual(tmux.createCommands.at(-1), ['codex', 'resume', '019fd54a-12a9-72c2-8a66-ee62fc1c546e'])
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })

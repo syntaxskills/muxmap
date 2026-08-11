@@ -635,6 +635,20 @@ function App() {
     }
   }
 
+  async function recoverCodexSession(sessionId: string) {
+    setBusy(true)
+    setError('')
+    try {
+      const response = await api<{ session: TerminalSession }>(`/api/sessions/${sessionId}/recover-codex`, { method: 'POST', body: '{}' })
+      await loadWorkspace()
+      openTerminal(response.session.id)
+    } catch (recoverError) {
+      setError(recoverError instanceof Error ? recoverError.message : 'Unable to recover Codex session')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function stopOrphan(backend: TerminalBackend, runtimeName: string) {
     setBusy(true)
     setError('')
@@ -1028,6 +1042,8 @@ function App() {
                 <span className="terminal-preview-screen"><code>$ {session.backend} attach</code><code>{session.runtimeName}</code><i /></span>
                 <span className="terminal-preview-footer"><strong>{selected.title}</strong><small>Click to expand ↗</small></span>
               </button>
+            ) : session?.backend === 'tmux' && session.agent?.kind === 'codex' && session.agent.externalSessionId ? (
+              <button className="attach-button recover-codex-button" type="button" onClick={() => void recoverCodexSession(session.id)} disabled={busy}>Recover Codex</button>
             ) : (
               <button className="attach-button" type="button" onClick={() => void attachTerminal()} disabled={busy}>{session ? 'Restart terminal' : 'Attach terminal'}</button>
             )}
@@ -1065,7 +1081,7 @@ function App() {
                   <article className={`session-row ${terminalSessionId === item.id || selected.id === item.nodeId ? 'is-current' : ''}`} key={item.id}>
                     <div><strong>{node?.title ?? item.name}</strong><code>{item.runtimeName}</code><small className={item.agent ? `is-${item.agent.state}` : undefined}>{item.agent && <AgentIcon kind={item.agent.kind} />}{item.agent ? agentStatusText(item.agent) : item.status}</small></div>
                     <div className="session-row-actions">
-                      {isArchived ? <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))}>Archived</button> : item.status !== 'stopped' && <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button>}
+                      {isArchived ? <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))}>Archived</button> : item.status !== 'stopped' ? <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button> : item.backend === 'tmux' && item.agent?.kind === 'codex' && item.agent.externalSessionId ? <button type="button" onClick={() => { setSelectedId(item.nodeId); void recoverCodexSession(item.id) }} disabled={busy}>Recover Codex</button> : null}
                       {item.status !== 'stopped' && (confirmStopSession === `${item.backend}:${item.runtimeName}` ? (
                         <><button className="danger-button" type="button" onClick={() => void stopSession(item.id)} disabled={busy}>Confirm stop</button><button type="button" onClick={() => setConfirmStopSession(null)}>Cancel</button></>
                       ) : <button type="button" onClick={() => setConfirmStopSession(`${item.backend}:${item.runtimeName}`)}>Stop</button>)}
