@@ -18,13 +18,13 @@ import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { normalizeTerminalOpacity, normalizeTerminalSplit } from './terminalInteraction.ts'
 import { readViewState, writeViewState } from './viewState.ts'
 import { agentStatusText } from './agentStatus.ts'
-import { scanAgentNotifications } from './agentNotifications.ts'
-import { dragIntent, dropPositionAt } from './nodeReorderInteraction.ts'
+import { mergeAgentNotifications, scanAgentNotifications, type AgentNotification } from './agentNotifications.ts'
+import { dragIntent, dropPositionAt, pointerReleaseIntent } from './nodeReorderInteraction.ts'
 import { contextMenuPosition, duplicateNodeInput } from './nodeContextMenu.ts'
 import { AgentIcon } from './AgentIcon.tsx'
 import { SettingsPanel } from './SettingsPanel.tsx'
 import { ArchivePanel } from './ArchivePanel.tsx'
-import { loadSettings, type AppSettings } from './settings.ts'
+import { loadSettings, SETTINGS_VERSION, type AppSettings } from './settings.ts'
 import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
@@ -72,7 +72,8 @@ function App() {
   }))
   const [settings, setSettings] = useState<AppSettings>(() => {
     const stored = window.localStorage.getItem('muxmap:settings')
-    const loaded = loadSettings(stored, clientPlatform)
+    const storedVersion = Number(window.localStorage.getItem('muxmap:settings-version') ?? 0)
+    const loaded = loadSettings(stored, clientPlatform, storedVersion)
     if (!stored) {
       loaded['terminal.opacity'] = normalizeTerminalOpacity(window.localStorage.getItem('muxmap:terminal-opacity'))
       loaded['terminal.splitPercent'] = normalizeTerminalSplit(window.localStorage.getItem('muxmap:terminal-split'))
@@ -80,6 +81,7 @@ function App() {
     return loaded
   })
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => 'Notification' in window ? Notification.permission : 'unsupported')
+  const [agentAlerts, setAgentAlerts] = useState<AgentNotification[]>([])
   const [deleteNodeId, setDeleteNodeId] = useState<string | null>(null)
   const [confirmStopSession, setConfirmStopSession] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -133,7 +135,10 @@ function App() {
       window.removeEventListener('resize', dismissOnResize)
     }
   }, [contextMenu])
-  useEffect(() => window.localStorage.setItem('muxmap:settings', JSON.stringify(settings)), [settings])
+  useEffect(() => {
+    window.localStorage.setItem('muxmap:settings', JSON.stringify(settings))
+    window.localStorage.setItem('muxmap:settings-version', String(SETTINGS_VERSION))
+  }, [settings])
   useEffect(() => {
     const platform = graph?.runtime?.platform
     if (!platform || platform === settingsPlatformRef.current) return
@@ -148,6 +153,7 @@ function App() {
       notificationBaselineReady.current = true
       return
     }
+    if (scanned.notifications.length > 0) setAgentAlerts((current) => mergeAgentNotifications(current, scanned.notifications))
     if (!('Notification' in window) || Notification.permission !== 'granted') return
     for (const event of scanned.notifications) {
       if (event.key.startsWith('needs_input:') ? !settings['notifications.needsInput'] : !settings['notifications.completed']) continue
@@ -442,7 +448,13 @@ function App() {
     const drag = nodePointerRef.current
     if (!drag || drag.pointerId !== event.pointerId) return
     const target = nodeDropRef.current
-    if (drag.dragging && target) void reorderNode(drag.nodeId, target.id, target.position)
+    const intent = pointerReleaseIntent(drag.dragging, Boolean(target))
+    if (intent === 'reorder' && target) void reorderNode(drag.nodeId, target.id, target.position)
+    if (intent === 'activate') {
+      const node = activeGraphNodes.find((item) => item.id === drag.nodeId)
+      if (node) selectNode(node)
+      suppressNodeClick.current = true
+    }
     nodePointerRef.current = null
     nodeDragRef.current = null
     nodeDropRef.current = null
@@ -467,6 +479,12 @@ function App() {
     setContextMenu(null)
     setSelectedId(node.id)
     setSurface(selectNodeSurface(liveSessionIdForNode(graph?.sessions ?? [], node.id)))
+  }
+
+  function openAgentAlert(alert: AgentNotification) {
+    setAgentAlerts((current) => current.filter((item) => item.sessionId !== alert.sessionId || item.key !== alert.key))
+    setSelectedId(alert.nodeId)
+    setSurface((current) => openTerminalSurface(current, alert.sessionId))
   }
 
   function openNodeContextMenu(event: React.MouseEvent<HTMLElement>, node: WorkNode) {
@@ -742,6 +760,20 @@ function App() {
 
       {error && <div className="error-banner" role="alert"><span>{error}</span><button type="button" onClick={() => setError('')}>Dismiss</button></div>}
 
+      {agentAlerts.length > 0 && (
+        <div className="agent-alerts" aria-label="Agent notifications" aria-live="polite">
+          {agentAlerts.map((alert) => (
+            <article className={`agent-alert is-${alert.key.split(':')[0]}`} key={`${alert.sessionId}:${alert.key}`}>
+              <button className="agent-alert-open" type="button" onClick={() => openAgentAlert(alert)}>
+                <strong>{alert.title}</strong>
+                <span>{alert.body}</span>
+              </button>
+              <button className="agent-alert-dismiss" type="button" onClick={() => setAgentAlerts((current) => current.filter((item) => item.sessionId !== alert.sessionId || item.key !== alert.key))} aria-label={`Dismiss ${alert.title}`} title="Dismiss"><Cross2Icon /></button>
+            </article>
+          ))}
+        </div>
+      )}
+
       <section className={`workspace ${terminalDocked ? 'has-docked-terminal' : ''} ${sidePanelOpen ? 'has-side-panel' : ''}`} id="workspace" ref={workspaceRef} style={{ '--terminal-split': `${settings['terminal.splitPercent']}%` } as CSSProperties}>
         <div
           className={`canvas ${isPanning ? 'is-panning' : ''}`}
@@ -791,7 +823,7 @@ function App() {
                   const style = { left: point.x + 48, top: point.y + 48, height: nodeHeights.get(node.id) ?? NODE_HEIGHT, '--node-color': node.color } as CSSProperties
                   return (
                     <article
-                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
+                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${nodeSession?.agent?.state === 'completed' ? 'is-agent-completed' : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
                       key={node.id}
                       style={style}
                       data-node-id={node.id}

@@ -4,6 +4,7 @@ import {
   defaultSettings,
   loadSettings,
   parseSettingsJson,
+  SETTINGS_VERSION,
   settingDefinitions,
   settingsJson,
   terminalBackendsForPlatform,
@@ -60,4 +61,10 @@ test('terminal backend choices and defaults follow the host platform', () => {
   const migrated = loadSettings('{"terminal.backend":"tmux","terminal.opacity":81}', 'win32')
   assert.equal(migrated['terminal.backend'], 'zellij')
   assert.equal(migrated['terminal.opacity'], 81)
+})
+
+test('node type is secondary and hidden by default', () => {
+  assert.equal(defaultSettings('linux')['mindmap.showNodeType'], false)
+  assert.equal(loadSettings('{"mindmap.showNodeType":true}', 'linux', SETTINGS_VERSION - 1)['mindmap.showNodeType'], false)
+  assert.equal(loadSettings('{"mindmap.showNodeType":true}', 'linux', SETTINGS_VERSION)['mindmap.showNodeType'], true)
 })

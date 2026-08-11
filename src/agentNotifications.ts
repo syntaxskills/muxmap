@@ -9,6 +9,12 @@ export type AgentNotification = {
   body: string
 }
 
+export function mergeAgentNotifications(current: AgentNotification[], incoming: AgentNotification[]) {
+  const merged = new Map(current.map((item) => [item.sessionId, item]))
+  for (const item of incoming) merged.set(item.sessionId, item)
+  return [...merged.values()]
+}
+
 export function scanAgentNotifications(graph: WorkspaceGraph, previous: ReadonlyMap<string, string>, emit = true) {
   const notified = new Map(previous)
   const notifications: AgentNotification[] = []

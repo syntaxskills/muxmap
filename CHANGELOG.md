@@ -6,6 +6,7 @@ All notable changes to MuxMap are documented here.
 
 ### Changed
 
+- Made agent completion visible across the full node, added a clickable in-app alert fallback, and hid node types by default.
 - Added explicit password-free LAN/Tailscale access and a mobile layout with an 80% bottom Terminal sheet, focused nodes, safe-area support, and compact touch navigation.
 - Added reversible node and branch archiving with preserved hierarchy, search, restore, and terminal sessions.
 - Shortened the README around the core workflow, one product screenshot, and setup path.
@@ -16,6 +17,7 @@ All notable changes to MuxMap are documented here.
 
 ### Fixed
 
+- Made the full expanded node surface open its linked Terminal, including metadata in the lower half.
 - Made terminal gestures navigate tmux history without becoming arrow keys while preserving text selection and native copying.
 - Hid tmux-specific delete choices when a node branch has no live session.
 - Stopped injecting detach keystrokes into Windows terminals and enabled Zellij's font-safe UI.

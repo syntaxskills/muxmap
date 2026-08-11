@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { scanAgentNotifications } from './agentNotifications.ts'
+import { mergeAgentNotifications, scanAgentNotifications } from './agentNotifications.ts'
 import type { WorkspaceGraph } from './model.ts'
 
 function graph(state: 'working' | 'needs_input' | 'completed' | 'read', since: string): WorkspaceGraph {
@@ -36,4 +36,15 @@ test('agent notifications emit once per completion or input event and retain ter
   assert.equal(completed.notifications[0]?.title, 'Claude Code completed')
   assert.deepEqual(scanAgentNotifications(graph('read', '10:10'), completed.notified).notifications, [])
   assert.deepEqual(scanAgentNotifications(graph('completed', '10:10'), completed.notified).notifications, [])
+})
+
+test('in-app agent notifications remain visible and deduplicate repeated polling events', () => {
+  const completed = scanAgentNotifications(graph('completed', '10:10'), new Map()).notifications
+  assert.deepEqual(mergeAgentNotifications([], completed), completed)
+  assert.deepEqual(mergeAgentNotifications(completed, completed), completed)
+
+  const needsInput = scanAgentNotifications(graph('needs_input', '10:15'), new Map()).notifications
+  assert.deepEqual(mergeAgentNotifications(completed, needsInput).map((item) => item.key), [
+    'needs_input:10:15',
+  ])
 })

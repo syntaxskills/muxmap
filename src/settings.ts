@@ -1,6 +1,7 @@
 import type { TerminalBackend } from './model.ts'
 
 export type RuntimePlatform = 'win32' | 'darwin' | 'linux' | string
+export const SETTINGS_VERSION = 2
 export type SettingCategory = 'Appearance' | 'Canvas' | 'Mindmap' | 'Terminal' | 'Notifications'
 
 export type AppSettings = {
@@ -89,7 +90,7 @@ export function defaultSettings(platform: RuntimePlatform): AppSettings {
     'mindmap.columnGap': 240,
     'mindmap.rowGap': 30,
     'mindmap.expandOnHover': true,
-    'mindmap.showNodeType': true,
+    'mindmap.showNodeType': false,
     'terminal.backend': platform === 'win32' ? 'zellij' : 'tmux',
     'terminal.opacity': 96,
     'terminal.fontSize': 12,
@@ -138,14 +139,20 @@ export function settingsJson(settings: AppSettings) {
   return `${JSON.stringify(Object.fromEntries(settingDefinitions.map((item) => [item.key, settings[item.key]])), null, 2)}\n`
 }
 
-export function loadSettings(source: string | null, platform: RuntimePlatform) {
+function migrateSettings(settings: AppSettings, sourceVersion: number) {
+  if (sourceVersion >= 2) return settings
+  return { ...settings, 'mindmap.showNodeType': false }
+}
+
+export function loadSettings(source: string | null, platform: RuntimePlatform, sourceVersion = SETTINGS_VERSION) {
   if (!source) return defaultSettings(platform)
   const parsed = parseSettingsJson(source, platform)
-  if (parsed.settings) return parsed.settings
+  if (parsed.settings) return migrateSettings(parsed.settings, sourceVersion)
   try {
     const input = JSON.parse(source) as Record<string, unknown>
     if (input && typeof input === 'object' && !Array.isArray(input) && !isSettingOptionAllowed('terminal.backend', input['terminal.backend'], platform)) {
-      return parseSettingsJson(JSON.stringify({ ...input, 'terminal.backend': defaultSettings(platform)['terminal.backend'] }), platform).settings ?? defaultSettings(platform)
+      const migrated = parseSettingsJson(JSON.stringify({ ...input, 'terminal.backend': defaultSettings(platform)['terminal.backend'] }), platform).settings
+      return migrated ? migrateSettings(migrated, sourceVersion) : defaultSettings(platform)
     }
   } catch {
     // Invalid persisted JSON falls back to platform defaults.

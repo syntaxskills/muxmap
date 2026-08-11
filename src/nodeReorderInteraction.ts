@@ -10,3 +10,8 @@ export function dragIntent(start: Point, current: Point, threshold = 6) {
 export function dropPositionAt(clientY: number, bounds: Bounds): ReorderPosition {
   return clientY < bounds.top + bounds.height / 2 ? 'before' : 'after'
 }
+
+export function pointerReleaseIntent(dragging: boolean, hasDropTarget: boolean): 'activate' | 'reorder' | 'none' {
+  if (!dragging) return 'activate'
+  return hasDropTarget ? 'reorder' : 'none'
+}
