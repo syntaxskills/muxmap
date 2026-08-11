@@ -27,6 +27,7 @@ import { ArchivePanel } from './ArchivePanel.tsx'
 import { loadSettings, notificationDeliveryTargets, SETTINGS_VERSION, type AppSettings } from './settings.ts'
 import { sendTestSystemNotification } from './systemNotifications.ts'
 import { formatActivityAge, sessionActivityTimestamp } from './activityTime.ts'
+import { agentWorkingSweepDelay, synchronizeAgentWorkingSweeps } from './agentAnimations.ts'
 import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
@@ -280,6 +281,10 @@ function App() {
   const activeTerminalNode = activeGraphNodes.find((node) => node.id === activeTerminal?.nodeId)
   const orphans = graph?.orphans ?? []
   const agentCount = [...(graph?.sessions ?? []).filter((item) => visibleAgentForSession(item)), ...orphans.filter((item) => item.agent)].length
+  const workingAgentNodeKey = nodes
+    .map((node) => visibleAgentForSession(sessionsByNode.get(node.id))?.state === 'working' ? node.id : '')
+    .filter(Boolean)
+    .join('|')
   const width = Math.max(0, ...[...positions.values()].map(({ x }) => x)) + NODE_WIDTH + 96
   const height = Math.max(0, ...nodes.map((node) => (positions.get(node.id)?.y ?? 0) + (nodeHeights.get(node.id) ?? NODE_HEIGHT))) + 96
 
@@ -316,6 +321,12 @@ function App() {
     centeredOnce.current = true
     requestAnimationFrame(() => { if (!focusSelectedOnMobile()) fitView() })
   }, [fitView, focusSelectedOnMobile, graph, settings])
+
+  useEffect(() => {
+    if (!workingAgentNodeKey || settings['workbench.reduceMotion']) return
+    const frame = requestAnimationFrame(() => synchronizeAgentWorkingSweeps(document, performance.now()))
+    return () => cancelAnimationFrame(frame)
+  }, [settings, workingAgentNodeKey])
 
   function fitProject() {
     if (!selected) return
@@ -917,7 +928,13 @@ function App() {
                   const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
                   const archivedChildCount = archivedChildCounts.get(node.id) ?? 0
                   const expanded = node.id === selectedId || node.id === hoveredId
-                  const style = { left: point.x + 48, top: point.y + 48, height: nodeHeights.get(node.id) ?? NODE_HEIGHT, '--node-color': node.color } as CSSProperties
+                  const style = {
+                    left: point.x + 48,
+                    top: point.y + 48,
+                    height: nodeHeights.get(node.id) ?? NODE_HEIGHT,
+                    '--node-color': node.color,
+                    ...(agentState === 'working' ? { '--agent-working-sweep-delay': agentWorkingSweepDelay(performance.now()) } : {}),
+                  } as CSSProperties
                   return (
                     <article
                       className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${agentState ? `is-agent-${agentState}` : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}

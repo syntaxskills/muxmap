@@ -7,6 +7,8 @@ test('agent node attention distinguishes working, completed, and input-needed st
   const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
 
   assert.match(css, /\.map-node\.is-agent-working\s+\.node-select::after\s*\{[^}]*animation:\s*agent-working-sweep/s)
+  assert.match(css, /\.map-node\.is-agent-working\s+\.node-select::after\s*\{[^}]*animation-delay:\s*var\(--agent-working-sweep-delay/s)
+  assert.match(app, /synchronizeAgentWorkingSweeps\(document,\s*performance\.now\(\)\)/)
   assert.match(css, /\.is-completed\s*>\s*\.agent-icon\s*\{[^}]*animation:\s*agent-completed-jump/s)
   assert.doesNotMatch(css, /\.map-node\.is-agent-completed\s+\.node-select\s*\{[^}]*animation:/s)
   assert.match(css, /\.agent-needs-input-marker\s*\{[^}]*position:\s*absolute/s)

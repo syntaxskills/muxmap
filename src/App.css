@@ -438,6 +438,7 @@ kbd {
   background: linear-gradient(100deg, transparent 36%, color-mix(in srgb, #79bd94 7%, transparent) 44%, color-mix(in srgb, #79bd94 44%, transparent) 50%, color-mix(in srgb, #79bd94 7%, transparent) 56%, transparent 64%);
   transform: translateX(-110%);
   animation: agent-working-sweep 1.65s cubic-bezier(.22, .8, .3, 1) infinite;
+  animation-delay: var(--agent-working-sweep-delay, 0s);
   will-change: transform;
 }
 
