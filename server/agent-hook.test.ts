@@ -170,6 +170,42 @@ test('agent hook exits 0 when MuxMap API times out', { timeout: 5000 }, async ()
   }
 })
 
+test('agent hook exits 0 when MuxMap API rejects the event', { timeout: 5000 }, async () => {
+  const server = createServer((_request, response) => {
+    response.writeHead(401).end('unauthorized')
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  assert.ok(address && typeof address === 'object')
+
+  try {
+    const child = runHook({
+      input: '{"hook_event_name":"Stop","session_id":"direct-session"}',
+      env: { TMUX_PANE: '%1', MUXMAP_URL: `http://127.0.0.1:${address.port}` },
+    })
+    const [code] = await once(child, 'exit')
+    assert.equal(code, 0)
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+  }
+})
+
+test('agent hook exits 0 when MuxMap API is unavailable', { timeout: 5000 }, async () => {
+  const server = createServer()
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  assert.ok(address && typeof address === 'object')
+  const port = address.port
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+
+  const child = runHook({
+    input: '{"hook_event_name":"Stop","session_id":"direct-session"}',
+    env: { TMUX_PANE: '%1', MUXMAP_URL: `http://127.0.0.1:${port}` },
+  })
+  const [code] = await once(child, 'exit')
+  assert.equal(code, 0)
+})
+
 test('agent hook carries MUXMAP_TOKEN as Basic Auth', { timeout: 5000 }, async () => {
   let authorization: string | undefined
   let payload: Record<string, unknown> | undefined
