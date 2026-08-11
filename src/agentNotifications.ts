@@ -2,6 +2,8 @@ import { agentNames } from './agentStatus.ts'
 import type { WorkspaceGraph } from './model.ts'
 import { notificationDeliveryTargets, type AppSettings } from './settings.ts'
 
+export const IN_PAGE_NOTIFICATION_LIFETIME_MS = 8_000
+
 export type AgentNotification = {
   key: string
   sessionId: string

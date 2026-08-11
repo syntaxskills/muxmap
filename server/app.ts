@@ -50,6 +50,7 @@ type ServerOptions = {
   allowedOrigins?: string[]
   processReader?: () => ProcessInfo[]
   platform?: RuntimePlatform
+  activityWriteIntervalMs?: number
 }
 
 const mimeTypes: Record<string, string> = {
@@ -171,6 +172,15 @@ export function createMuxMapServer(options: ServerOptions) {
   const webSockets = new WebSocketServer({ noServer: true })
   const clients = new Map<string, number>()
   const ptys = new Map<string, Set<PtyHandle>>()
+  const lastActivityWrites = new Map<string, number>()
+  const activityWriteIntervalMs = options.activityWriteIntervalMs ?? 5_000
+
+  const recordSessionActivity = (sessionId: string) => {
+    const now = Date.now()
+    if (now - (lastActivityWrites.get(sessionId) ?? 0) < activityWriteIntervalMs) return
+    lastActivityWrites.set(sessionId, now)
+    store.updateSessionActivity(sessionId, new Date(now).toISOString())
+  }
 
   sessions.reconcile()
 
@@ -386,7 +396,10 @@ export function createMuxMapServer(options: ServerOptions) {
     const send = (message: unknown) => {
       if (webSocket.readyState === webSocket.OPEN) webSocket.send(JSON.stringify(message))
     }
-    pty.onData((data) => send({ type: 'output', data }))
+    pty.onData((data) => {
+      send({ type: 'output', data })
+      recordSessionActivity(session.id)
+    })
     pty.onExit(() => send({ type: 'status', status: 'detached' }))
     send({ type: 'status', status: 'running' })
 
@@ -395,6 +408,7 @@ export function createMuxMapServer(options: ServerOptions) {
         const message = JSON.parse(raw.toString()) as Record<string, unknown>
         if (message.type === 'input' && typeof message.data === 'string' && message.data.length <= 64 * 1024) {
           pty.write(message.data)
+          recordSessionActivity(session.id)
         } else if (message.type === 'scroll') {
           const lines = Number(message.lines)
           if (Number.isInteger(lines) && lines !== 0 && Math.abs(lines) <= 200) pty.scroll(lines)

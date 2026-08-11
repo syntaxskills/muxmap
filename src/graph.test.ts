@@ -39,6 +39,8 @@ test('delete choices mention tmux only when the branch contains a live session',
   assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'ticket', status: 'running' }], 'repo'), true)
   assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'ticket', status: 'stopped' }], 'repo'), false)
   assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'other', status: 'running' }], 'repo'), false)
+  const archived = nodes.map((node) => node.id === 'repo' ? { ...node, archivedAt: '2026-08-11T00:00:00.000Z' } : node)
+  assert.equal(branchHasLiveSession(archived, [{ nodeId: 'ticket', status: 'detached' }], 'repo'), true)
 })
 
 test('reordering moves nodes only within their existing sibling group', () => {
@@ -57,6 +59,7 @@ test('reordering moves nodes only within their existing sibling group', () => {
 test('expanded nodes grow only as much as their visible metadata needs', () => {
   assert.equal(expandedNodeHeight(nodes[1], false), 106)
   assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, true), 136)
+  assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, true, 0, true), 148)
   assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, false, 1), 136)
 })
 

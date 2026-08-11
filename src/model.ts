@@ -46,6 +46,7 @@ export type TerminalSession = {
   createdAt: string
   updatedAt: string
   lastAttachedAt?: string
+  lastActivityAt?: string
   agent?: AgentActivity
 }
 

@@ -53,6 +53,37 @@ test('legacy idle agent records migrate to read instead of alerting again', () =
   }
 })
 
+test('terminal activity persists and legacy sessions fall back to their last attachment', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'muxmap-activity-migration-'))
+  const database = join(directory, 'muxmap.db')
+  const attachedAt = '2026-08-07T09:00:00.000Z'
+
+  try {
+    const first = createStore(database)
+    const node = first.createNode('default', { parentId: 'workspace', title: 'Active shell', type: 'terminal' })
+    const session = first.upsertSession({
+      id: 'activity-session', workspaceId: 'default', nodeId: node.id, name: 'tmux:activity', runtimeName: 'muxmap-activity',
+      backend: 'tmux', cwd: process.cwd(), status: 'running', lastAttachedAt: attachedAt,
+    })
+    first.close()
+
+    const legacy = new DatabaseSync(database)
+    legacy.exec('ALTER TABLE sessions DROP COLUMN last_activity_at')
+    legacy.close()
+
+    const migrated = createStore(database)
+    assert.equal(migrated.getSession(session.id)?.lastActivityAt, attachedAt)
+    migrated.updateSessionActivity(session.id, '2026-08-11T12:00:00.000Z')
+    migrated.close()
+
+    const reopened = createStore(database)
+    assert.equal(reopened.getSession(session.id)?.lastActivityAt, '2026-08-11T12:00:00.000Z')
+    reopened.close()
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('node creation validates hierarchy and input', () => {
   const store = createStore(':memory:')
   assert.throws(() => store.createNode('default', {

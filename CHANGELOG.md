@@ -6,9 +6,14 @@ All notable changes to MuxMap are documented here.
 
 ### Changed
 
+- Added persistent last-activity timestamps for terminal input, terminal/Agent output, and Agent hooks, with compact minute/hour/day ages on every linked node.
+- Made in-page Agent notifications fade and dismiss themselves after eight seconds.
+- Added confirmed permanent deletion for archived nodes and branches, including explicit orphan-or-stop choices for live sessions.
+- Let long mindmap titles wrap onto a second line before truncating.
+- Made Agent state unmistakable: active work sweeps a green light across its node, completion jumps the Agent icon, and input requests show a node-corner question mark.
 - Added notification delivery controls for system-only, in-page-only, combined, or fully disabled alerts.
 - Added a Settings action that sends a real browser-mediated system notification and reports permission or delivery errors in place.
-- Made agent completion visible across the full node, added a clickable in-app alert fallback, and hid node types by default.
+- Added a clickable in-app alert fallback and hid node types by default.
 - Added explicit password-free LAN/Tailscale access and a mobile layout with an 80% bottom Terminal sheet, focused nodes, safe-area support, and compact touch navigation.
 - Added reversible node and branch archiving with preserved hierarchy, search, restore, and terminal sessions.
 - Shortened the README around the core workflow, one product screenshot, and setup path.
@@ -21,6 +26,7 @@ All notable changes to MuxMap are documented here.
 
 - Kept archived nodes discoverable inside their original parent and preserved nested archive behavior when the parent is archived too.
 - Made the full expanded node surface open its linked Terminal, including metadata in the lower half.
+- Removed the duplicate node-level Terminal button because selecting a terminal-enabled node already opens it.
 - Made terminal gestures navigate tmux history without becoming arrow keys while preserving text selection and native copying.
 - Hid tmux-specific delete choices when a node branch has no live session.
 - Stopped injecting detach keystrokes into Windows terminals and enabled Zellij's font-safe UI.

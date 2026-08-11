@@ -187,6 +187,7 @@ test('completed agent activity stays read after reopening the workspace', () => 
     const session = manager.attach(node.id)
     manager.recordAgentEvent({ backend: 'tmux', paneId: '%10' }, 'codex', { hook_event_name: 'Stop' }, '2026-08-07T10:00:00.000Z')
     assert.equal(manager.decorate([session])[0].agent?.state, 'completed')
+    assert.equal(store.getSession(session.id)?.lastActivityAt, '2026-08-07T10:00:00.000Z')
     manager.acknowledge(session.id)
     store.close()
     store = createStore(database)

@@ -68,7 +68,8 @@ export function createStore(path: string) {
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      last_attached_at TEXT
+      last_attached_at TEXT,
+      last_activity_at TEXT
     );
     CREATE TABLE IF NOT EXISTS agent_activity (
       tmux_name TEXT PRIMARY KEY,
@@ -82,6 +83,12 @@ export function createStore(path: string) {
   if (!nodeColumns.some((column) => column.name === 'archived_at')) {
     database.exec('ALTER TABLE nodes ADD COLUMN archived_at TEXT')
   }
+
+  const sessionColumns = database.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>
+  if (!sessionColumns.some((column) => column.name === 'last_activity_at')) {
+    database.exec('ALTER TABLE sessions ADD COLUMN last_activity_at TEXT')
+  }
+  database.exec('UPDATE sessions SET last_activity_at = COALESCE(last_attached_at, created_at) WHERE last_activity_at IS NULL')
 
   database.prepare("UPDATE agent_activity SET state = 'read' WHERE state = 'idle'").run()
 
@@ -149,6 +156,7 @@ export function createStore(path: string) {
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
       lastAttachedAt: row.last_attached_at ? String(row.last_attached_at) : undefined,
+      lastActivityAt: row.last_activity_at ? String(row.last_activity_at) : undefined,
     }
   }
 
@@ -341,8 +349,8 @@ export function createStore(path: string) {
       database.prepare(`
         INSERT INTO sessions (
           id, workspace_id, node_id, name, tmux_name, backend, cwd, status,
-          created_at, updated_at, last_attached_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          created_at, updated_at, last_attached_at, last_activity_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(node_id) DO UPDATE SET
           name = excluded.name,
           tmux_name = excluded.tmux_name,
@@ -350,11 +358,12 @@ export function createStore(path: string) {
           cwd = excluded.cwd,
           status = excluded.status,
           updated_at = excluded.updated_at,
-          last_attached_at = excluded.last_attached_at
+          last_attached_at = excluded.last_attached_at,
+          last_activity_at = COALESCE(excluded.last_activity_at, sessions.last_activity_at)
       `).run(
         id, input.workspaceId, input.nodeId, input.name, input.runtimeName,
         input.backend, input.cwd, input.status, createdAt, now,
-        input.lastAttachedAt ?? null,
+        input.lastAttachedAt ?? null, input.lastActivityAt ?? null,
       )
       return this.getSession(id)!
     },
@@ -363,6 +372,22 @@ export function createStore(path: string) {
       const now = new Date().toISOString()
       database.prepare('UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?').run(status, now, id)
       return this.getSession(id)
+    },
+
+    updateSessionActivity(id: string, timestamp = new Date().toISOString()) {
+      database.prepare(`
+        UPDATE sessions SET last_activity_at = ?
+        WHERE id = ? AND (last_activity_at IS NULL OR last_activity_at <= ?)
+      `).run(timestamp, id, timestamp)
+      return this.getSession(id)
+    },
+
+    updateSessionActivityByRuntimeName(runtimeName: string, timestamp = new Date().toISOString()) {
+      database.prepare(`
+        UPDATE sessions SET last_activity_at = ?
+        WHERE tmux_name = ? AND (last_activity_at IS NULL OR last_activity_at <= ?)
+      `).run(timestamp, runtimeName, timestamp)
+      return this.getSessionByRuntimeName(runtimeName)
     },
 
     close() {

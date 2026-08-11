@@ -153,6 +153,7 @@ kbd {
   background: color-mix(in srgb, var(--surface-elevated) 96%, transparent);
   box-shadow: 0 16px 38px var(--shadow);
   backdrop-filter: blur(14px);
+  animation: agent-alert-lifetime 8s linear forwards;
 }
 
 .agent-alert.is-needs_input {
@@ -424,19 +425,29 @@ kbd {
   text-shadow: 0 0 12px var(--accent);
 }
 
-.map-node.is-agent-completed .node-select {
-  animation: agent-node-completed 1.8s ease-in-out infinite;
+.map-node.is-agent-working .node-select {
+  position: relative;
+  overflow: hidden;
+}
+
+.map-node.is-agent-working .node-select::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent 36%, color-mix(in srgb, #79bd94 7%, transparent) 44%, color-mix(in srgb, #79bd94 44%, transparent) 50%, color-mix(in srgb, #79bd94 7%, transparent) 56%, transparent 64%);
+  transform: translateX(-110%);
+  animation: agent-working-sweep 1.65s cubic-bezier(.22, .8, .3, 1) infinite;
+  will-change: transform;
 }
 
 .node-select:active,
 .node-add-action:active,
-.node-terminal-action:active,
 .attach-button:active {
   transform: translateY(1px);
 }
 
-.node-add-action,
-.node-terminal-action {
+.node-add-action {
   position: absolute;
   z-index: 3;
   display: grid;
@@ -469,18 +480,8 @@ kbd {
   opacity: 1;
 }
 
-.node-add-action:hover,
-.node-terminal-action:hover {
+.node-add-action:hover {
   border-color: var(--accent);
-  color: var(--accent);
-}
-
-.node-terminal-action {
-  right: 7px;
-  bottom: -25px;
-  min-width: 30px;
-  height: 20px;
-  border-color: var(--node-color);
   color: var(--accent);
 }
 
@@ -503,7 +504,7 @@ kbd {
 }
 
 .map-node.is-expanded .child-count,
-.map-node.is-expanded .terminal-badge {
+.map-node.is-expanded .node-runtime {
   margin-top: 5px;
 }
 
@@ -517,8 +518,20 @@ kbd {
 .node-title,
 .node-type {
   overflow: hidden;
-  white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.node-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.node-type {
+  white-space: nowrap;
 }
 
 .node-expanded-content {
@@ -673,6 +686,19 @@ kbd {
   font: 700 10px/1 var(--mono);
 }
 
+.node-runtime {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.node-last-activity {
+  min-width: 20px;
+  color: var(--text-muted);
+  font: 8px/1 var(--mono);
+  text-align: right;
+}
+
 .terminal-badge.is-working {
   min-width: 18px;
   height: 18px;
@@ -717,11 +743,29 @@ kbd {
 }
 
 .is-completed > .agent-icon {
-  animation: agent-completed 1.8s ease-in-out infinite;
+  animation: agent-completed-jump 1.65s cubic-bezier(.28, .84, .42, 1) infinite;
 }
 
 .is-needs_input > .agent-icon {
-  animation: agent-needs-input 1.35s cubic-bezier(.28, .84, .42, 1) infinite;
+  animation: none;
+}
+
+.agent-needs-input-marker {
+  position: absolute;
+  z-index: 4;
+  top: -8px;
+  right: -9px;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, #e2ad58 72%, var(--line-strong));
+  border-radius: 50%;
+  background: var(--surface-elevated);
+  color: #ad751e;
+  box-shadow: 0 3px 8px var(--shadow-soft);
+  font: 700 11px/1 var(--mono);
+  pointer-events: none;
 }
 
 .runtime-state,
@@ -1961,7 +2005,14 @@ kbd {
   letter-spacing: .05em;
 }
 
-.archive-row > button {
+.archive-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.archive-row-actions button,
+.archive-delete-choice button {
   min-height: 28px;
   display: inline-flex;
   align-items: center;
@@ -1974,14 +2025,38 @@ kbd {
   font: 9px/1 var(--mono);
 }
 
-.archive-row > button:hover {
+.archive-row-actions button:hover,
+.archive-delete-choice button:hover {
   background: var(--surface-elevated);
   color: var(--text-strong);
 }
 
-.archive-row > button:disabled {
+.archive-row-actions button:disabled,
+.archive-delete-choice button:disabled {
   opacity: .45;
   cursor: not-allowed;
+}
+
+.archive-row-actions button.is-danger,
+.archive-delete-choice button.is-danger {
+  color: #b07167;
+}
+
+.archive-delete-choice {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, #b07167 42%, var(--line));
+  background: color-mix(in srgb, #b07167 7%, var(--surface-elevated));
+  color: var(--text);
+  font: 9px/1.4 var(--mono);
+}
+
+.archive-delete-choice > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
 .archive-empty {
@@ -2479,26 +2554,20 @@ kbd {
   to { transform: rotate(1turn); }
 }
 
-@keyframes agent-completed {
-  0%, 100% { opacity: .48; }
-  50% { opacity: 1; }
+@keyframes agent-working-sweep {
+  to { transform: translateX(110%); }
 }
 
-@keyframes agent-node-completed {
-  0%, 100% {
-    opacity: .64;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-color) 24%, transparent), 0 5px 16px var(--shadow-soft);
-  }
-  50% {
-    opacity: 1;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-color) 72%, transparent), 0 13px 32px color-mix(in srgb, var(--node-color) 28%, var(--shadow));
-  }
+@keyframes agent-completed-jump {
+  0%, 58%, 100% { transform: translateY(0) scale(1); }
+  15% { transform: translateY(-5px) scale(1.06, .94); }
+  30% { transform: translateY(0) scale(.96, 1.04); }
+  42% { transform: translateY(-2px) scale(1.02, .98); }
 }
 
-@keyframes agent-needs-input {
-  0%, 18%, 46%, 68%, 100% { transform: translateY(0) scale(1); }
-  32% { transform: translateY(-6px) scale(1.04, .96); }
-  56% { transform: translateY(-3px) scale(1.02, .98); }
+@keyframes agent-alert-lifetime {
+  0%, 70% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-6px); }
 }
 
 .load-state {
@@ -2606,11 +2675,12 @@ kbd {
   .edges path,
   .node-expanded-content,
   .node-context-menu,
+  .agent-alert,
   .terminal-preview-screen i,
+  .map-node.is-agent-working .node-select::after,
   .is-working > .agent-icon,
   .is-completed > .agent-icon,
-  .is-needs_input > .agent-icon,
-  .map-node.is-agent-completed .node-select {
+  .is-needs_input > .agent-icon {
     animation: none;
     transition: none;
   }
@@ -2622,9 +2692,10 @@ kbd {
 .reduce-motion .edges path,
 .reduce-motion .node-expanded-content,
 .reduce-motion .node-context-menu,
+.reduce-motion .agent-alert,
 .reduce-motion .terminal-preview-screen i,
 .reduce-motion .agent-icon,
-.reduce-motion .map-node.is-agent-completed .node-select {
+.reduce-motion .map-node.is-agent-working .node-select::after {
   animation: none !important;
   transition: none !important;
 }

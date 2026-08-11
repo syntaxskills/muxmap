@@ -18,7 +18,7 @@ import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { normalizeTerminalOpacity, normalizeTerminalSplit } from './terminalInteraction.ts'
 import { readViewState, writeViewState } from './viewState.ts'
 import { agentStatusText } from './agentStatus.ts'
-import { mergeAgentNotifications, routeAgentNotifications, scanAgentNotifications, type AgentNotification } from './agentNotifications.ts'
+import { IN_PAGE_NOTIFICATION_LIFETIME_MS, mergeAgentNotifications, routeAgentNotifications, scanAgentNotifications, type AgentNotification } from './agentNotifications.ts'
 import { dragIntent, dropPositionAt, pointerReleaseIntent } from './nodeReorderInteraction.ts'
 import { contextMenuPosition, duplicateNodeInput } from './nodeContextMenu.ts'
 import { AgentIcon } from './AgentIcon.tsx'
@@ -26,6 +26,7 @@ import { SettingsPanel } from './SettingsPanel.tsx'
 import { ArchivePanel } from './ArchivePanel.tsx'
 import { loadSettings, notificationDeliveryTargets, SETTINGS_VERSION, type AppSettings } from './settings.ts'
 import { sendTestSystemNotification } from './systemNotifications.ts'
+import { formatActivityAge, sessionActivityTimestamp } from './activityTime.ts'
 import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
@@ -98,6 +99,7 @@ function App() {
   const suppressNodeClick = useRef(false)
   const notifiedAgentEvents = useRef(new Map<string, string>())
   const notificationBaselineReady = useRef(false)
+  const agentAlertTimers = useRef(new Map<string, number>())
   const splitDragRef = useRef<number | null>(null)
   const settingsPlatformRef = useRef(clientPlatform)
   const { rightPanel, terminalSessionId, terminalFloating } = surface
@@ -181,6 +183,27 @@ function App() {
     if (!inPageNotificationsEnabled) setAgentAlerts([])
   }, [inPageNotificationsEnabled])
   useEffect(() => {
+    const active = new Set(agentAlerts.map((alert) => `${alert.sessionId}:${alert.key}`))
+    for (const alert of agentAlerts) {
+      const key = `${alert.sessionId}:${alert.key}`
+      if (agentAlertTimers.current.has(key)) continue
+      const timer = window.setTimeout(() => {
+        agentAlertTimers.current.delete(key)
+        setAgentAlerts((current) => current.filter((item) => `${item.sessionId}:${item.key}` !== key))
+      }, IN_PAGE_NOTIFICATION_LIFETIME_MS)
+      agentAlertTimers.current.set(key, timer)
+    }
+    for (const [key, timer] of agentAlertTimers.current) {
+      if (active.has(key)) continue
+      window.clearTimeout(timer)
+      agentAlertTimers.current.delete(key)
+    }
+  }, [agentAlerts])
+  useEffect(() => () => {
+    for (const timer of agentAlertTimers.current.values()) window.clearTimeout(timer)
+    agentAlertTimers.current.clear()
+  }, [])
+  useEffect(() => {
     const search = writeViewState(window.location.search, { selectedId, terminalSessionId, terminalFloating })
     const nextUrl = `${window.location.pathname}${search}${window.location.hash}`
     if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== nextUrl) window.history.replaceState(window.history.state, '', nextUrl)
@@ -242,7 +265,10 @@ function App() {
   const sessionsByNode = useMemo(() => new Map(graph?.sessions.map((item) => [item.nodeId, item]) ?? []), [graph?.sessions])
   const nodeHeights = useMemo(() => new Map(nodes
     .filter((node) => node.id === selectedId || node.id === hoveredId)
-    .map((node) => [node.id, expandedNodeHeight(node, Boolean(sessionsByNode.get(node.id)?.agent), archivedChildCounts.get(node.id) ?? 0)])), [archivedChildCounts, hoveredId, nodes, selectedId, sessionsByNode])
+    .map((node) => {
+      const nodeSession = sessionsByNode.get(node.id)
+      return [node.id, expandedNodeHeight(node, Boolean(nodeSession?.agent), archivedChildCounts.get(node.id) ?? 0, Boolean(nodeSession))]
+    })), [archivedChildCounts, hoveredId, nodes, selectedId, sessionsByNode])
   const positions = useMemo(
     () => layoutTree(nodes, graph?.workspace.rootNodeId ?? 'workspace', settings['mindmap.columnGap'], settings['mindmap.rowGap'], nodeHeights),
     [graph?.workspace.rootNodeId, nodeHeights, nodes, settings],
@@ -428,7 +454,7 @@ function App() {
 
   function beginNodeReorder(event: ReactPointerEvent<HTMLElement>, node: WorkNode) {
     const target = event.target as HTMLElement
-    if (event.button !== 0 || !node.parentId || renamingId === node.id || target.closest('input, .node-add-action, .node-terminal-action')) return
+    if (event.button !== 0 || !node.parentId || renamingId === node.id || target.closest('input, .node-add-action')) return
     nodePointerRef.current = { pointerId: event.pointerId, nodeId: node.id, parentId: node.parentId, x: event.clientX, y: event.clientY, dragging: false }
     target.setPointerCapture(event.pointerId)
   }
@@ -676,6 +702,22 @@ function App() {
     }
   }
 
+  async function deleteArchivedNode(nodeId: string, stopSessionWithNode: boolean) {
+    setBusy(true)
+    setError('')
+    try {
+      await api(`/api/nodes/${nodeId}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ stopSession: stopSessionWithNode }),
+      })
+      await loadWorkspace()
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Unable to delete archived node')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function archiveNode(nodeId: string) {
     if (!graph || nodeId === graph.workspace.rootNodeId) return
     const parentId = graph.nodes.find((node) => node.id === nodeId)?.parentId ?? graph.workspace.rootNodeId
@@ -840,13 +882,16 @@ function App() {
                   const point = positions.get(node.id)
                   if (!point) return null
                   const nodeSession = sessionsByNode.get(node.id)
+                  const agentState = nodeSession?.agent?.state
+                  const activityTimestamp = nodeSession ? sessionActivityTimestamp(nodeSession) : undefined
+                  const activityAge = formatActivityAge(activityTimestamp)
                   const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
                   const archivedChildCount = archivedChildCounts.get(node.id) ?? 0
                   const expanded = node.id === selectedId || node.id === hoveredId
                   const style = { left: point.x + 48, top: point.y + 48, height: nodeHeights.get(node.id) ?? NODE_HEIGHT, '--node-color': node.color } as CSSProperties
                   return (
                     <article
-                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${nodeSession?.agent?.state === 'completed' ? 'is-agent-completed' : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
+                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${agentState ? `is-agent-${agentState}` : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
                       key={node.id}
                       style={style}
                       data-node-id={node.id}
@@ -889,17 +934,16 @@ function App() {
                               {node.repoPath && <span><b>Path</b><code>{node.repoPath}</code></span>}
                               {node.note && <span><b>Note</b><em>{node.note}</em></span>}
                               {nodeSession?.agent && <span><b>Agent</b>{agentStatusText(nodeSession.agent)}</span>}
+                              {nodeSession && <span><b>Activity</b><time dateTime={activityTimestamp}>{activityAge === 'NOW' ? activityAge : `${activityAge} ago`}</time></span>}
                               {archivedChildCount > 0 && <span><b>Archived</b>{archivedChildCount} {archivedChildCount === 1 ? 'child' : 'children'}</span>}
                               <span><b>Terminal</b>{nodeSession?.status ?? 'None'}</span>
                             </span>
                           )}
                         </span>
                         {childCount > 0 && <span className="child-count">{collapsed.has(node.id) ? '+' : childCount}</span>}
-                        {nodeSession && <span className={`terminal-badge is-${nodeSession.status} ${nodeSession.agent ? `is-${nodeSession.agent.state}` : ''}`} title={nodeSession.agent ? agentStatusText(nodeSession.agent) : `Terminal ${nodeSession.status}`}>{nodeSession.agent ? <AgentIcon kind={nodeSession.agent.kind} /> : '>_'}</span>}
+                        {nodeSession && <span className="node-runtime" title={`Last activity ${new Date(activityTimestamp!).toLocaleString()}`}><time className="node-last-activity" dateTime={activityTimestamp}>{activityAge}</time><span className={`terminal-badge is-${nodeSession.status} ${nodeSession.agent ? `is-${nodeSession.agent.state}` : ''}`} title={nodeSession.agent ? agentStatusText(nodeSession.agent) : `Terminal ${nodeSession.status}`}>{nodeSession.agent ? <AgentIcon kind={nodeSession.agent.kind} /> : '>_'}</span></span>}
                       </button>
-                      {nodeSession && nodeSession.status !== 'stopped' && (
-                        <button className="node-terminal-action" type="button" onClick={() => selectNode(node)} aria-label={`Open terminal for ${node.title}`}>&gt;_</button>
-                      )}
+                      {agentState === 'needs_input' && <span className="agent-needs-input-marker" role="img" aria-label={`Agent needs input for ${node.title}`} title="Agent needs input">?</span>}
                       <button className="node-add-action" type="button" onClick={() => void addChild(node)} aria-label={`Add child to ${node.title}`}>+</button>
                     </article>
                   )
@@ -980,7 +1024,7 @@ function App() {
           <div className="node-commands">
             {session && session.status !== 'stopped' ? (
               <button className={`terminal-preview ${terminalSessionId === session.id ? 'is-active' : ''}`} type="button" onClick={() => openTerminal(session.id)} aria-label={`Expand terminal for ${selected.title}`} style={{ '--accent': selected.color, '--accent-soft': `color-mix(in srgb, ${selected.color} 20%, transparent)` } as CSSProperties}>
-                <span className="terminal-preview-bar"><i /><i /><i /><strong>{session.agent ? agentStatusText(session.agent) : session.status}</strong></span>
+                <span className="terminal-preview-bar"><i /><i /><i /><strong>{session.agent ? agentStatusText(session.agent) : session.status} · {formatActivityAge(sessionActivityTimestamp(session))}</strong></span>
                 <span className="terminal-preview-screen"><code>$ {session.backend} attach</code><code>{session.runtimeName}</code><i /></span>
                 <span className="terminal-preview-footer"><strong>{selected.title}</strong><small>Click to expand ↗</small></span>
               </button>
@@ -1003,7 +1047,7 @@ function App() {
 
         {sidePanelOpen && rightPanel === 'settings' && <SettingsPanel settings={settings} platform={platform} notificationPermission={notificationPermission} onChange={setSettings} onEnableNotifications={() => void enableAgentNotifications()} onTestSystemNotification={testSystemNotification} onClose={() => setSurface((current) => ({ ...current, rightPanel: null }))} />}
 
-        {sidePanelOpen && rightPanel === 'archive' && <ArchivePanel nodes={graph.nodes} sessions={graph.sessions} busy={busy} onRestore={(nodeId) => void restoreNode(nodeId)} onClose={() => setSurface((current) => ({ ...current, rightPanel: null }))} />}
+        {sidePanelOpen && rightPanel === 'archive' && <ArchivePanel nodes={graph.nodes} sessions={graph.sessions} busy={busy} onRestore={(nodeId) => void restoreNode(nodeId)} onDelete={(nodeId, stopSession) => void deleteArchivedNode(nodeId, stopSession)} onClose={() => setSurface((current) => ({ ...current, rightPanel: null }))} />}
 
         {sidePanelOpen && rightPanel === 'sessions' && (
           <aside className="side-panel session-manager" aria-label="Terminal session manager">

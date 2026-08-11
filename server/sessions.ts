@@ -270,7 +270,9 @@ export function createSessionManager(
         ? locator.runtimeName
         : adapters.tmux?.panes?.().find((item) => item.paneId === locator.paneId)?.runtimeName
       if (!runtimeName?.startsWith('muxmap') || !adapterFor(locator.backend).exists(runtimeName)) throw new Error('MuxMap terminal session not found')
-      return store.upsertAgentActivity(runtimeName, agentActivityFromEvent(kind, event, now))
+      const activity = agentActivityFromEvent(kind, event, now)
+      store.updateSessionActivityByRuntimeName(runtimeName, activity.since)
+      return store.upsertAgentActivity(runtimeName, activity)
     },
 
     acknowledge(id: string) {

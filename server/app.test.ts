@@ -27,13 +27,14 @@ function fakeTmux(): TmuxAdapter & { stopped: string[]; live: Set<string> } {
   }
 }
 
-function fakePtyFactory(record: { writes: string[]; resizes: number[][]; kills: number[]; starts?: number[][]; scrolls?: number[] }): PtyFactory {
+function fakePtyFactory(record: { writes: string[]; resizes: number[][]; kills: number[]; starts?: number[][]; scrolls?: number[]; emitData?: (data: string) => void }): PtyFactory {
   return (_session, size) => {
     if (size) record.starts?.push([size.cols, size.rows])
     const dataListeners: Array<(data: string) => void> = []
     const handle: PtyHandle = {
       onData(listener) {
         dataListeners.push(listener)
+        record.emitData = listener
         listener('ready')
       },
       onExit() {},
@@ -272,6 +273,45 @@ test('websocket detaches safely and workspace refresh surfaces a missing tmux se
     const workspace = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } })
     const graph = await workspace.json() as { sessions: Array<{ id: string; status: string }> }
     assert.equal(graph.sessions.find((item) => item.id === session.id)?.status, 'stopped')
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('terminal input and output both advance persisted last activity', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-terminal-activity-')))
+  const tmux = fakeTmux()
+  const ptyRecord = { writes: [] as string[], resizes: [] as number[][], kills: [] as number[], emitData: undefined as ((data: string) => void) | undefined }
+  const server = createMuxMapServer({
+    databasePath: ':memory:', allowedRoots: [root], platform: 'linux', token: 'test-token', tmux,
+    ptyFactory: fakePtyFactory(ptyRecord), activityWriteIntervalMs: 0,
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const cookie = (await fetch(`${base}/api/auth`)).headers.get('set-cookie')?.split(';')[0] ?? ''
+    const node = await fetch(`${base}/api/workspaces/default/nodes`, {
+      method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ parentId: 'workspace', title: 'Activity shell', type: 'terminal', repoPath: root }),
+    }).then((response) => response.json()) as { id: string }
+    const session = await fetch(`${base}/api/nodes/${node.id}/session`, {
+      method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' }, body: JSON.stringify({ backend: 'tmux', cwd: root }),
+    }).then((response) => response.json()) as { session: TerminalSession }
+    const initial = Date.parse(session.session.lastActivityAt ?? session.session.lastAttachedAt ?? session.session.createdAt)
+    await new Promise((resolve) => setTimeout(resolve, 5))
+
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/sessions/${session.session.id}/attach`, { headers: { cookie, origin: base } })
+    await new Promise<void>((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject) })
+    await eventually(() => Date.parse(server.store.getSession(session.session.id)?.lastActivityAt ?? '') > initial)
+    const outputAt = Date.parse(server.store.getSession(session.session.id)?.lastActivityAt ?? '')
+
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    ws.send(JSON.stringify({ type: 'input', data: 'echo hello\r' }))
+    await eventually(() => Date.parse(server.store.getSession(session.session.id)?.lastActivityAt ?? '') > outputAt)
+    ws.close()
+    await new Promise((resolve) => ws.once('close', resolve))
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })
