@@ -31,6 +31,13 @@ export function activeNodes(nodes: WorkNode[]) {
   return nodes.filter((node) => !archived.has(node.id))
 }
 
+export function archivedDirectChildren(nodes: WorkNode[], parentId: string) {
+  const archived = effectiveArchivedNodeIds(nodes)
+  return nodes
+    .filter((node) => node.parentId === parentId && archived.has(node.id))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt))
+}
+
 export function archivedNodeEntries(nodes: WorkNode[], query: string): ArchivedNodeEntry[] {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const archived = effectiveArchivedNodeIds(nodes)
@@ -54,7 +61,7 @@ export function archivedNodeEntries(nodes: WorkNode[], query: string): ArchivedN
       path.unshift(current.title)
       current = byId.get(current.parentId)
     }
-    entries.push({ node, depth, path: path.join(' / '), inherited: !node.archivedAt })
+    entries.push({ node, depth, path: path.join(' / '), inherited: Boolean(node.parentId && archived.has(node.parentId)) })
     for (const child of children.get(node.id) ?? []) visit(child, depth + 1)
   }
   for (const root of roots) visit(root, 0)
@@ -74,8 +81,8 @@ export function archivedNodeEntries(nodes: WorkNode[], query: string): ArchivedN
   return entries.filter((entry) => included.has(entry.node.id))
 }
 
-export function expandedNodeHeight(node: WorkNode, hasAgent: boolean) {
-  const rows = 1 + [node.project, node.jiraKey, node.repoPath, node.note].filter(Boolean).length + Number(hasAgent)
+export function expandedNodeHeight(node: WorkNode, hasAgent: boolean, archivedChildCount = 0) {
+  const rows = 1 + [node.project, node.jiraKey, node.repoPath, node.note].filter(Boolean).length + Number(hasAgent) + Number(archivedChildCount > 0)
   return Math.max(106, 64 + rows * 12)
 }
 

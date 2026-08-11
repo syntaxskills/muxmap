@@ -11,7 +11,7 @@ import {
 } from 'react'
 import './App.css'
 import { api } from './api.ts'
-import { activeNodes, archivedNodeEntries, branchHasLiveSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleNodes } from './graph.ts'
 import { centerPan, dragPan, gridBackground, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
 import type { NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
@@ -25,7 +25,7 @@ import { AgentIcon } from './AgentIcon.tsx'
 import { SettingsPanel } from './SettingsPanel.tsx'
 import { ArchivePanel } from './ArchivePanel.tsx'
 import { loadSettings, SETTINGS_VERSION, type AppSettings } from './settings.ts'
-import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, TrashIcon } from '@radix-ui/react-icons'
+import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
   floatTerminal,
@@ -222,6 +222,14 @@ function App() {
   const activeGraphNodes = useMemo(() => activeNodes(graph?.nodes ?? []), [graph?.nodes])
   const archivedIds = useMemo(() => effectiveArchivedNodeIds(graph?.nodes ?? []), [graph?.nodes])
   const archivedCount = useMemo(() => archivedNodeEntries(graph?.nodes ?? [], '').length, [graph?.nodes])
+  const archivedChildCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const node of graph?.nodes ?? []) {
+      if (!node.parentId || !archivedIds.has(node.id)) continue
+      counts.set(node.parentId, (counts.get(node.parentId) ?? 0) + 1)
+    }
+    return counts
+  }, [archivedIds, graph?.nodes])
   const nodes = useMemo(
     () => visibleNodes(activeGraphNodes, collapsed, query),
     [activeGraphNodes, collapsed, query],
@@ -229,12 +237,13 @@ function App() {
   const sessionsByNode = useMemo(() => new Map(graph?.sessions.map((item) => [item.nodeId, item]) ?? []), [graph?.sessions])
   const nodeHeights = useMemo(() => new Map(nodes
     .filter((node) => node.id === selectedId || node.id === hoveredId)
-    .map((node) => [node.id, expandedNodeHeight(node, Boolean(sessionsByNode.get(node.id)?.agent))])), [hoveredId, nodes, selectedId, sessionsByNode])
+    .map((node) => [node.id, expandedNodeHeight(node, Boolean(sessionsByNode.get(node.id)?.agent), archivedChildCounts.get(node.id) ?? 0)])), [archivedChildCounts, hoveredId, nodes, selectedId, sessionsByNode])
   const positions = useMemo(
     () => layoutTree(nodes, graph?.workspace.rootNodeId ?? 'workspace', settings['mindmap.columnGap'], settings['mindmap.rowGap'], nodeHeights),
     [graph?.workspace.rootNodeId, nodeHeights, nodes, settings],
   )
   const selected = activeGraphNodes.find((node) => node.id === selectedId) ?? activeGraphNodes[0]
+  const selectedArchivedChildren = useMemo(() => archivedDirectChildren(graph?.nodes ?? [], selected?.id ?? ''), [graph?.nodes, selected?.id])
   const session = graph?.sessions.find((item) => item.nodeId === selected?.id)
   const activeTerminal = graph?.sessions.find((item) => item.id === terminalSessionId)
   const activeTerminalNode = activeGraphNodes.find((node) => node.id === activeTerminal?.nodeId)
@@ -658,12 +667,13 @@ function App() {
 
   async function archiveNode(nodeId: string) {
     if (!graph || nodeId === graph.workspace.rootNodeId) return
+    const parentId = graph.nodes.find((node) => node.id === nodeId)?.parentId ?? graph.workspace.rootNodeId
     setBusy(true)
     setError('')
     try {
       await api(`/api/nodes/${nodeId}/archive`, { method: 'POST', body: '{}' })
-      setSelectedId(graph.workspace.rootNodeId)
-      setSurface({ rightPanel: 'archive', terminalSessionId: null, terminalFloating: false })
+      setSelectedId(parentId)
+      setSurface({ rightPanel: 'details', terminalSessionId: null, terminalFloating: false })
       setContextMenu(null)
       await loadWorkspace()
     } catch (archiveError) {
@@ -710,7 +720,8 @@ function App() {
     return <main className="load-state"><h1>Workspace is empty</h1><p>Create a root node in the database to continue.</p></main>
   }
 
-  const hasChildren = activeGraphNodes.some((node) => node.parentId === selected.id)
+  const hasActiveChildren = activeGraphNodes.some((node) => node.parentId === selected.id)
+  const hasChildren = graph.nodes.some((node) => node.parentId === selected.id)
   const branchHasSession = branchHasLiveSession(graph.nodes, graph.sessions, selected.id)
   const contextCount = [selected.project, selected.jiraKey, selected.repoPath, selected.note].filter(Boolean).length
   const terminalPanel = activeTerminal && activeTerminalNode && activeTerminal.status !== 'stopped' ? (
@@ -819,6 +830,7 @@ function App() {
                   if (!point) return null
                   const nodeSession = sessionsByNode.get(node.id)
                   const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
+                  const archivedChildCount = archivedChildCounts.get(node.id) ?? 0
                   const expanded = node.id === selectedId || node.id === hoveredId
                   const style = { left: point.x + 48, top: point.y + 48, height: nodeHeights.get(node.id) ?? NODE_HEIGHT, '--node-color': node.color } as CSSProperties
                   return (
@@ -866,6 +878,7 @@ function App() {
                               {node.repoPath && <span><b>Path</b><code>{node.repoPath}</code></span>}
                               {node.note && <span><b>Note</b><em>{node.note}</em></span>}
                               {nodeSession?.agent && <span><b>Agent</b>{agentStatusText(nodeSession.agent)}</span>}
+                              {archivedChildCount > 0 && <span><b>Archived</b>{archivedChildCount} {archivedChildCount === 1 ? 'child' : 'children'}</span>}
                               <span><b>Terminal</b>{nodeSession?.status ?? 'None'}</span>
                             </span>
                           )}
@@ -907,7 +920,7 @@ function App() {
         {sidePanelOpen && rightPanel === 'details' && <aside className="side-panel detail-panel" aria-label="Node details" aria-live="polite">
           <header className="side-panel-header">
             <div><span>{typeLabels[selected.type]}</span><h2>{selected.title}</h2></div>
-            <div className="side-panel-actions">{hasChildren && <button type="button" onClick={toggleCollapsed}>{collapsed.has(selected.id) ? 'Expand' : 'Collapse'}</button>}<button className="side-panel-close" type="button" onClick={() => setSurface((current) => ({ ...current, rightPanel: null }))} aria-label="Close node details" title="Close panel"><Cross2Icon /></button></div>
+            <div className="side-panel-actions">{hasActiveChildren && <button type="button" onClick={toggleCollapsed}>{collapsed.has(selected.id) ? 'Expand' : 'Collapse'}</button>}<button className="side-panel-close" type="button" onClick={() => setSurface((current) => ({ ...current, rightPanel: null }))} aria-label="Close node details" title="Close panel"><Cross2Icon /></button></div>
           </header>
 
           {deleteNodeId === selected.id && <div className="delete-choice is-prominent" role="alertdialog" aria-label={`Delete ${selected.title}`}>
@@ -937,6 +950,21 @@ function App() {
               </div>
             </details>
           </div>
+
+          {selectedArchivedChildren.length > 0 && (
+            <section className="node-archived-children" aria-label={`Archived children of ${selected.title}`}>
+              <header><span>Archived children</span><small>{selectedArchivedChildren.length}</small></header>
+              <div>
+                {selectedArchivedChildren.map((child) => (
+                  <article key={child.id} style={{ '--archive-color': child.color } as CSSProperties}>
+                    <span aria-hidden="true" />
+                    <div><strong>{child.title}</strong><small>{typeLabels[child.type]}</small></div>
+                    <button type="button" onClick={() => void restoreNode(child.id)} disabled={busy}><ReloadIcon />Restore</button>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
 
           <div className="node-commands">
             {session && session.status !== 'stopped' ? (

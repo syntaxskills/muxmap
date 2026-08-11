@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { activeNodes, archivedNodeEntries, branchHasLiveSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, visibleNodes } from './graph.ts'
 import type { WorkNode } from './model.ts'
 
 const base = {
@@ -57,6 +57,14 @@ test('reordering moves nodes only within their existing sibling group', () => {
 test('expanded nodes grow only as much as their visible metadata needs', () => {
   assert.equal(expandedNodeHeight(nodes[1], false), 106)
   assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, true), 136)
+  assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, false, 1), 136)
+})
+
+test('an archived node remains discoverable directly inside its original parent', () => {
+  const archived = nodes.map((node) => node.id === 'ticket' ? { ...node, archivedAt: '2026-08-09T02:00:00.000Z' } : node)
+  assert.deepEqual(archivedDirectChildren(archived, 'feature').map((node) => node.id), ['ticket'])
+  assert.deepEqual(archivedDirectChildren(archived, 'repo'), [])
+  assert.equal(archivedNodeEntries(archived, '')[0].path, 'Users / Device trust / Session expiry')
 })
 
 test('archiving a parent hides its branch while preserving the original hierarchy', () => {
@@ -77,4 +85,12 @@ test('archive search retains archived ancestors for context', () => {
   const archived = nodes.map((node) => node.id === 'repo' ? { ...node, archivedAt: '2026-08-09T02:00:00.000Z' } : node)
   assert.deepEqual(archivedNodeEntries(archived, 'DEV-1420').map((entry) => entry.node.id), ['repo', 'feature', 'ticket'])
   assert.deepEqual(archivedNodeEntries(archived, 'missing'), [])
+})
+
+test('archiving a parent keeps an explicitly archived child nested only once', () => {
+  const archived = nodes.map((node) => ['feature', 'ticket'].includes(node.id) ? { ...node, archivedAt: '2026-08-09T02:00:00.000Z' } : node)
+  assert.deepEqual(archivedNodeEntries(archived, '').map((entry) => [entry.node.id, entry.depth, entry.inherited]), [
+    ['feature', 0, false],
+    ['ticket', 1, true],
+  ])
 })

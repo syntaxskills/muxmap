@@ -17,6 +17,7 @@ All notable changes to MuxMap are documented here.
 
 ### Fixed
 
+- Kept archived nodes discoverable inside their original parent and preserved nested archive behavior when the parent is archived too.
 - Made the full expanded node surface open its linked Terminal, including metadata in the lower half.
 - Made terminal gestures navigate tmux history without becoming arrow keys while preserving text selection and native copying.
 - Hid tmux-specific delete choices when a node branch has no live session.
