@@ -12,7 +12,7 @@ import {
 import './App.css'
 import { api } from './api.ts'
 import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
-import { centerPan, dragPan, gridBackground, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
+import { centerPan, dragPan, gridBackground, isCanvasBlankTarget, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
 import type { NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { normalizeTerminalOpacity, normalizeTerminalSplit } from './terminalInteraction.ts'
@@ -55,7 +55,7 @@ function App() {
   const [clientPlatform] = useState(() => /Win/i.test(navigator.platform) ? 'win32' : /Mac/i.test(navigator.platform) ? 'darwin' : 'linux')
   const [initialView] = useState(() => readViewState(window.location.search))
   const [graph, setGraph] = useState<WorkspaceGraph | null>(null)
-  const [selectedId, setSelectedId] = useState(initialView.selectedId ?? 'dev-1420')
+  const [selectedId, setSelectedId] = useState<string | null>(initialView.selectedId ?? 'dev-1420')
   const [collapsed, setCollapsed] = useState(new Set<string>())
   const [query, setQuery] = useState('')
   const [scale, setScale] = useState(0.9)
@@ -211,7 +211,7 @@ function App() {
   useEffect(() => {
     if (!graph) return
     const archivedIds = effectiveArchivedNodeIds(graph.nodes)
-    if (!graph.nodes.some((node) => node.id === selectedId) || archivedIds.has(selectedId)) setSelectedId(graph.workspace.rootNodeId)
+    if (selectedId && (!graph.nodes.some((node) => node.id === selectedId) || archivedIds.has(selectedId))) setSelectedId(null)
     if (!terminalSessionId) return
     const restored = graph.sessions.find((item) => item.id === terminalSessionId && item.status !== 'stopped' && item.runtimeExists !== false)
     if (!restored || archivedIds.has(restored.nodeId)) {
@@ -273,7 +273,7 @@ function App() {
     () => layoutTree(nodes, graph?.workspace.rootNodeId ?? 'workspace', settings['mindmap.columnGap'], settings['mindmap.rowGap'], nodeHeights),
     [graph?.workspace.rootNodeId, nodeHeights, nodes, settings],
   )
-  const selected = activeGraphNodes.find((node) => node.id === selectedId) ?? activeGraphNodes[0]
+  const selected = selectedId ? activeGraphNodes.find((node) => node.id === selectedId) : undefined
   const selectedArchivedChildren = useMemo(() => archivedDirectChildren(graph?.nodes ?? [], selected?.id ?? ''), [graph?.nodes, selected?.id])
   const session = graph?.sessions.find((item) => item.nodeId === selected?.id)
   const activeTerminal = graph?.sessions.find((item) => item.id === terminalSessionId)
@@ -558,9 +558,23 @@ function App() {
   }
 
   function endPan(event: ReactPointerEvent<HTMLDivElement>) {
-    if (dragRef.current?.pointerId !== event.pointerId) return
+    if (dragRef.current?.pointerId !== event.pointerId) return false
+    const distance = Math.hypot(event.clientX - dragRef.current.x, event.clientY - dragRef.current.y)
     dragRef.current = null
     setPanning(false)
+    return distance < 4
+  }
+
+  function collapseMindmapSelection(event: ReactPointerEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement
+    const targetClassName = typeof target.className === 'string' ? target.className : ''
+    if (!isCanvasBlankTarget(targetClassName, event.currentTarget.className)) return
+    setHoveredId(null)
+    setSelectedId(null)
+    setContextMenu(null)
+    setRenamingId(null)
+    setDeleteNodeId(null)
+    setSurface((current) => current.rightPanel === 'details' ? { ...current, rightPanel: null } : current)
   }
 
   function openTerminal(id: string) {
@@ -783,14 +797,14 @@ function App() {
     )
   }
 
-  if (!selected) {
+  if (activeGraphNodes.length === 0) {
     return <main className="load-state"><h1>Workspace is empty</h1><p>Create a root node in the database to continue.</p></main>
   }
 
-  const hasActiveChildren = activeGraphNodes.some((node) => node.parentId === selected.id)
-  const hasChildren = graph.nodes.some((node) => node.parentId === selected.id)
-  const branchHasSession = branchHasLiveSession(graph.nodes, graph.sessions, selected.id)
-  const contextCount = [selected.project, selected.jiraKey, selected.repoPath, selected.note].filter(Boolean).length
+  const hasActiveChildren = selected ? activeGraphNodes.some((node) => node.parentId === selected.id) : false
+  const hasChildren = selected ? graph.nodes.some((node) => node.parentId === selected.id) : false
+  const branchHasSession = selected ? branchHasLiveSession(graph.nodes, graph.sessions, selected.id) : false
+  const contextCount = selected ? [selected.project, selected.jiraKey, selected.repoPath, selected.note].filter(Boolean).length : 0
   const terminalPanel = activeTerminal && activeTerminalNode && activeTerminal.status !== 'stopped' && activeTerminal.runtimeExists !== false ? (
     <Suspense fallback={<section className={`terminal terminal-window terminal-loading ${terminalFloating ? 'is-floating' : 'is-docked'}`} aria-label="Loading terminal"><span /><span /></section>}>
       <TerminalPanel
@@ -860,7 +874,7 @@ function App() {
           style={{ backgroundPosition: background.position, backgroundSize: background.size, backgroundImage: settings['canvas.showGrid'] ? undefined : 'none' }}
           onPointerDown={beginPan}
           onPointerMove={movePan}
-          onPointerUp={endPan}
+          onPointerUp={(event) => { if (endPan(event)) collapseMindmapSelection(event) }}
           onPointerCancel={endPan}
         >
           <div className="canvas-toolbar" aria-label="Canvas controls">
@@ -987,7 +1001,7 @@ function App() {
           {settings['canvas.showLegend'] && <div className="canvas-legend"><span><i className="legend-line" /> relationship</span><span><b>&gt;_</b> terminal</span><span>drag to pan</span><span><kbd>C</kbd> center</span><span><kbd>N</kbd> new node</span></div>}
         </div>
 
-        {sidePanelOpen && rightPanel === 'details' && <aside className="side-panel detail-panel" aria-label="Node details" aria-live="polite">
+        {sidePanelOpen && rightPanel === 'details' && selected && <aside className="side-panel detail-panel" aria-label="Node details" aria-live="polite">
           <header className="side-panel-header">
             <div><span>{typeLabels[selected.type]}</span><h2>{selected.title}</h2></div>
             <div className="side-panel-actions">{hasActiveChildren && <button type="button" onClick={toggleCollapsed}>{collapsed.has(selected.id) ? 'Expand' : 'Collapse'}</button>}<button className="side-panel-close" type="button" onClick={() => setSurface((current) => ({ ...current, rightPanel: null }))} aria-label="Close node details" title="Close panel"><Cross2Icon /></button></div>
@@ -1086,7 +1100,7 @@ function App() {
                   ? canRecoverCodexSession(item) ? 'tmux missing · Codex resume available' : 'tmux missing'
                   : visibleAgent ? agentStatusText(visibleAgent) : item.status
                 return (
-                  <article className={`session-row ${terminalSessionId === item.id || selected.id === item.nodeId ? 'is-current' : ''}`} key={item.id}>
+                  <article className={`session-row ${terminalSessionId === item.id || selected?.id === item.nodeId ? 'is-current' : ''}`} key={item.id}>
                     <div><strong>{node?.title ?? item.name}</strong><code>{item.runtimeName}</code><small className={visibleAgent ? `is-${visibleAgent.state}` : undefined}>{visibleAgent && <AgentIcon kind={visibleAgent.kind} />}{statusText}</small></div>
                     <div className="session-row-actions">
                       {isArchived ? <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))}>Archived</button> : item.status !== 'stopped' && item.runtimeExists !== false ? <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button> : canRecoverCodexSession(item) ? <button type="button" onClick={() => { setSelectedId(item.nodeId); void recoverCodexSession(item.id) }} disabled={busy}>Resume Codex</button> : null}
@@ -1102,7 +1116,7 @@ function App() {
             <section>
               <h3>Orphan <span>{orphans.length}</span></h3>
               {orphans.length === 0 ? <p>No orphan sessions.</p> : orphans.map((orphan) => {
-                const selectedHasSession = graph.sessions.some((item) => item.nodeId === selected.id && item.status !== 'stopped' && item.runtimeExists !== false)
+                const selectedHasSession = !selected || graph.sessions.some((item) => item.nodeId === selected.id && item.status !== 'stopped' && item.runtimeExists !== false)
                 return (
                   <article className="session-row is-orphan" key={`${orphan.backend}:${orphan.runtimeName}`}>
                     <div><strong>{orphan.runtimeName}</strong><small className={orphan.agent ? `is-${orphan.agent.state}` : undefined}>{orphan.agent && <AgentIcon kind={orphan.agent.kind} />}{orphan.agent ? agentStatusText(orphan.agent) : `Live ${orphan.backend}`} · not linked to a node</small></div>

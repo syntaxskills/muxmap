@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { centerPan, dragPan, gridBackground, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
+import { centerPan, dragPan, gridBackground, isCanvasBlankTarget, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
 
 test('places parents midway between ordered children', () => {
   const positions = layoutTree(
@@ -65,4 +65,12 @@ test('trackpad pinch zoom keeps the point under the cursor anchored', () => {
 
 test('two-finger trackpad scrolling pans the mindmap', () => {
   assert.deepEqual(wheelPan({ x: 120, y: -40 }, { x: 25, y: -60 }), { x: 95, y: 20 })
+})
+
+test('blank canvas targets collapse expanded mindmap nodes but node controls do not', () => {
+  assert.equal(isCanvasBlankTarget('canvas is-panning', 'canvas is-panning'), true)
+  assert.equal(isCanvasBlankTarget('stage-shell', 'canvas'), true)
+  assert.equal(isCanvasBlankTarget('graph-stage', 'canvas'), true)
+  assert.equal(isCanvasBlankTarget('map-node is-expanded', 'canvas'), false)
+  assert.equal(isCanvasBlankTarget('node-add-action', 'canvas'), false)
 })
