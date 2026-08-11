@@ -162,12 +162,20 @@ function safePath(path: string, roots: string[]) {
   return candidate
 }
 
+function safeSessionLabel(label: string) {
+  return label.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-|-$/g, '') || 'shell'
+}
+
 function sessionNames(backend: TerminalBackend, workspaceId: string, label: string) {
-  const safeLabel = label.replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-|-$/g, '') || 'shell'
+  const safeLabel = safeSessionLabel(label)
   return {
     name: `${backend}:${workspaceId}:${safeLabel}`,
     runtimeName: backend === 'tmux' ? `muxmap-${workspaceId}-${safeLabel}` : `muxmap-zellij-${workspaceId}-${safeLabel}`,
   }
+}
+
+function nodeSuffix(nodeId: string) {
+  return safeSessionLabel(nodeId).replace(/-/g, '').slice(0, 8) || 'node'
 }
 
 function normalizeAdapters(input: TmuxAdapter | MultiplexerAdapters): MultiplexerAdapters {
@@ -216,6 +224,22 @@ export function createSessionManager(
     return session.backend === 'tmux' && !exists && agent?.kind === 'codex' && Boolean(agent.externalSessionId)
   }
 
+  function availableSessionNames(backend: TerminalBackend, workspaceId: string, label: string, nodeId: string, adapter: MultiplexerAdapter) {
+    const base = sessionNames(backend, workspaceId, label)
+    const conflicts = (names: ReturnType<typeof sessionNames>) => {
+      const tracked = store.getSessionByRuntimeName(names.runtimeName)
+      return Boolean(tracked && tracked.nodeId !== nodeId) || adapter.exists(names.runtimeName)
+    }
+    if (!conflicts(base)) return base
+
+    const suffix = nodeSuffix(nodeId)
+    for (let index = 0; index < 100; index++) {
+      const candidate = sessionNames(backend, workspaceId, index === 0 ? `${label}-${suffix}` : `${label}-${suffix}-${index + 1}`)
+      if (!conflicts(candidate)) return candidate
+    }
+    throw new Error('Unable to allocate a unique terminal session name')
+  }
+
   return {
     attach(nodeId: string, requestedCwd?: string, requestedBackend = selectedDefaultBackend): TerminalSession {
       const node = store.getNode(nodeId)
@@ -225,7 +249,7 @@ export function createSessionManager(
       const backend = existing?.backend ?? requestedBackend
       const adapter = adapterFor(backend)
       const label = node.jiraKey ?? node.title.toLowerCase().replace(/\s+/g, '-')
-      const names = sessionNames(backend, node.workspaceId, label)
+      const names = existing ?? availableSessionNames(backend, node.workspaceId, label, node.id, adapter)
 
       if (!adapter.exists(names.runtimeName)) adapter.create(names.runtimeName, cwd)
 

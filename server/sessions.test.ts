@@ -61,6 +61,67 @@ test('attaching reuses a deterministic tmux session and stopping is explicit', (
   }
 })
 
+test('duplicate node labels allocate distinct tmux session names instead of sharing a runtime', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-duplicate-label-')))
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  const manager = createSessionManager(store, adapter, [directory])
+
+  try {
+    const firstNode = store.createNode('default', {
+      parentId: 'workspace',
+      title: 'Run tests',
+      type: 'terminal',
+      repoPath: directory,
+    })
+    const secondNode = store.createNode('default', {
+      parentId: 'workspace',
+      title: 'Run tests',
+      type: 'terminal',
+      repoPath: directory,
+    })
+
+    const first = manager.attach(firstNode.id)
+    const second = manager.attach(secondNode.id)
+
+    assert.equal(first.runtimeName, 'muxmap-default-run-tests')
+    assert.notEqual(second.runtimeName, first.runtimeName)
+    assert.match(second.runtimeName, /^muxmap-default-run-tests-[a-zA-Z0-9]+/)
+    assert.deepEqual(adapter.created, [first.runtimeName, second.runtimeName])
+    assert.equal(store.getSessionByRuntimeName(first.runtimeName)?.nodeId, firstNode.id)
+    assert.equal(store.getSessionByRuntimeName(second.runtimeName)?.nodeId, secondNode.id)
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('attaching avoids adopting a live orphan with the same computed tmux name', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-orphan-name-collision-')))
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  adapter.live.add('muxmap-default-run-tests')
+  const manager = createSessionManager(store, adapter, [directory])
+
+  try {
+    const node = store.createNode('default', {
+      parentId: 'workspace',
+      title: 'Run tests',
+      type: 'terminal',
+      repoPath: directory,
+    })
+    const session = manager.attach(node.id)
+
+    assert.notEqual(session.runtimeName, 'muxmap-default-run-tests')
+    assert.match(session.runtimeName, /^muxmap-default-run-tests-[a-zA-Z0-9]+/)
+    assert.deepEqual(manager.listOrphans(), [{ backend: 'tmux', runtimeName: 'muxmap-default-run-tests' }])
+    assert.equal(adapter.live.has(session.runtimeName), true)
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('terminal cwd is restricted to configured repository roots', () => {
   const allowed = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-allowed-')))
   const outside = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-outside-')))
