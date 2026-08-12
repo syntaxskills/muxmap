@@ -2,36 +2,68 @@
 
 [![CI](https://github.com/syntaxskills/muxmap/actions/workflows/ci.yml/badge.svg)](https://github.com/syntaxskills/muxmap/actions/workflows/ci.yml)
 
-MuxMap is a local-first mindmap for organizing development work and persistent terminals.
+MuxMap is a local-first mindmap for organizing development work around persistent terminals.
 
-- Create, rename, duplicate, color, collapse, reorder, and archive nodes.
-- Dock, float, resize, or full-screen terminal sessions.
-- Reattach after refresh and manage orphan `muxmap*` sessions.
-- Detect Codex, Claude Code, Pi, and SSH activity.
-- Tune 21 workspace options through compact UI or `settings.json`.
-- Persist workspaces in SQLite and bind the server to localhost.
+The map stays readable. Terminals attach only to the nodes that need execution. Browser refreshes detach the client, not the running tmux or Zellij session.
 
 ![MuxMap workspace](docs/assets/muxmap-workspace.png)
 
+## What it does
+
+- Organize repos, features, tickets, notes, and terminal tasks in a compact tree.
+- Attach a persistent terminal to any node, then dock, float, resize, or full-screen it.
+- Reopen the browser and reattach to the same session.
+- Manage orphan `muxmap*` sessions instead of leaving hidden tmux/Zellij clutter.
+- Track Codex, Claude Code, Pi, and SSH activity with optional system or in-page notifications.
+- Tune the workspace through a VS Code-style settings UI or JSON editor.
+
 ## Quick start
 
-Requires Node.js 22+ and native build tools for `node-pty`. Install tmux on macOS/Linux or [Zellij 0.44.3+](https://github.com/zellij-org/zellij/releases) on Windows.
+Requirements:
+
+- Node.js 22+
+- Native build tools for `node-pty`
+- tmux on macOS/Linux, or Zellij 0.44.3+ on Windows
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. For production, run `npm run build && npm start` and open <http://127.0.0.1:4782>.
+Open <http://127.0.0.1:5173>.
 
-Optional Agent lifecycle hooks:
+For the production server:
+
+```bash
+npm run build
+npm start
+```
+
+Open <http://127.0.0.1:4782>.
+
+## Agent hooks
+
+Agent hooks are optional. They let MuxMap mark agent sessions as working, completed, read, unavailable, or needing input.
 
 ```bash
 npm run hooks:install
 npm run hooks:status
+npm run hooks:update
 ```
 
-After pulling MuxMap updates, run `npm run hooks:update`. It is idempotent and replaces stale MuxMap hook paths without changing your other Codex or Claude hooks.
+Hooks are safe outside MuxMap sessions: plain terminals no-op, ordinary tmux sessions are ignored, and live `muxmap*` sessions can appear as orphans for adoption.
+
+## Access modes
+
+MuxMap starts in local mode and binds only `127.0.0.1`. Use `npm run doctor` before exposing it to another device.
+
+| Mode | Use case | Auth |
+| --- | --- | --- |
+| `local` | Same machine only | Local session cookie |
+| `lan` | Trusted local network | `MUXMAP_TOKEN` Basic Auth |
+| `tailscale` | Tailnet access | `MUXMAP_TOKEN` Basic Auth |
+
+Password-free LAN/Tailscale mode is explicit via `MUXMAP_AUTH=none`. That exposes terminal control to clients allowed by your network and firewall.
 
 ## Verify
 
@@ -42,28 +74,12 @@ npm run build
 npm run doctor
 ```
 
-MuxMap is privileged software. Restrict terminal paths with `MUXMAP_ALLOWED_ROOTS` and choose an explicit access mode:
+## Docs
 
-| `MUXMAP_ACCESS` | Bind address | Authentication |
-| --- | --- | --- |
-| `local` (default) | `127.0.0.1` | Local session cookie |
-| `lan` | `0.0.0.0` | `MUXMAP_TOKEN` required |
-| `tailscale` | Detected by `tailscale ip -4` | `MUXMAP_TOKEN` required |
-
-LAN/Tailscale browsers use Basic Auth with username `muxmap` and password `MUXMAP_TOKEN`. Hooks send the same credential when the token is in their environment; for direct Tailscale binding, also set `MUXMAP_URL` to the logged Tailscale URL. `HOST=0.0.0.0` remains a compatibility alias for LAN mode.
-
-To deliberately remove the password, set `MUXMAP_AUTH=none` with `MUXMAP_ACCESS=lan` or `tailscale`. This exposes terminal control to every client allowed by the network and firewall, so password authentication remains the default.
-
-Run `npm run doctor` before exposing MuxMap. It checks the selected address and URLs, port availability, authentication, Zellij and Tailscale, and Windows Firewall. When a Windows network rule is missing, it writes an administrator PowerShell script under `MUXMAP_DATA_DIR` (or `.muxmap`) restricted to the current LAN subnet; Tailscale rules allow only `100.64.0.0/10`.
-
-On Windows, allow only Tailscale IPv4 clients from an Administrator PowerShell:
-
-```powershell
-New-NetFirewallRule -DisplayName "MuxMap Tailscale" -Direction Inbound -Protocol TCP -LocalPort 4782 -RemoteAddress 100.64.0.0/10 -Action Allow
-```
-
-Alternatively, keep local mode and run `tailscale serve --bg 4782` for tailnet-only HTTPS.
-
-[Windows LAN/Tailscale setup](docs/WINDOWS-NETWORK.md)
-
-[PRD](docs/PRD.md) · [Acceptance](docs/ACCEPTANCE.md) · [Changelog](CHANGELOG.md) · [MIT License](LICENSE)
+- [Product and technical design](docs/PRD.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Agent hooks](docs/AGENT-HOOKS.md)
+- [Windows LAN/Tailscale setup](docs/WINDOWS-NETWORK.md)
+- [Acceptance coverage](docs/ACCEPTANCE.md)
+- [Changelog](CHANGELOG.md)
+- [MIT License](LICENSE)

@@ -11,10 +11,14 @@
 - [x] Node context menu supports adding, renaming, duplicating, collapsing, and confirmed deletion
 - [x] Double-click inline rename and editable node detail fields
 - [x] User-selected node type independent of tree depth
+- [x] Default node type stays hidden unless enabled in settings
 - [x] Unbounded drag-to-pan canvas and center control
 - [x] Zoom in, zoom out, fit all, and fit project
 - [x] Deterministic auto-layout after creation
 - [x] Hover expansion and layout reflow use reduced-motion-aware transitions
+- [x] Expanded node click target opens its linked terminal from the full node surface
+- [x] Blank-canvas click collapses the currently pinned node
+- [x] Dragging reorders siblings without allowing arbitrary free placement
 - [x] Search by title, project, or Jira key
 - [x] Collapse and expand branches
 - [x] Keyboard shortcuts for search, creation, zoom, and fit
@@ -25,6 +29,9 @@
 - [x] Workspace, repository, feature, ticket, note, todo, and terminal task types
 - [x] SQLite workspace, nodes, and sessions tables
 - [x] Node creation with inherited or explicit project, color, and repository path
+- [x] Child nodes inherit color unless the user overrides it
+- [x] Archived nodes remain under their original parent context
+- [x] Archived branches can be restored or permanently deleted with confirmation
 - [x] Reload from persisted graph
 - [x] Loading, empty, and error states
 
@@ -38,29 +45,34 @@
 - [x] Compact detail-panel terminal preview expands into the workspace window
 - [x] Terminal header and graph highlight show the linked node
 - [x] Global terminal opacity setting persists in the browser
-- [x] Trackpad scrolling in tmux never becomes up/down key input
-- [x] Closing and reopening the terminal window preserves the tmux session
+- [x] Trackpad scrolling in terminal scrollback never becomes up/down key input
+- [x] Closing and reopening the terminal window preserves the terminal runtime
 - [x] WebSocket input, output, resize, and status protocol
-- [x] node-pty bridge to tmux
+- [x] node-pty bridge to tmux/Zellij
 - [x] Real tmux + node-pty integration smoke test when tmux is installed
 - [x] Windows defaults to Zellij 0.44.3+ and CI verifies create, attach, detach, reattach, and stop through node-pty
 - [x] Deterministic session names and reuse
+- [x] Duplicate node titles cannot accidentally share the same terminal runtime name
 - [x] Refresh and reconnect to existing sessions
-- [x] Browser disconnect detaches the PTY client without killing tmux
-- [x] Explicit stop action kills tmux
+- [x] Browser disconnect detaches the PTY client without killing the runtime
+- [x] Explicit stop action kills the runtime
 - [x] Startup reconciliation marks missing sessions stopped
 - [x] React StrictMode cleanup cannot mark a replacement connection stopped
-- [x] Runtime inventory discovers every live `muxmap*` tmux session
+- [x] Runtime inventory discovers every live `muxmap*` tmux/Zellij session
 - [x] Orphan sessions can attach to a selected node, create a root terminal node, or stop
-- [x] Node deletion explicitly keeps tmux as an orphan or stops it with the node
-- [x] Codex, Claude Code, Pi, and SSH are detected from local tmux process trees
+- [x] Node deletion explicitly keeps the runtime as an orphan or stops it with the node
+- [x] Codex, Claude Code, Pi, and SSH are detected from local terminal process trees
 - [x] Local Agent hooks expose working, needs-input, completed/read, and elapsed-time state
+- [x] Agent hooks outside MuxMap are safe: plain terminals no-op and non-`muxmap*` sessions are ignored
 - [x] Agent activity persists across browser refresh and includes orphan sessions
 - [x] SSH is labeled without remote installation or inspection
+- [x] Terminal links open browser URLs and local dev URLs in a new tab
+- [x] Terminal scrollback, trackpad history navigation, and text selection/copy regressions are covered
 
 ## App shell
 
 - [x] SVG favicon is served by development and production builds
+- [x] README links to architecture, hook, network, acceptance, changelog, and license docs
 
 ## Network security
 

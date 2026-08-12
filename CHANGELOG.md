@@ -6,6 +6,8 @@ All notable changes to MuxMap are documented here.
 
 ### Changed
 
+- Reworked the README into a shorter open-source landing page and moved operational detail into focused architecture and Agent hook docs.
+- Updated the PRD and acceptance coverage to reflect archive, settings, mobile, Agent activity, Windows/Zellij, terminal links, and duplicate runtime-name behavior.
 - Added persistent last-activity timestamps for terminal input, terminal/Agent output, and Agent hooks, with compact minute/hour/day ages on every linked node.
 - Made in-page Agent notifications fade and dismiss themselves after eight seconds.
 - Added confirmed permanent deletion for archived nodes and branches, including explicit orphan-or-stop choices for live sessions.
