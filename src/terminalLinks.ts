@@ -2,11 +2,38 @@ import type { ILink, ILinkProvider, Terminal } from '@xterm/xterm'
 
 type LinkOpener = (url: string) => void
 
-const rawLinkPattern = /\b(?:https?:\/\/[^\s<>"'`]+|www\.[^\s<>"'`]+|(?:localhost|127(?:\.\d{1,3}){3})(?::\d{2,5})?(?:\/[^\s<>"'`]*)?)/gi
-const trailingPunctuation = /[),.;:!?]+$/
+const terminalUrlBody = String.raw`[^\s<>"{}^⟨⟩` + "`" + String.raw`']+`
+const terminalUrlPath = String.raw`[^\s<>"{}^⟨⟩` + "`" + String.raw`']*`
+const localhostHost = String.raw`(?:localhost|127(?:\.\d{1,3}){3})`
+const localDevLink = String.raw`${localhostHost}(?::\d{2,5})?(?:/${terminalUrlPath})?`
+const rawLinkPattern = new RegExp(String.raw`\b(?:https?://${localDevLink}|${localDevLink}|https?://${terminalUrlBody}|www\.${terminalUrlBody})`, 'gi')
 
 function stripTrailingPunctuation(value: string) {
-  return value.replace(trailingPunctuation, '')
+  let result = value
+  let openParens = 0
+  let closeParens = 0
+  for (const char of result) {
+    if (char === '(') openParens++
+    if (char === ')') closeParens++
+  }
+
+  while (result) {
+    const char = result.at(-1)
+    if (char === undefined) break
+    const shouldStrip =
+      char === '.' ||
+      char === ',' ||
+      char === ':' ||
+      char === ';' ||
+      char === '(' ||
+      (char === ')' && closeParens > openParens)
+    if (!shouldStrip) break
+    if (char === '(') openParens--
+    if (char === ')') closeParens--
+    result = result.slice(0, -1)
+  }
+
+  return result
 }
 
 export function normalizeTerminalLink(raw: string) {

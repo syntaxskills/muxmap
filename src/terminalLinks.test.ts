@@ -4,6 +4,7 @@ import { createTerminalLinkProvider, normalizeTerminalLink, terminalLinksInLine 
 
 test('terminal links normalize browser URLs and local dev URLs', () => {
   assert.equal(normalizeTerminalLink('https://example.com/a?b=1.'), 'https://example.com/a?b=1')
+  assert.equal(normalizeTerminalLink('https://example.com/search?q=what?'), 'https://example.com/search?q=what?')
   assert.equal(normalizeTerminalLink('http://localhost:5173/path'), 'http://localhost:5173/path')
   assert.equal(normalizeTerminalLink('localhost:4782/api'), 'http://localhost:4782/api')
   assert.equal(normalizeTerminalLink('127.0.0.1:4782'), 'http://127.0.0.1:4782')
@@ -15,6 +16,18 @@ test('terminal links keep terminal buffer coordinates for xterm', () => {
   assert.deepEqual(terminalLinksInLine('open https://example.com/docs, then localhost:4782'), [
     { text: 'https://example.com/docs', url: 'https://example.com/docs', start: 5, end: 29 },
     { text: 'localhost:4782', url: 'http://localhost:4782', start: 36, end: 50 },
+  ])
+})
+
+test('terminal links stop local dev URLs before adjacent terminal text', () => {
+  assert.deepEqual(terminalLinksInLine('served at http://localhost:5173Home'), [
+    { text: 'http://localhost:5173', url: 'http://localhost:5173', start: 10, end: 31 },
+  ])
+  assert.deepEqual(terminalLinksInLine('open http://127.0.0.1:4782Home'), [
+    { text: 'http://127.0.0.1:4782', url: 'http://127.0.0.1:4782', start: 5, end: 26 },
+  ])
+  assert.deepEqual(terminalLinksInLine('open http://localhost:5173/Home'), [
+    { text: 'http://localhost:5173/Home', url: 'http://localhost:5173/Home', start: 5, end: 31 },
   ])
 })
 

@@ -26,6 +26,7 @@ All notable changes to MuxMap are documented here.
 
 ### Fixed
 
+- Stopped terminal link detection from swallowing adjacent page text such as `Home` after local development URLs.
 - Kept archived nodes discoverable inside their original parent and preserved nested archive behavior when the parent is archived too.
 - Made the full expanded node surface open its linked Terminal, including metadata in the lower half.
 - Removed the duplicate node-level Terminal button because selecting a terminal-enabled node already opens it.
