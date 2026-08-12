@@ -743,6 +743,10 @@ kbd {
   animation: agent-working 1.15s linear infinite;
 }
 
+.is-working > .agent-icon.is-pi {
+  animation: agent-pi-working 1.35s steps(4, end) infinite;
+}
+
 .is-completed > .agent-icon {
   animation: agent-completed-jump 1.65s cubic-bezier(.28, .84, .42, 1) infinite;
 }
@@ -2566,6 +2570,32 @@ kbd {
 
 @keyframes agent-working {
   to { transform: rotate(1turn); }
+}
+
+@keyframes agent-pi-working {
+  0%, 100% {
+    opacity: .82;
+    transform: translateY(0) scale(1);
+    filter: brightness(.18) drop-shadow(0 0 0 rgba(121, 189, 148, 0));
+  }
+
+  25% {
+    opacity: 1;
+    transform: translate(1px, -1px) scale(1.08, .94);
+    filter: brightness(.22) drop-shadow(0 0 5px rgba(121, 189, 148, .42));
+  }
+
+  50% {
+    opacity: .9;
+    transform: translateX(-1px) scale(.96, 1.05);
+    filter: brightness(.2) drop-shadow(0 0 8px rgba(121, 189, 148, .34));
+  }
+
+  75% {
+    opacity: 1;
+    transform: translate(1px, 0) scale(1.04);
+    filter: brightness(.22) drop-shadow(0 0 4px rgba(121, 189, 148, .3));
+  }
 }
 
 @keyframes agent-working-sweep {
