@@ -725,8 +725,16 @@ kbd {
   width: 14px;
   height: 14px;
   flex: 0 0 auto;
-  object-fit: contain;
+  display: inline-grid;
+  place-items: center;
+  position: relative;
   transform-origin: center;
+}
+
+.agent-icon-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .agent-icon.is-codex,
@@ -744,7 +752,41 @@ kbd {
 }
 
 .is-working > .agent-icon.is-pi {
-  animation: agent-pi-working 1.35s steps(4, end) infinite;
+  animation: none;
+  filter: none;
+}
+
+.pi-agent-matrix {
+  position: absolute;
+  inset: 2px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  gap: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pi-agent-cell {
+  background: transparent;
+}
+
+.pi-agent-cell.is-lit {
+  background: rgba(0, 0, 0, .42);
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+}
+
+.is-working > .agent-icon.is-pi .agent-icon-image {
+  opacity: 0;
+}
+
+.is-working > .agent-icon.is-pi .pi-agent-matrix {
+  opacity: 1;
+}
+
+.is-working > .agent-icon.is-pi .pi-agent-cell.is-lit {
+  animation: agent-pi-matrix-cell 1.38s cubic-bezier(.2, .75, .25, 1) infinite;
+  animation-delay: var(--pi-cell-delay, 0ms);
 }
 
 .is-completed > .agent-icon {
@@ -2572,29 +2614,23 @@ kbd {
   to { transform: rotate(1turn); }
 }
 
-@keyframes agent-pi-working {
+@keyframes agent-pi-matrix-cell {
   0%, 100% {
-    opacity: .82;
-    transform: translateY(0) scale(1);
-    filter: brightness(.18) drop-shadow(0 0 0 rgba(121, 189, 148, 0));
+    background: rgba(0, 0, 0, .32);
+    transform: scale(.86);
+    box-shadow: 0 0 0 rgba(0, 0, 0, 0);
   }
 
-  25% {
-    opacity: 1;
-    transform: translate(1px, -1px) scale(1.08, .94);
-    filter: brightness(.22) drop-shadow(0 0 5px rgba(121, 189, 148, .42));
+  36% {
+    background: #000;
+    transform: scale(1);
+    box-shadow: 0 0 3px rgba(0, 0, 0, .22);
   }
 
-  50% {
-    opacity: .9;
-    transform: translateX(-1px) scale(.96, 1.05);
-    filter: brightness(.2) drop-shadow(0 0 8px rgba(121, 189, 148, .34));
-  }
-
-  75% {
-    opacity: 1;
-    transform: translate(1px, 0) scale(1.04);
-    filter: brightness(.22) drop-shadow(0 0 4px rgba(121, 189, 148, .3));
+  62% {
+    background: rgba(0, 0, 0, .58);
+    transform: scale(.92);
+    box-shadow: 0 0 1px rgba(0, 0, 0, .12);
   }
 }
 
@@ -2723,6 +2759,7 @@ kbd {
   .terminal-preview-screen i,
   .map-node.is-agent-working .node-select::after,
   .is-working > .agent-icon,
+  .is-working > .agent-icon.is-pi .pi-agent-cell.is-lit,
   .is-completed > .agent-icon,
   .is-needs_input > .agent-icon {
     animation: none;
@@ -2739,6 +2776,7 @@ kbd {
 .reduce-motion .agent-alert,
 .reduce-motion .terminal-preview-screen i,
 .reduce-motion .agent-icon,
+.reduce-motion .is-working > .agent-icon.is-pi .pi-agent-cell.is-lit,
 .reduce-motion .map-node.is-agent-working .node-select::after {
   animation: none !important;
   transition: none !important;
