@@ -773,6 +773,7 @@ kbd {
   place-items: center;
   position: relative;
   transform-origin: center;
+  line-height: 0;
 }
 
 .agent-icon-image {
@@ -814,8 +815,9 @@ kbd {
   position: absolute;
   width: 14px;
   height: 14px;
-  inset: 50% auto auto 50%;
-  transform: translate(-50%, -50%);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, calc(-50% - 1px));
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   grid-template-rows: repeat(4, 1fr);
