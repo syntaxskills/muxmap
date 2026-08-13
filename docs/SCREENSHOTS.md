@@ -2,9 +2,9 @@
 
 These screenshots show the main MuxMap flows: organizing work in the map, opening the right terminal quickly, managing sessions, and using the mobile layout.
 
-## Main workflow: map on the left, terminal on the right
+## Main workflow: map on the left, Codex on the right
 
-The primary workflow is a split workspace. The mindmap keeps project context visible while the selected node owns the terminal on the right.
+The primary workflow is a split workspace. The mindmap keeps project context visible while the selected node owns a persistent terminal running Codex on the right.
 
 ![MuxMap mindmap with docked terminal](assets/muxmap-docked-terminal.png)
 
