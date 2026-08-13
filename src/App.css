@@ -812,13 +812,21 @@ kbd {
 
 .pi-agent-matrix {
   position: absolute;
-  inset: 2px;
+  width: 14px;
+  height: 14px;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   grid-template-rows: repeat(4, 1fr);
   gap: 1px;
   opacity: 0;
   pointer-events: none;
+}
+
+.terminal-badge .pi-agent-matrix {
+  width: 16px;
+  height: 16px;
 }
 
 .pi-agent-cell {
