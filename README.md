@@ -2,11 +2,13 @@
 
 [![CI](https://github.com/syntaxskills/muxmap/actions/workflows/ci.yml/badge.svg)](https://github.com/syntaxskills/muxmap/actions/workflows/ci.yml)
 
-MuxMap is a local-first mindmap for organizing development work around persistent terminals.
+A mindmap that remembers what every terminal is for.
 
-The map stays readable. Terminals attach only to the nodes that need execution. Browser refreshes detach the client, not the running tmux or Zellij session.
+MuxMap is a local-first mindmap for managing developer context: repos, tickets, notes, agent runs, and persistent terminals.
 
-![MuxMap workspace](docs/assets/muxmap-workspace.png)
+Most terminal-heavy workflows eventually become a pile of anonymous panes. MuxMap gives each session a place in the work graph, so you can see what you are working on, jump back into the right terminal, and keep long-running tmux or Zellij sessions alive across browser refreshes.
+
+![MuxMap mindmap with docked terminal](docs/assets/muxmap-docked-terminal.png)
 
 ## What it does
 
@@ -86,6 +88,7 @@ npm run doctor
 - [Product and technical design](docs/PRD.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Agent hooks](docs/AGENT-HOOKS.md)
+- [Screenshots](docs/SCREENSHOTS.md)
 - [Windows LAN/Tailscale setup](docs/WINDOWS-NETWORK.md)
 - [Acceptance coverage](docs/ACCEPTANCE.md)
 - [Changelog](CHANGELOG.md)
