@@ -786,9 +786,19 @@ kbd {
   filter: brightness(0.18);
 }
 
+.agent-icon.is-pi {
+  width: 21px;
+  height: 21px;
+}
+
 .terminal-badge .agent-icon {
   width: 16px;
   height: 16px;
+}
+
+.terminal-badge .agent-icon.is-pi {
+  width: 24px;
+  height: 24px;
 }
 
 .is-working > .agent-icon {

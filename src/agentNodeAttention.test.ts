@@ -16,6 +16,8 @@ test('agent node attention distinguishes working, completed, and input-needed st
   assert.match(css, /\.map-node\.is-agent-completed\s+\.node-select::before\s*\{[^}]*animation:\s*agent-completed-highlight-jump/s)
   assert.match(css, /@keyframes agent-completed-highlight-jump\s*\{/)
   assert.match(icon, /const piAgentCells = \[\s*true, true, true, false,\s*true, false, true, false,\s*true, true, false, true,\s*true, false, false, true,/)
+  assert.match(css, /\.agent-icon\.is-pi\s*\{[^}]*width:\s*21px;[^}]*height:\s*21px/s)
+  assert.match(css, /\.terminal-badge\s+\.agent-icon\.is-pi\s*\{[^}]*width:\s*24px;[^}]*height:\s*24px/s)
   assert.match(css, /\.pi-agent-matrix\s*\{[^}]*inset:\s*2px/s)
   assert.match(css, /\.pi-agent-cell\s*\{[^}]*background:\s*transparent/s)
   assert.doesNotMatch(css.match(/\.pi-agent-cell\s*\{[\s\S]*?\n\}/)?.[0] ?? '', /border-radius/)
