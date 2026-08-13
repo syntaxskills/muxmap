@@ -1,9 +1,10 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { extname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { spawn as spawnPty } from 'node-pty'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { TerminalBackend, TerminalSession } from '../src/model.ts'
@@ -62,6 +63,23 @@ const mimeTypes: Record<string, string> = {
   '.map': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
 }
+
+const browserPreviewMimeTypes: Record<string, string> = {
+  '.gif': 'image/gif',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+}
+
+const textPreviewExtensions = new Set([
+  '.bash', '.c', '.cc', '.cjs', '.cpp', '.cs', '.css', '.env', '.fish', '.go', '.h', '.hpp',
+  '.html', '.java', '.js', '.json', '.jsx', '.kt', '.lock', '.log', '.md', '.mdx', '.mjs',
+  '.php', '.py', '.rb', '.rs', '.scss', '.sh', '.sql', '.swift', '.toml', '.ts', '.tsx',
+  '.txt', '.yaml', '.yml', '.zsh',
+])
 
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, `'"'"'`)}'`
@@ -152,6 +170,57 @@ function sendJson(response: ServerResponse, status: number, body: unknown) {
   response.end(JSON.stringify(body))
 }
 
+function htmlEscape(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function expandHome(path: string) {
+  return path === '~' || path.startsWith('~/') || path.startsWith('~\\')
+    ? join(homedir(), path.slice(2))
+    : path
+}
+
+function isWithinRoot(candidate: string, root: string) {
+  const offset = relative(root, candidate)
+  return offset === '' || (!!offset && !offset.startsWith('..') && !isAbsolute(offset))
+}
+
+function safeFilePath(inputPath: string | null, inputCwd: string | null, allowedRoots: string[]) {
+  if (!inputPath?.trim()) throw new Error('File path is required')
+  const roots = allowedRoots.map((root) => realpathSync(resolve(expandHome(root)))).filter(Boolean)
+  if (roots.length === 0) throw new Error('No allowed file roots configured')
+  const cwd = inputCwd?.trim()
+    ? realpathSync(resolve(expandHome(inputCwd)))
+    : roots[0]
+  if (!roots.some((root) => isWithinRoot(cwd, root))) throw new Error('Working directory is outside allowed roots')
+  const candidate = realpathSync(isAbsolute(expandHome(inputPath)) ? resolve(expandHome(inputPath)) : resolve(cwd, expandHome(inputPath)))
+  if (!roots.some((root) => isWithinRoot(candidate, root))) throw new Error('File path is outside allowed roots')
+  const stat = statSync(candidate)
+  if (!stat.isFile()) throw new Error('Path is not a file')
+  return { path: candidate, size: stat.size }
+}
+
+function filePreviewHtml(path: string, content: string, line: number | undefined, column: number | undefined) {
+  const rows = content.split(/\r?\n/).map((row, index) => {
+    const number = index + 1
+    const selected = line === number
+    return `<tr id="L${number}"${selected ? ' class="is-selected"' : ''}><th>${number}</th><td><code>${htmlEscape(row || ' ')}</code></td></tr>`
+  }).join('')
+  const escapedPath = htmlEscape(path)
+  const script = line ? `<script>document.getElementById('L${line}')?.scrollIntoView({block:'center'});</script>` : ''
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(basename(path))}</title><style>
+body{margin:0;background:#111411;color:#dce2db;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+header{position:sticky;top:0;z-index:1;padding:10px 14px;background:#191d18;border-bottom:1px solid #2d352c;color:#aeb8ad}
+header strong{display:block;color:#f0f4ef;font-size:14px}header span{font-size:12px}
+table{border-collapse:collapse;width:100%}th{width:1%;padding:0 12px;color:#657064;text-align:right;user-select:none;border-right:1px solid #262d25}
+td{padding:0 14px;white-space:pre}tr.is-selected{background:#31401f}tr.is-selected th{color:#d8ef9a}
+</style></head><body><header><strong>${htmlEscape(basename(path))}</strong><span>${escapedPath}${line ? `:${line}${column ? `:${column}` : ''}` : ''}</span></header><table>${rows}</table>${script}</body></html>`
+}
+
 async function readJson(request: IncomingMessage) {
   const chunks: Buffer[] = []
   let size = 0
@@ -238,6 +307,26 @@ export function createMuxMapServer(options: ServerOptions) {
         if (cookieValue(request, 'muxmap_token') !== token) return sendJson(response, 401, { error: 'Unauthorized' })
         if (request.method !== 'GET' && !isAllowedOrigin(request, allowedOrigins)) {
           return sendJson(response, 403, { error: 'Origin not allowed' })
+        }
+
+        if (request.method === 'GET' && url.pathname === '/api/files/open') {
+          const file = safeFilePath(url.searchParams.get('path'), url.searchParams.get('cwd'), options.allowedRoots)
+          const extension = extname(file.path).toLowerCase()
+          const browserMimeType = browserPreviewMimeTypes[extension]
+          if (browserMimeType) {
+            response.writeHead(200, { 'content-type': browserMimeType, 'content-length': file.size })
+            return response.end(readFileSync(file.path))
+          }
+          if (!textPreviewExtensions.has(extension) && file.size > 1024 * 1024) throw new Error('File is too large to preview')
+          const line = Number(url.searchParams.get('line'))
+          const column = Number(url.searchParams.get('column'))
+          response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+          return response.end(filePreviewHtml(
+            file.path,
+            readFileSync(file.path, 'utf8'),
+            Number.isInteger(line) && line > 0 ? line : undefined,
+            Number.isInteger(column) && column > 0 ? column : undefined,
+          ))
         }
 
         const workspaceMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)$/)

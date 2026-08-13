@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -159,6 +159,43 @@ test('LAN mode requires persistent basic auth before issuing its session cookie'
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('file preview API opens files inside allowed roots and rejects outside paths', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-files-')))
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-files-outside-')))
+  mkdirSync(join(root, 'src'), { recursive: true })
+  const file = join(root, 'src', 'App.tsx')
+  writeFileSync(file, 'one\nconst value = 1\nthree\n')
+  writeFileSync(join(outside, 'secret.ts'), 'secret\n')
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    tmux: fakeTmux(),
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const cookie = (await fetch(`${base}/api/auth`)).headers.get('set-cookie')?.split(';')[0] ?? ''
+    const preview = await fetch(`${base}/api/files/open?path=${encodeURIComponent('src/App.tsx')}&cwd=${encodeURIComponent(root)}&line=2&column=7`, { headers: { cookie } })
+    assert.equal(preview.status, 200)
+    assert.match(preview.headers.get('content-type') ?? '', /^text\/html/)
+    const html = await preview.text()
+    assert.match(html, /<tr id="L2" class="is-selected">/)
+    assert.match(html, /const value = 1/)
+
+    const denied = await fetch(`${base}/api/files/open?path=${encodeURIComponent(join(outside, 'secret.ts'))}`, { headers: { cookie } })
+    assert.equal(denied.status, 400)
+    assert.deepEqual(await denied.json(), { error: 'File path is outside allowed roots' })
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+    rmSync(outside, { recursive: true, force: true })
   }
 })
 

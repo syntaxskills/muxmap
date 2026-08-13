@@ -64,7 +64,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     const fit = new FitAddon()
     terminal.loadAddon(fit)
     terminal.open(container.current)
-    const links = terminal.registerLinkProvider(createTerminalLinkProvider(terminal))
+    const links = terminal.registerLinkProvider(createTerminalLinkProvider(terminal, session.cwd))
     const forceSelection = (event: MouseEvent) => forceTerminalTextSelection(event, terminal.element?.classList.contains('enable-mouse-events') ?? false)
     terminal.element?.addEventListener('mousedown', forceSelection, true)
     fit.fit()
@@ -150,7 +150,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       socket.close()
       terminal.dispose()
     }
-  }, [cursorBlink, fontSize, onStatus, scrollback, session.id])
+  }, [cursorBlink, fontSize, onStatus, scrollback, session.cwd, session.id])
 
   function beginDrag(event: ReactPointerEvent<HTMLDivElement>) {
     if (!floating || isFullscreen || event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea')) return
