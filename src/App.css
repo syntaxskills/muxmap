@@ -1570,6 +1570,78 @@ kbd {
   outline-offset: 2px;
 }
 
+.node-color-recents {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: var(--background-subtle);
+}
+
+.node-color-recents header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.node-color-recents header span,
+.node-color-recents p {
+  margin: 0;
+  color: var(--text-muted);
+  font: 9px/1 var(--mono);
+}
+
+.node-color-recents header button,
+.node-color-remove {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: 9px/1 var(--mono);
+}
+
+.node-color-recents header button:hover,
+.node-color-remove:hover {
+  color: var(--text-strong);
+}
+
+.node-color-recent-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.node-color-recent {
+  position: relative;
+  min-width: 0;
+}
+
+.node-color-recent .node-color-swatch {
+  height: 24px;
+}
+
+.node-color-remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-elevated);
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.node-color-recent:hover .node-color-remove,
+.node-color-remove:focus-visible {
+  opacity: 1;
+}
+
 .node-color-custom {
   display: grid !important;
   grid-template-columns: auto 1fr 36px;
@@ -2411,10 +2483,28 @@ kbd {
 }
 
 .terminal-node-editor .node-color-presets,
+.terminal-node-editor .node-color-recents,
 .terminal-node-editor .node-color-custom,
 .terminal-node-editor .node-color-picker > summary {
   border-color: var(--terminal-line);
   background: #171b18;
+}
+
+.terminal-node-editor .node-color-recents header span,
+.terminal-node-editor .node-color-recents p,
+.terminal-node-editor .node-color-recents header button,
+.terminal-node-editor .node-color-remove {
+  color: var(--terminal-muted);
+}
+
+.terminal-node-editor .node-color-recents header button:hover,
+.terminal-node-editor .node-color-remove:hover {
+  color: var(--terminal-text);
+}
+
+.terminal-node-editor .node-color-remove {
+  border-color: var(--terminal-line);
+  background: #1c211d;
 }
 
 .terminal-node-editor .node-color-picker > summary code {
