@@ -100,7 +100,7 @@ export function SettingsPanel({ settings, platform, notificationPermission, onCh
           </div>
         </div>
       </> : <div className="settings-json-editor">
-        <div className="settings-json-heading"><div><strong>settings.json</strong><small>Partial JSON is accepted. Defaults fill omitted keys.</small></div><button type="button" onClick={() => { const next = defaultSettings(platform); onChange(next); setDraft(settingsJson(next)); setJsonErrors([]) }}>Reset</button></div>
+        <div className="settings-json-heading"><div><strong>settings.json</strong><small>Nested JSON is saved. Legacy dotted keys are still accepted.</small></div><button type="button" onClick={() => { const next = defaultSettings(platform); onChange(next); setDraft(settingsJson(next)); setJsonErrors([]) }}>Reset</button></div>
         <textarea value={draft} onChange={(event) => { setDraft(event.target.value); setJsonErrors([]) }} spellCheck="false" aria-label="Settings JSON" />
         {jsonErrors.length > 0 && <div className="settings-json-errors" role="alert">{jsonErrors.map((message) => <span key={message}>{message}</span>)}</div>}
         <div className="settings-json-actions"><span>{platformLabel(platform)} platform rules apply</span><button type="button" onClick={() => setDraft(settingsJson(parseSettingsJson(draft, platform).settings ?? settings))}>Format</button><button className="is-primary" type="button" onClick={applyJson}>Apply settings</button></div>

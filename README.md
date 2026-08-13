@@ -67,7 +67,7 @@ Password-free LAN/Tailscale mode is explicit via `MUXMAP_AUTH=none`. That expose
 
 ## Settings
 
-Open Settings from the top bar. Every setting is editable through the UI or the JSON tab. Inactive terminal nodes are dimmed by default only when both are true:
+Open Settings from the top bar. Every setting is editable through the UI or the nested JSON tab. Legacy dotted JSON keys are still accepted. Inactive terminal nodes are dimmed by default only when both are true:
 
 - last activity is at least `mindmap.inactiveAfterHours` old, default `36`
 - the node belongs to the oldest `mindmap.inactiveOldestPercent` of visible terminal nodes, default `50`

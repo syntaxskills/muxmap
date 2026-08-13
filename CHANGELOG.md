@@ -24,6 +24,7 @@ All notable changes to MuxMap are documented here.
 - Added `npm run doctor` for port, authentication, Zellij, Tailscale, and least-privilege Windows Firewall checks.
 - Added a VS Code-style settings editor with 20 live options, compact category UI, editable JSON, browser persistence, and platform-aware terminal backends.
 - Added configurable inactive-node dimming for old terminal nodes, guarded by both a minimum inactive age and the oldest visible activity cohort.
+- Changed settings JSON export to a nested structure while preserving legacy dotted-key import and persisted-setting migration.
 
 ### Fixed
 

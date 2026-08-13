@@ -1,7 +1,7 @@
 import type { TerminalBackend } from './model.ts'
 
 export type RuntimePlatform = 'win32' | 'darwin' | 'linux' | string
-export const SETTINGS_VERSION = 2
+export const SETTINGS_VERSION = 3
 export type SettingCategory = 'Appearance' | 'Canvas' | 'Mindmap' | 'Terminal' | 'Notifications'
 
 export type AppSettings = {
@@ -126,6 +126,59 @@ export function isSettingOptionAllowed(key: SettingKey, value: unknown, platform
   return key !== 'terminal.backend' || terminalBackendsForPlatform(platform).includes(value as TerminalBackend)
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function settingGroup(key: SettingKey) {
+  return key.split('.')[0]
+}
+
+function nestedSettingName(key: SettingKey) {
+  return key.slice(settingGroup(key).length + 1)
+}
+
+const settingKeys = new Set<SettingKey>(settingDefinitions.map((item) => item.key))
+const settingGroups = new Set(settingDefinitions.map((item) => settingGroup(item.key)))
+
+function assignSetting(values: Partial<Record<SettingKey, unknown>>, errors: string[], key: SettingKey, value: unknown) {
+  if (key in values) {
+    errors.push(`${key} is defined more than once.`)
+    return
+  }
+  values[key] = value
+}
+
+function flattenSettingsObject(input: Record<string, unknown>) {
+  const values: Partial<Record<SettingKey, unknown>> = {}
+  const errors: string[] = []
+
+  for (const [key, value] of Object.entries(input)) {
+    if (settingKeys.has(key as SettingKey)) {
+      assignSetting(values, errors, key as SettingKey, value)
+      continue
+    }
+    if (!settingGroups.has(key)) {
+      errors.push(`${key} is an unknown setting.`)
+      continue
+    }
+    if (!isRecord(value)) {
+      errors.push(`${key} must be an object.`)
+      continue
+    }
+    for (const [nestedKey, nestedValue] of Object.entries(value)) {
+      const flatKey = `${key}.${nestedKey}` as SettingKey
+      if (!settingKeys.has(flatKey)) {
+        errors.push(`${flatKey} is an unknown setting.`)
+        continue
+      }
+      assignSetting(values, errors, flatKey, nestedValue)
+    }
+  }
+
+  return { values, errors }
+}
+
 export function parseSettingsJson(source: string, platform: RuntimePlatform): { settings?: AppSettings; errors: string[] } {
   let input: unknown
   try {
@@ -133,14 +186,11 @@ export function parseSettingsJson(source: string, platform: RuntimePlatform): { 
   } catch (error) {
     return { errors: [error instanceof Error ? error.message : 'Invalid JSON'] }
   }
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return { errors: ['Settings JSON must be an object.'] }
+  if (!isRecord(input)) return { errors: ['Settings JSON must be an object.'] }
 
-  const values = input as Record<string, unknown>
-  const definitions = new Map(settingDefinitions.map((item) => [item.key, item]))
-  const errors: string[] = []
-  for (const key of Object.keys(values)) {
-    if (!definitions.has(key as SettingKey)) errors.push(`${key} is an unknown setting.`)
-  }
+  const flattened = flattenSettingsObject(input)
+  const values = flattened.values
+  const errors = [...flattened.errors]
   for (const definition of settingDefinitions) {
     if (!(definition.key in values)) continue
     const value = values[definition.key]
@@ -155,7 +205,13 @@ export function parseSettingsJson(source: string, platform: RuntimePlatform): { 
 }
 
 export function settingsJson(settings: AppSettings) {
-  return `${JSON.stringify(Object.fromEntries(settingDefinitions.map((item) => [item.key, settings[item.key]])), null, 2)}\n`
+  const grouped: Record<string, Record<string, unknown>> = {}
+  for (const definition of settingDefinitions) {
+    const group = settingGroup(definition.key)
+    grouped[group] ??= {}
+    grouped[group][nestedSettingName(definition.key)] = settings[definition.key]
+  }
+  return `${JSON.stringify(grouped, null, 2)}\n`
 }
 
 function migrateSettings(settings: AppSettings, sourceVersion: number) {
@@ -168,10 +224,17 @@ export function loadSettings(source: string | null, platform: RuntimePlatform, s
   const parsed = parseSettingsJson(source, platform)
   if (parsed.settings) return migrateSettings(parsed.settings, sourceVersion)
   try {
-    const input = JSON.parse(source) as Record<string, unknown>
-    if (input && typeof input === 'object' && !Array.isArray(input) && !isSettingOptionAllowed('terminal.backend', input['terminal.backend'], platform)) {
-      const migrated = parseSettingsJson(JSON.stringify({ ...input, 'terminal.backend': defaultSettings(platform)['terminal.backend'] }), platform).settings
-      return migrated ? migrateSettings(migrated, sourceVersion) : defaultSettings(platform)
+    const input = JSON.parse(source) as unknown
+    if (isRecord(input)) {
+      const flattened = flattenSettingsObject(input)
+      if ('terminal.backend' in flattened.values && !isSettingOptionAllowed('terminal.backend', flattened.values['terminal.backend'], platform)) {
+        const migrated = parseSettingsJson(settingsJson({
+          ...defaultSettings(platform),
+          ...flattened.values,
+          'terminal.backend': defaultSettings(platform)['terminal.backend'],
+        } as AppSettings), platform).settings
+        return migrated ? migrateSettings(migrated, sourceVersion) : defaultSettings(platform)
+      }
     }
   } catch {
     // Invalid persisted JSON falls back to platform defaults.
