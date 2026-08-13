@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { formatActivityAge } from './activityTime.ts'
+import { activityStaleness, formatActivityAge } from './activityTime.ts'
 
 const now = Date.parse('2026-08-11T12:00:00.000Z')
 const ago = (milliseconds: number) => new Date(now - milliseconds).toISOString()
@@ -19,4 +19,52 @@ test('missing or invalid activity has no badge and future timestamps are current
   assert.equal(formatActivityAge(undefined, now), '')
   assert.equal(formatActivityAge('invalid', now), '')
   assert.equal(formatActivityAge(new Date(now + 60_000).toISOString(), now), 'NOW')
+})
+
+test('activity staleness only dims the oldest half after at least 36 inactive hours', () => {
+  const timestamps = [
+    ago(2 * 60 * 60_000),
+    ago(20 * 60 * 60_000),
+    ago(36 * 60 * 60_000),
+    ago(72 * 60 * 60_000),
+  ]
+  assert.deepEqual(
+    timestamps.map((timestamp) => activityStaleness(timestamp, timestamps, now)),
+    ['fresh', 'fresh', 'aging', 'stale'],
+  )
+})
+
+test('activity staleness ignores missing, invalid, and future timestamps', () => {
+  const timestamps = [ago(72 * 60 * 60_000), ago(2 * 60 * 60_000)]
+  assert.equal(activityStaleness(undefined, timestamps, now), 'fresh')
+  assert.equal(activityStaleness('invalid', timestamps, now), 'fresh')
+  assert.equal(activityStaleness(new Date(now + 60_000).toISOString(), timestamps, now), 'fresh')
+})
+
+test('activity staleness never dims everything after a quiet weekend', () => {
+  const timestamps = [
+    ago(50 * 60 * 60_000),
+    ago(55 * 60 * 60_000),
+    ago(60 * 60 * 60_000),
+    ago(65 * 60 * 60_000),
+  ]
+  assert.deepEqual(
+    timestamps.map((timestamp) => activityStaleness(timestamp, timestamps, now)),
+    ['fresh', 'fresh', 'aging', 'stale'],
+  )
+})
+
+test('activity staleness threshold and oldest cohort are configurable', () => {
+  const timestamps = [
+    ago(10 * 60 * 60_000),
+    ago(18 * 60 * 60_000),
+    ago(42 * 60 * 60_000),
+    ago(72 * 60 * 60_000),
+  ]
+
+  assert.equal(activityStaleness(timestamps[2], timestamps, now), 'aging')
+  assert.equal(activityStaleness(timestamps[2], timestamps, now, { inactiveAfterHours: 48 }), 'fresh')
+  assert.equal(activityStaleness(timestamps[2], timestamps, now, { inactiveAfterHours: 12, oldestPercent: 25 }), 'fresh')
+  assert.equal(activityStaleness(timestamps[3], timestamps, now, { inactiveAfterHours: 12, oldestPercent: 25 }), 'stale')
+  assert.equal(activityStaleness(timestamps[3], timestamps, now, { enabled: false }), 'fresh')
 })

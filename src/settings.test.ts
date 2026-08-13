@@ -12,8 +12,8 @@ import {
 } from './settings.ts'
 
 test('the settings schema exposes the compact adjustable settings', () => {
-  assert.equal(settingDefinitions.length, 21)
-  assert.equal(new Set(settingDefinitions.map((item) => item.key)).size, 21)
+  assert.equal(settingDefinitions.length, 24)
+  assert.equal(new Set(settingDefinitions.map((item) => item.key)).size, 24)
   assert.deepEqual([...new Set(settingDefinitions.map((item) => item.category))], [
     'Appearance',
     'Canvas',
@@ -77,4 +77,24 @@ test('node type is secondary and hidden by default', () => {
   assert.equal(defaultSettings('linux')['mindmap.showNodeType'], false)
   assert.equal(loadSettings('{"mindmap.showNodeType":true}', 'linux', SETTINGS_VERSION - 1)['mindmap.showNodeType'], false)
   assert.equal(loadSettings('{"mindmap.showNodeType":true}', 'linux', SETTINGS_VERSION)['mindmap.showNodeType'], true)
+})
+
+test('inactive node dimming is configurable through UI and JSON settings', () => {
+  const defaults = defaultSettings('linux')
+  assert.equal(defaults['mindmap.dimInactiveNodes'], true)
+  assert.equal(defaults['mindmap.inactiveAfterHours'], 36)
+  assert.equal(defaults['mindmap.inactiveOldestPercent'], 50)
+
+  const parsed = parseSettingsJson(JSON.stringify({
+    'mindmap.dimInactiveNodes': false,
+    'mindmap.inactiveAfterHours': 72,
+    'mindmap.inactiveOldestPercent': 35,
+  }), 'linux')
+  assert.deepEqual(parsed.errors, [])
+  assert.equal(parsed.settings?.['mindmap.dimInactiveNodes'], false)
+  assert.equal(parsed.settings?.['mindmap.inactiveAfterHours'], 72)
+  assert.equal(parsed.settings?.['mindmap.inactiveOldestPercent'], 35)
+
+  assert.match(parseSettingsJson('{"mindmap.inactiveAfterHours":0}', 'linux').errors.join('\n'), /inactiveAfterHours.*1.*720/)
+  assert.match(parseSettingsJson('{"mindmap.inactiveOldestPercent":95}', 'linux').errors.join('\n'), /inactiveOldestPercent.*10.*90/)
 })

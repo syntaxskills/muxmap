@@ -65,6 +65,13 @@ MuxMap starts in local mode and binds only `127.0.0.1`. Use `npm run doctor` bef
 
 Password-free LAN/Tailscale mode is explicit via `MUXMAP_AUTH=none`. That exposes terminal control to clients allowed by your network and firewall.
 
+## Settings
+
+Open Settings from the top bar. Every setting is editable through the UI or the JSON tab. Inactive terminal nodes are dimmed by default only when both are true:
+
+- last activity is at least `mindmap.inactiveAfterHours` old, default `36`
+- the node belongs to the oldest `mindmap.inactiveOldestPercent` of visible terminal nodes, default `50`
+
 ## Verify
 
 ```bash

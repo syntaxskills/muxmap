@@ -26,7 +26,7 @@ import { SettingsPanel } from './SettingsPanel.tsx'
 import { ArchivePanel } from './ArchivePanel.tsx'
 import { loadSettings, notificationDeliveryTargets, SETTINGS_VERSION, type AppSettings } from './settings.ts'
 import { sendTestSystemNotification } from './systemNotifications.ts'
-import { formatActivityAge, sessionActivityTimestamp } from './activityTime.ts'
+import { activityStaleness, formatActivityAge, sessionActivityTimestamp } from './activityTime.ts'
 import { agentWorkingSweepDelay, synchronizeAgentWorkingSweeps } from './agentAnimations.ts'
 import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
@@ -264,6 +264,11 @@ function App() {
     [activeGraphNodes, collapsed, query],
   )
   const sessionsByNode = useMemo(() => new Map(graph?.sessions.map((item) => [item.nodeId, item]) ?? []), [graph?.sessions])
+  const visibleSessionActivityTimestamps = useMemo(() => nodes.map((node) => {
+    const nodeSession = sessionsByNode.get(node.id)
+    const visibleAgent = visibleAgentForSession(nodeSession)
+    return nodeSession && !visibleAgent ? sessionActivityTimestamp(nodeSession) : undefined
+  }), [nodes, sessionsByNode])
   const nodeHeights = useMemo(() => new Map(nodes
     .filter((node) => node.id === selectedId || node.id === hoveredId)
     .map((node) => {
@@ -285,6 +290,7 @@ function App() {
     .map((node) => visibleAgentForSession(sessionsByNode.get(node.id))?.state === 'working' ? node.id : '')
     .filter(Boolean)
     .join('|')
+  const activityNow = Date.now()
   const width = Math.max(0, ...[...positions.values()].map(({ x }) => x)) + NODE_WIDTH + 96
   const height = Math.max(0, ...nodes.map((node) => (positions.get(node.id)?.y ?? 0) + (nodeHeights.get(node.id) ?? NODE_HEIGHT))) + 96
 
@@ -925,6 +931,11 @@ function App() {
                   const agentState = visibleAgent?.state
                   const activityTimestamp = nodeSession ? sessionActivityTimestamp(nodeSession) : undefined
                   const activityAge = formatActivityAge(activityTimestamp)
+                  const activityFade = nodeSession && !visibleAgent ? activityStaleness(activityTimestamp, visibleSessionActivityTimestamps, activityNow, {
+                    enabled: settings['mindmap.dimInactiveNodes'],
+                    inactiveAfterHours: settings['mindmap.inactiveAfterHours'],
+                    oldestPercent: settings['mindmap.inactiveOldestPercent'],
+                  }) : 'fresh'
                   const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
                   const archivedChildCount = archivedChildCounts.get(node.id) ?? 0
                   const expanded = node.id === selectedId || node.id === hoveredId
@@ -937,7 +948,7 @@ function App() {
                   } as CSSProperties
                   return (
                     <article
-                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${agentState ? `is-agent-${agentState}` : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
+                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${agentState ? `is-agent-${agentState}` : ''} ${activityFade !== 'fresh' ? `is-activity-${activityFade}` : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
                       key={node.id}
                       style={style}
                       data-node-id={node.id}

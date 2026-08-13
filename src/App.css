@@ -336,7 +336,7 @@ kbd {
   position: absolute;
   width: 184px;
   height: 42px;
-  transition: top 220ms cubic-bezier(0.16, 1, 0.3, 1), height 220ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms ease;
+  transition: top 220ms cubic-bezier(0.16, 1, 0.3, 1), height 220ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms ease, filter 150ms ease;
 }
 
 .edges path {
@@ -377,6 +377,21 @@ kbd {
 .map-node.is-dragging {
   opacity: 0.32;
   user-select: none;
+}
+
+.map-node.is-activity-aging:not(.is-selected):not(.is-terminal-active):not(:hover):not(:focus-within) {
+  opacity: .72;
+  filter: saturate(.72) contrast(.96);
+}
+
+.map-node.is-activity-stale:not(.is-selected):not(.is-terminal-active):not(:hover):not(:focus-within) {
+  opacity: .52;
+  filter: saturate(.54) contrast(.9);
+}
+
+.map-node.is-activity-aging:not(.is-selected):not(.is-terminal-active):not(:hover):not(:focus-within) .node-select,
+.map-node.is-activity-stale:not(.is-selected):not(.is-terminal-active):not(:hover):not(:focus-within) .node-select {
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--shadow-soft) 62%, transparent);
 }
 
 .map-node.drop-before::before,

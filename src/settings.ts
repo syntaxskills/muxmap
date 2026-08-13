@@ -16,6 +16,9 @@ export type AppSettings = {
   'mindmap.rowGap': number
   'mindmap.expandOnHover': boolean
   'mindmap.showNodeType': boolean
+  'mindmap.dimInactiveNodes': boolean
+  'mindmap.inactiveAfterHours': number
+  'mindmap.inactiveOldestPercent': number
   'terminal.backend': TerminalBackend
   'terminal.opacity': number
   'terminal.fontSize': number
@@ -57,6 +60,9 @@ export const settingDefinitions: SettingDefinition[] = [
   { key: 'mindmap.rowGap', category: 'Mindmap', label: 'Row gap', description: 'Vertical distance between sibling branches.', control: 'number', min: 12, max: 64, step: 2, unit: 'px' },
   { key: 'mindmap.expandOnHover', category: 'Mindmap', label: 'Expand on hover', description: 'Reveals node metadata while the pointer rests on it.', control: 'boolean' },
   { key: 'mindmap.showNodeType', category: 'Mindmap', label: 'Show node type', description: 'Keeps the node type visible in its compact state.', control: 'boolean' },
+  { key: 'mindmap.dimInactiveNodes', category: 'Mindmap', label: 'Dim inactive nodes', description: 'Softly fades old terminal nodes so current work stays prominent.', control: 'boolean' },
+  { key: 'mindmap.inactiveAfterHours', category: 'Mindmap', label: 'Inactive after', description: 'Minimum quiet time before a terminal node can be dimmed.', control: 'number', min: 1, max: 720, step: 1, unit: 'h' },
+  { key: 'mindmap.inactiveOldestPercent', category: 'Mindmap', label: 'Inactive cohort', description: 'Only this oldest percentage of visible terminal nodes can be dimmed.', control: 'number', min: 10, max: 90, step: 5, unit: '%' },
   { key: 'terminal.backend', category: 'Terminal', label: 'Default backend', description: 'Used when attaching a new terminal session.', control: 'select', options: [{ value: 'tmux', label: 'tmux' }, { value: 'zellij', label: 'Zellij' }] },
   { key: 'terminal.opacity', category: 'Terminal', label: 'Window opacity', description: 'Applies to docked, floating, and full-screen terminals.', control: 'number', min: 45, max: 100, step: 1, unit: '%' },
   { key: 'terminal.fontSize', category: 'Terminal', label: 'Font size', description: 'Controls terminal text size.', control: 'number', min: 10, max: 20, step: 1, unit: 'px' },
@@ -93,6 +99,9 @@ export function defaultSettings(platform: RuntimePlatform): AppSettings {
     'mindmap.rowGap': 30,
     'mindmap.expandOnHover': true,
     'mindmap.showNodeType': false,
+    'mindmap.dimInactiveNodes': true,
+    'mindmap.inactiveAfterHours': 36,
+    'mindmap.inactiveOldestPercent': 50,
     'terminal.backend': platform === 'win32' ? 'zellij' : 'tmux',
     'terminal.opacity': 96,
     'terminal.fontSize': 12,
