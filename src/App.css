@@ -1,4 +1,6 @@
 .app-shell {
+  --agent-working-color: #e2ad58;
+  --agent-completed-color: #79bd94;
   min-height: 100dvh;
   display: grid;
   grid-template-rows: 58px minmax(0, 1fr);
@@ -452,8 +454,8 @@ kbd {
 }
 
 .map-node.is-agent-working .node-select {
-  border-color: color-mix(in srgb, #79bd94 48%, var(--line-strong));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #79bd94 22%, transparent), inset 0 0 18px color-mix(in srgb, #79bd94 12%, transparent), 0 5px 16px var(--shadow-soft);
+  border-color: color-mix(in srgb, var(--agent-working-color) 48%, var(--line-strong));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-working-color) 22%, transparent), inset 0 0 18px color-mix(in srgb, var(--agent-working-color) 12%, transparent), 0 5px 16px var(--shadow-soft);
 }
 
 .map-node.is-agent-working .node-select::after {
@@ -462,7 +464,7 @@ kbd {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background: linear-gradient(100deg, transparent 36%, color-mix(in srgb, #79bd94 7%, transparent) 44%, color-mix(in srgb, #79bd94 44%, transparent) 50%, color-mix(in srgb, #79bd94 7%, transparent) 56%, transparent 64%);
+  background: linear-gradient(100deg, transparent 36%, color-mix(in srgb, var(--agent-working-color) 7%, transparent) 44%, color-mix(in srgb, var(--agent-working-color) 44%, transparent) 50%, color-mix(in srgb, var(--agent-working-color) 7%, transparent) 56%, transparent 64%);
   transform: translateX(-110%);
   animation: agent-working-sweep 1.65s cubic-bezier(.22, .8, .3, 1) infinite;
   animation-delay: var(--agent-working-sweep-delay, 0s);
@@ -470,7 +472,7 @@ kbd {
 }
 
 .map-node.is-agent-completed .node-select {
-  border-color: color-mix(in srgb, #e2ad58 46%, var(--line-strong));
+  border-color: color-mix(in srgb, var(--agent-completed-color) 46%, var(--line-strong));
 }
 
 .map-node.is-agent-completed .node-select::before {
@@ -479,7 +481,7 @@ kbd {
   inset: 1px;
   z-index: 0;
   pointer-events: none;
-  background: radial-gradient(circle at 84% 48%, color-mix(in srgb, #e2ad58 28%, transparent), transparent 42%), linear-gradient(90deg, color-mix(in srgb, #e2ad58 12%, transparent), transparent 62%);
+  background: radial-gradient(circle at 84% 48%, color-mix(in srgb, var(--agent-completed-color) 28%, transparent), transparent 42%), linear-gradient(90deg, color-mix(in srgb, var(--agent-completed-color) 12%, transparent), transparent 62%);
   opacity: .24;
   transform: translateY(0) scale(1);
   animation: agent-completed-highlight-jump 1.65s cubic-bezier(.28, .84, .42, 1) infinite;
@@ -747,7 +749,7 @@ kbd {
 .terminal-badge.is-working {
   min-width: 18px;
   height: 18px;
-  color: #79bd94;
+  color: var(--agent-working-color);
 }
 
 .terminal-badge.is-needs_input,
@@ -758,7 +760,13 @@ kbd {
 
 .runtime-state.is-working,
 .agent-line.is-working {
-  color: #79bd94;
+  color: var(--agent-working-color);
+}
+
+.terminal-badge.is-completed,
+.runtime-state.is-completed,
+.agent-line.is-completed {
+  color: var(--agent-completed-color);
 }
 
 .agent-line {
@@ -822,7 +830,7 @@ kbd {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   grid-template-rows: repeat(4, 1fr);
-  gap: 1px;
+  gap: 0;
   opacity: 0;
   pointer-events: none;
 }
