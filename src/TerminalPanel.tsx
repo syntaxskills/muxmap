@@ -1,4 +1,4 @@
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
+import { type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
@@ -9,6 +9,8 @@ import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { AgentIcon } from './AgentIcon.tsx'
 import { createTerminalLinkProvider } from './terminalLinks.ts'
+import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachment } from './imageAttachments.ts'
+import { NoteImagePreview } from './NoteImagePreview.tsx'
 import {
   ChevronDownIcon,
   DrawingPinIcon,
@@ -173,6 +175,22 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     onStop()
   }
 
+  async function pasteNoteImage(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    const file = imageFileFromClipboard(event.clipboardData)
+    if (!file) return
+    event.preventDefault()
+    try {
+      const uploaded = await uploadImageAttachment(file)
+      const textarea = event.currentTarget
+      const inserted = insertMarkdownAtSelection(textarea.value, uploaded.markdown, textarea.selectionStart, textarea.selectionEnd)
+      textarea.value = inserted.value
+      textarea.setSelectionRange(inserted.cursor, inserted.cursor)
+      onUpdate({ note: inserted.value })
+    } catch {
+      // Keep the terminal usable; the detail panel surfaces backend/API errors elsewhere.
+    }
+  }
+
   const style = {
     '--terminal-drag-x': `${offset.x}px`,
     '--terminal-drag-y': `${offset.y}px`,
@@ -205,7 +223,8 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
           <label>Project<input defaultValue={node.project ?? ''} onBlur={(event) => { if (event.target.value !== (node.project ?? '')) onUpdate({ project: event.target.value }) }} /></label>
           <label>Ticket key<input defaultValue={node.jiraKey ?? ''} onBlur={(event) => { if (event.target.value !== (node.jiraKey ?? '')) onUpdate({ jiraKey: event.target.value }) }} /></label>
           <label>Repository path<input defaultValue={node.repoPath ?? ''} onBlur={(event) => { if (event.target.value !== (node.repoPath ?? '')) onUpdate({ repoPath: event.target.value }) }} /></label>
-          <label className="is-wide">Note<textarea defaultValue={node.note ?? ''} rows={2} onBlur={(event) => { if (event.target.value !== (node.note ?? '')) onUpdate({ note: event.target.value }) }} /></label>
+          <label className="is-wide">Note<textarea defaultValue={node.note ?? ''} rows={2} placeholder="Paste images or write context" onPaste={(event) => void pasteNoteImage(event)} onBlur={(event) => { if (event.target.value !== (node.note ?? '')) onUpdate({ note: event.target.value }) }} /></label>
+          <NoteImagePreview note={node.note} />
         </div>}
       </div>
       <div className="terminal-screen"><div className="terminal-mount" ref={container} /></div>

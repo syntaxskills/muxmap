@@ -1,10 +1,10 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { homedir } from 'node:os'
-import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { spawn as spawnPty } from 'node-pty'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { TerminalBackend, TerminalSession } from '../src/model.ts'
@@ -53,6 +53,7 @@ type ServerOptions = {
   processReader?: () => ProcessInfo[]
   platform?: RuntimePlatform
   activityWriteIntervalMs?: number
+  attachmentsDirectory?: string
 }
 
 const mimeTypes: Record<string, string> = {
@@ -80,6 +81,13 @@ const textPreviewExtensions = new Set([
   '.php', '.py', '.rb', '.rs', '.scss', '.sh', '.sql', '.swift', '.toml', '.ts', '.tsx',
   '.txt', '.yaml', '.yml', '.zsh',
 ])
+
+const attachmentTypes: Record<string, string> = {
+  'image/gif': '.gif',
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+}
 
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, `'"'"'`)}'`
@@ -221,17 +229,38 @@ td{padding:0 14px;white-space:pre}tr.is-selected{background:#31401f}tr.is-select
 </style></head><body><header><strong>${htmlEscape(basename(path))}</strong><span>${escapedPath}${line ? `:${line}${column ? `:${column}` : ''}` : ''}</span></header><table>${rows}</table>${script}</body></html>`
 }
 
-async function readJson(request: IncomingMessage) {
+async function readJson(request: IncomingMessage, maxBytes = 64 * 1024) {
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of request) {
     const buffer = Buffer.from(chunk)
     size += buffer.length
-    if (size > 64 * 1024) throw new Error('Request body is too large')
+    if (size > maxBytes) throw new Error('Request body is too large')
     chunks.push(buffer)
   }
   if (chunks.length === 0) return {}
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
+}
+
+function attachmentDirectory(databasePath: string, configured?: string) {
+  return resolve(configured ?? (databasePath === ':memory:' ? '.muxmap/attachments' : join(dirname(resolve(databasePath)), 'attachments')))
+}
+
+function decodeImageDataUrl(dataUrl: unknown, type: unknown) {
+  if (typeof dataUrl !== 'string' || typeof type !== 'string') throw new Error('Image data and type are required')
+  const extension = attachmentTypes[type]
+  if (!extension) throw new Error('Unsupported image type')
+  const prefix = `data:${type};base64,`
+  if (!dataUrl.startsWith(prefix)) throw new Error('Invalid image data')
+  const data = Buffer.from(dataUrl.slice(prefix.length), 'base64')
+  if (data.length === 0) throw new Error('Image data is empty')
+  if (data.length > 8 * 1024 * 1024) throw new Error('Image is too large')
+  return { data, extension }
+}
+
+function attachmentContentType(name: string) {
+  const extension = extname(name).toLowerCase()
+  return Object.entries(attachmentTypes).find(([, value]) => value === extension)?.[0]
 }
 
 function isAllowedOrigin(request: IncomingMessage, extra: string[]) {
@@ -263,6 +292,7 @@ export function createMuxMapServer(options: ServerOptions) {
   const ptys = new Map<string, Set<PtyHandle>>()
   const lastActivityWrites = new Map<string, number>()
   const activityWriteIntervalMs = options.activityWriteIntervalMs ?? 5_000
+  const attachmentsDirectory = attachmentDirectory(options.databasePath, options.attachmentsDirectory)
   let closing = false
 
   const recordSessionActivity = (sessionId: string) => {
@@ -327,6 +357,31 @@ export function createMuxMapServer(options: ServerOptions) {
             Number.isInteger(line) && line > 0 ? line : undefined,
             Number.isInteger(column) && column > 0 ? column : undefined,
           ))
+        }
+
+        if (request.method === 'POST' && url.pathname === '/api/attachments') {
+          const body = await readJson(request, 12 * 1024 * 1024)
+          const image = decodeImageDataUrl(body.dataUrl, body.type)
+          mkdirSync(attachmentsDirectory, { recursive: true })
+          const name = `${randomUUID()}${image.extension}`
+          const path = join(attachmentsDirectory, name)
+          writeFileSync(path, image.data, { flag: 'wx' })
+          return sendJson(response, 201, {
+            url: `/api/attachments/${name}`,
+            markdown: `![pasted image](/api/attachments/${name})`,
+          })
+        }
+
+        const attachmentMatch = url.pathname.match(/^\/api\/attachments\/([a-f0-9-]+\.(?:gif|jpg|png|webp))$/i)
+        if (request.method === 'GET' && attachmentMatch) {
+          const name = attachmentMatch[1]
+          const type = attachmentContentType(name)
+          if (!type) return sendJson(response, 404, { error: 'Not found' })
+          const path = resolve(attachmentsDirectory, name)
+          const root = resolve(attachmentsDirectory)
+          if (!isWithinRoot(path, root) || !existsSync(path)) return sendJson(response, 404, { error: 'Not found' })
+          response.writeHead(200, { 'content-type': type, 'cache-control': 'private, max-age=31536000' })
+          return response.end(readFileSync(path))
         }
 
         const workspaceMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)$/)

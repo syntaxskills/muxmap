@@ -1448,6 +1448,28 @@ kbd {
   outline-offset: 1px;
 }
 
+.note-image-preview {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 8px;
+}
+
+.note-image-preview a {
+  display: block;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent, #7da079) 24%, var(--line));
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .5);
+}
+
+.note-image-preview img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
 .node-color-field,
 .terminal-color-field {
   display: grid;
@@ -2574,6 +2596,10 @@ kbd {
 
 .terminal-node-editor textarea {
   resize: vertical;
+}
+
+.terminal-node-editor .note-image-preview {
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
 }
 
 .terminal-window.is-docked:not(.is-fullscreen) .terminal-node-link {

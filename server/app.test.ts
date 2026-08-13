@@ -199,6 +199,53 @@ test('file preview API opens files inside allowed roots and rejects outside path
   }
 })
 
+test('attachment API stores pasted images and rejects unsupported clipboard payloads', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-attachments-root-')))
+  const attachments = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-attachments-store-')))
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    attachmentsDirectory: attachments,
+    platform: 'linux',
+    token: 'test-token',
+    tmux: fakeTmux(),
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const cookie = (await fetch(`${base}/api/auth`)).headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const uploaded = await fetch(`${base}/api/attachments`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ type: 'image/png', dataUrl: 'data:image/png;base64,aGVsbG8=' }),
+    })
+    assert.equal(uploaded.status, 201)
+    const body = await uploaded.json() as { url: string; markdown: string }
+    assert.match(body.url, /^\/api\/attachments\/[a-f0-9-]+\.png$/)
+    assert.equal(body.markdown, `![pasted image](${body.url})`)
+
+    const image = await fetch(`${base}${body.url}`, { headers: { cookie } })
+    assert.equal(image.status, 200)
+    assert.equal(image.headers.get('content-type'), 'image/png')
+    assert.equal(await image.text(), 'hello')
+
+    const rejected = await fetch(`${base}/api/attachments`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ type: 'text/plain', dataUrl: 'data:text/plain;base64,aGVsbG8=' }),
+    })
+    assert.equal(rejected.status, 400)
+    assert.deepEqual(await rejected.json(), { error: 'Unsupported image type' })
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+    rmSync(attachments, { recursive: true, force: true })
+  }
+})
+
 test('archive and restore keep the node and its terminal session intact', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-archive-api-')))
   const tmux = fakeTmux()

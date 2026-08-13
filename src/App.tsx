@@ -1,4 +1,5 @@
 import {
+  type ClipboardEvent as ReactClipboardEvent,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   lazy,
@@ -28,6 +29,8 @@ import { loadSettings, notificationDeliveryTargets, SETTINGS_VERSION, type AppSe
 import { sendTestSystemNotification } from './systemNotifications.ts'
 import { activityStaleness, formatActivityAge, sessionActivityTimestamp } from './activityTime.ts'
 import { agentWorkingSweepDelay, synchronizeAgentWorkingSweeps } from './agentAnimations.ts'
+import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachment } from './imageAttachments.ts'
+import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
@@ -439,6 +442,23 @@ function App() {
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : 'Unable to update node')
       await loadWorkspace()
+    }
+  }
+
+  async function pasteNoteImage(event: ReactClipboardEvent<HTMLTextAreaElement>, node: WorkNode) {
+    const file = imageFileFromClipboard(event.clipboardData)
+    if (!file) return
+    event.preventDefault()
+    setError('')
+    try {
+      const uploaded = await uploadImageAttachment(file)
+      const textarea = event.currentTarget
+      const inserted = insertMarkdownAtSelection(textarea.value, uploaded.markdown, textarea.selectionStart, textarea.selectionEnd)
+      textarea.value = inserted.value
+      textarea.setSelectionRange(inserted.cursor, inserted.cursor)
+      await saveNode(node.id, { note: inserted.value })
+    } catch (pasteError) {
+      setError(pasteError instanceof Error ? pasteError.message : 'Unable to paste image')
     }
   }
 
@@ -1058,7 +1078,8 @@ function App() {
                 <label>Project<input defaultValue={selected.project ?? ''} placeholder="Optional" onBlur={(event) => { if (event.target.value !== (selected.project ?? '')) void saveNode(selected.id, { project: event.target.value }) }} /></label>
                 <label>Ticket key<input defaultValue={selected.jiraKey ?? ''} placeholder="Optional" onBlur={(event) => { if (event.target.value !== (selected.jiraKey ?? '')) void saveNode(selected.id, { jiraKey: event.target.value }) }} /></label>
                 <label>Repository path<input defaultValue={selected.repoPath ?? ''} placeholder="Uses allowed root" onBlur={(event) => { if (event.target.value !== (selected.repoPath ?? '')) void saveNode(selected.id, { repoPath: event.target.value }) }} /></label>
-                <label>Note<textarea defaultValue={selected.note ?? ''} placeholder="Optional context" rows={3} onBlur={(event) => { if (event.target.value !== (selected.note ?? '')) void saveNode(selected.id, { note: event.target.value }) }} /></label>
+                <label>Note<textarea defaultValue={selected.note ?? ''} placeholder="Paste images or write optional context" rows={3} onPaste={(event) => void pasteNoteImage(event, selected)} onBlur={(event) => { if (event.target.value !== (selected.note ?? '')) void saveNode(selected.id, { note: event.target.value }) }} /></label>
+                <NoteImagePreview note={selected.note} />
               </div>
             </details>
           </div>
