@@ -368,6 +368,11 @@ kbd {
   box-shadow: 0 5px 16px var(--shadow-soft);
 }
 
+.node-select > * {
+  position: relative;
+  z-index: 1;
+}
+
 .map-node:hover,
 .map-node.is-selected,
 .map-node:focus-within {
@@ -440,21 +445,45 @@ kbd {
   text-shadow: 0 0 12px var(--accent);
 }
 
-.map-node.is-agent-working .node-select {
+.map-node.is-agent-working .node-select,
+.map-node.is-agent-completed .node-select {
   position: relative;
   overflow: hidden;
+}
+
+.map-node.is-agent-working .node-select {
+  border-color: color-mix(in srgb, #79bd94 48%, var(--line-strong));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #79bd94 22%, transparent), inset 0 0 18px color-mix(in srgb, #79bd94 12%, transparent), 0 5px 16px var(--shadow-soft);
 }
 
 .map-node.is-agent-working .node-select::after {
   content: '';
   position: absolute;
   inset: 0;
+  z-index: 0;
   pointer-events: none;
   background: linear-gradient(100deg, transparent 36%, color-mix(in srgb, #79bd94 7%, transparent) 44%, color-mix(in srgb, #79bd94 44%, transparent) 50%, color-mix(in srgb, #79bd94 7%, transparent) 56%, transparent 64%);
   transform: translateX(-110%);
   animation: agent-working-sweep 1.65s cubic-bezier(.22, .8, .3, 1) infinite;
   animation-delay: var(--agent-working-sweep-delay, 0s);
   will-change: transform;
+}
+
+.map-node.is-agent-completed .node-select {
+  border-color: color-mix(in srgb, #e2ad58 46%, var(--line-strong));
+}
+
+.map-node.is-agent-completed .node-select::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 84% 48%, color-mix(in srgb, #e2ad58 28%, transparent), transparent 42%), linear-gradient(90deg, color-mix(in srgb, #e2ad58 12%, transparent), transparent 62%);
+  opacity: .24;
+  transform: translateY(0) scale(1);
+  animation: agent-completed-highlight-jump 1.65s cubic-bezier(.28, .84, .42, 1) infinite;
+  will-change: opacity, transform;
 }
 
 .node-select:active,
@@ -2660,6 +2689,13 @@ kbd {
   42% { transform: translateY(-2px) scale(1.02, .98); }
 }
 
+@keyframes agent-completed-highlight-jump {
+  0%, 58%, 100% { opacity: .2; transform: translateY(0) scale(1); }
+  15% { opacity: .58; transform: translateY(-2px) scale(1.015); }
+  30% { opacity: .32; transform: translateY(0) scale(.995, 1.01); }
+  42% { opacity: .46; transform: translateY(-1px) scale(1.006); }
+}
+
 @keyframes agent-alert-lifetime {
   0%, 70% { opacity: 1; transform: translateY(0); }
   100% { opacity: 0; transform: translateY(-6px); }
@@ -2773,6 +2809,7 @@ kbd {
   .agent-alert,
   .terminal-preview-screen i,
   .map-node.is-agent-working .node-select::after,
+  .map-node.is-agent-completed .node-select::before,
   .is-working > .agent-icon,
   .is-working > .agent-icon.is-pi .pi-agent-cell.is-lit,
   .is-completed > .agent-icon,
@@ -2792,7 +2829,8 @@ kbd {
 .reduce-motion .terminal-preview-screen i,
 .reduce-motion .agent-icon,
 .reduce-motion .is-working > .agent-icon.is-pi .pi-agent-cell.is-lit,
-.reduce-motion .map-node.is-agent-working .node-select::after {
+.reduce-motion .map-node.is-agent-working .node-select::after,
+.reduce-motion .map-node.is-agent-completed .node-select::before {
   animation: none !important;
   transition: none !important;
 }
