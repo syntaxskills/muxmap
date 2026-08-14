@@ -45,6 +45,16 @@ function asksForInput(message: unknown) {
   return /[?？]\s*$/.test(message.trim()) || /\b(need|requires?|waiting for) (your|user) (input|answer|approval|decision)\b/i.test(message)
 }
 
+function hasItems(value: unknown) {
+  return Array.isArray(value) && value.length > 0
+}
+
+function hasActiveDelegatedWork(input: Record<string, unknown>) {
+  if (hasItems(input.background_tasks) || hasItems(input.session_crons)) return true
+  const message = typeof input.last_assistant_message === 'string' ? input.last_assistant_message : ''
+  return /\b(sub-?agent|teammate|delegate|delegated|delegating|handoff|hand off|background task|working in the background)\b/i.test(message)
+}
+
 function stringField(input: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     const value = input[key]
@@ -59,7 +69,7 @@ export function agentSessionInfoFromEvent(input: Record<string, unknown>) {
     ?? (muxmap ? stringField(muxmap, ['session_id', 'sessionId', 'codexSessionId', 'externalSessionId']) : undefined)
     ?? (payload ? stringField(payload, ['session_id', 'sessionId', 'id']) : undefined)
   const externalSessionPath = (muxmap ? stringField(muxmap, ['session_path', 'sessionPath', 'codexSessionPath', 'externalSessionPath']) : undefined)
-    ?? stringField(input, ['session_path', 'sessionPath'])
+    ?? stringField(input, ['session_path', 'sessionPath', 'transcript_path', 'agent_transcript_path'])
   const externalCwd = (muxmap ? stringField(muxmap, ['cwd', 'externalCwd']) : undefined)
     ?? stringField(input, ['cwd'])
   return {
@@ -73,8 +83,9 @@ export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: R
   const event = String(input.hook_event_name ?? input.type ?? '')
   const notification = String(input.notification_type ?? '')
   let state: AgentActivity['state'] = 'read'
-  if (event === 'UserPromptSubmit' || event === 'before_agent_start' || event === 'agent_start') state = 'working'
+  if (event === 'UserPromptSubmit' || event === 'before_agent_start' || event === 'agent_start' || event === 'TaskCreated' || event === 'SubagentStop') state = 'working'
   if (event === 'Stop' || event === 'agent_end') state = 'completed'
+  if (kind === 'claude' && event === 'Stop' && hasActiveDelegatedWork(input)) state = 'working'
   if (event === 'PermissionRequest' || (event === 'Notification' && /permission_prompt|idle_prompt|agent_needs_input/.test(notification))) state = 'needs_input'
   if (event === 'Stop' && asksForInput(input.last_assistant_message)) state = 'needs_input'
   return { kind, state, since: now, ...agentSessionInfoFromEvent(input) }

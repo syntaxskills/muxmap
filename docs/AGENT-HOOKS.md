@@ -27,9 +27,11 @@ The hook sends the current terminal locator to MuxMap:
 - tmux: `TMUX_PANE`;
 - Zellij: `ZELLIJ_SESSION_NAME` and optional `ZELLIJ_PANE_ID`;
 - Codex: direct `session_id` when supplied by the event;
-- Claude Code: lifecycle and notification event fields when supplied.
+- Claude Code: lifecycle, notification, task-created, and subagent-stop fields when supplied.
 
 MuxMap resolves the locator to a live runtime name. Only runtime names starting with `muxmap` are accepted for management.
+
+Claude Code note: its `Stop` hook fires whenever Claude finishes a response, not only when the whole task is done. MuxMap treats handoffs with active background work, `TaskCreated`, and `SubagentStop` as still `working` so a parent node does not flash as completed while a subagent is running.
 
 ## Outside MuxMap
 

@@ -75,12 +75,12 @@ function printPiStatus() {
 
 if (mode === 'status') {
   printJsonStatus(join(homedir(), '.codex/hooks.json'), 'codex', ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'SessionEnd'])
-  printJsonStatus(join(homedir(), '.claude/settings.json'), 'claude', ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Notification', 'Stop', 'SessionEnd'])
+  printJsonStatus(join(homedir(), '.claude/settings.json'), 'claude', ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Notification', 'TaskCreated', 'SubagentStop', 'Stop', 'SessionEnd'])
   printPiStatus()
 } else {
   if (available('codex')) installJson(join(homedir(), '.codex/hooks.json'), 'codex', ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'SessionEnd'])
   else console.log('Skipped codex hooks: codex command unavailable')
-  if (available('claude')) installJson(join(homedir(), '.claude/settings.json'), 'claude', ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Notification', 'Stop', 'SessionEnd'])
+  if (available('claude')) installJson(join(homedir(), '.claude/settings.json'), 'claude', ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Notification', 'TaskCreated', 'SubagentStop', 'Stop', 'SessionEnd'])
   else console.log('Skipped claude hooks: claude command unavailable')
   if (available('pi')) installPi()
   else console.log('Skipped Pi extension: pi command unavailable')

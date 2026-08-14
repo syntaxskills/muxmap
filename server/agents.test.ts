@@ -35,6 +35,33 @@ test('Codex and Claude lifecycle hooks map to working, input, and completed stat
   assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'SessionStart' }, '2026-08-07T10:07:00.000Z').state, 'read')
 })
 
+test('Claude subagent handoff events keep the parent node working instead of completed', () => {
+  assert.equal(agentActivityFromEvent('claude', {
+    hook_event_name: 'Stop',
+    last_assistant_message: 'I am handing this off to a sub-agent and will continue when it returns.',
+  }).state, 'working')
+  assert.equal(agentActivityFromEvent('claude', {
+    hook_event_name: 'Stop',
+    background_tasks: [{ id: 'task-1' }],
+    last_assistant_message: 'The implementation agent is working in the background.',
+  }).state, 'working')
+  assert.equal(agentActivityFromEvent('claude', {
+    hook_event_name: 'TaskCreated',
+    task_id: 'task-001',
+    task_subject: 'Implement session recovery',
+  }).state, 'working')
+  const subagentStop = agentActivityFromEvent('claude', {
+    hook_event_name: 'SubagentStop',
+    agent_id: 'agent-001',
+    agent_type: 'Explore',
+    agent_transcript_path: '/home/user/.claude/projects/repo/session/subagents/agent-001.jsonl',
+    last_assistant_message: 'Analysis complete.',
+  })
+  assert.equal(subagentStop.state, 'working')
+  assert.equal(subagentStop.externalSessionPath, '/home/user/.claude/projects/repo/session/subagents/agent-001.jsonl')
+  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Stop', last_assistant_message: 'All done.' }).state, 'completed')
+})
+
 test('Codex lifecycle metadata extracts resumable session ids', () => {
   const direct = agentActivityFromEvent('codex', {
     hook_event_name: 'Stop',
