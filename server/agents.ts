@@ -51,6 +51,7 @@ function hasItems(value: unknown) {
 
 function hasActiveDelegatedWork(input: Record<string, unknown>) {
   if (hasItems(input.background_tasks) || hasItems(input.session_crons)) return true
+  if (['SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted'].includes(String(input.hook_event_name ?? ''))) return true
   const message = typeof input.last_assistant_message === 'string' ? input.last_assistant_message : ''
   return /\b(sub-?agent|teammate|delegate|delegated|delegating|handoff|hand off|background task|working in the background)\b/i.test(message)
 }
@@ -83,7 +84,7 @@ export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: R
   const event = String(input.hook_event_name ?? input.type ?? '')
   const notification = String(input.notification_type ?? '')
   let state: AgentActivity['state'] = 'read'
-  if (event === 'UserPromptSubmit' || event === 'before_agent_start' || event === 'agent_start' || event === 'TaskCreated' || event === 'SubagentStop') state = 'working'
+  if (event === 'UserPromptSubmit' || event === 'before_agent_start' || event === 'agent_start' || event === 'SubagentStart' || event === 'SubagentStop' || event === 'TaskCreated' || event === 'TaskCompleted') state = 'working'
   if (event === 'Stop' || event === 'agent_end') state = 'completed'
   if (kind === 'claude' && event === 'Stop' && hasActiveDelegatedWork(input)) state = 'working'
   if (event === 'PermissionRequest' || (event === 'Notification' && /permission_prompt|idle_prompt|agent_needs_input/.test(notification))) state = 'needs_input'

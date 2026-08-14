@@ -46,7 +46,17 @@ test('Claude subagent handoff events keep the parent node working instead of com
     last_assistant_message: 'The implementation agent is working in the background.',
   }).state, 'working')
   assert.equal(agentActivityFromEvent('claude', {
+    hook_event_name: 'SubagentStart',
+    agent_id: 'agent-001',
+    agent_type: 'Explore',
+  }).state, 'working')
+  assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'TaskCreated',
+    task_id: 'task-001',
+    task_subject: 'Implement session recovery',
+  }).state, 'working')
+  assert.equal(agentActivityFromEvent('claude', {
+    hook_event_name: 'TaskCompleted',
     task_id: 'task-001',
     task_subject: 'Implement session recovery',
   }).state, 'working')
