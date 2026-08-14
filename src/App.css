@@ -806,6 +806,11 @@ kbd {
   height: 21px;
 }
 
+.agent-icon.is-claude {
+  width: 24px;
+  height: 24px;
+}
+
 .terminal-badge .agent-icon {
   width: 16px;
   height: 16px;
@@ -814,6 +819,11 @@ kbd {
 .terminal-badge .agent-icon.is-pi {
   width: 24px;
   height: 24px;
+}
+
+.terminal-badge .agent-icon.is-claude {
+  width: 28px;
+  height: 28px;
 }
 
 .is-working > .agent-icon {

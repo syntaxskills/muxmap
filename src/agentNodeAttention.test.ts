@@ -24,6 +24,8 @@ test('agent node attention distinguishes working, completed, and input-needed st
   assert.match(icon, /const piAgentCells = \[\s*true, true, true, false,\s*true, false, true, false,\s*true, true, false, true,\s*true, false, false, true,/)
   assert.match(css, /\.agent-icon\.is-pi\s*\{[^}]*width:\s*21px;[^}]*height:\s*21px/s)
   assert.match(css, /\.terminal-badge\s+\.agent-icon\.is-pi\s*\{[^}]*width:\s*24px;[^}]*height:\s*24px/s)
+  assert.match(css, /\.agent-icon\.is-claude\s*\{[^}]*width:\s*24px;[^}]*height:\s*24px/s)
+  assert.match(css, /\.terminal-badge\s+\.agent-icon\.is-claude\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px/s)
   assert.match(css, /\.agent-icon\s*\{[^}]*line-height:\s*0;[^}]*vertical-align:\s*middle/s)
   assert.match(icon, /agent-icon-working[\s\S]*claude-working\.gif/)
   assert.match(css, /\.agent-icon-working\s*\{[^}]*display:\s*none/s)
