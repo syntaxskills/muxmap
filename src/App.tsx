@@ -29,6 +29,7 @@ import { loadSettings, notificationDeliveryTargets, SETTINGS_VERSION, type AppSe
 import { sendTestSystemNotification } from './systemNotifications.ts'
 import { activityStaleness, formatActivityAge, sessionActivityTimestamp } from './activityTime.ts'
 import { agentWorkingSweepDelay, synchronizeAgentWorkingSweeps } from './agentAnimations.ts'
+import { agentSessionDetails, agentSessionSummary } from './agentSessionDetails.ts'
 import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachment } from './imageAttachments.ts'
 import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
@@ -1013,7 +1014,7 @@ function App() {
                               {visibleAgent && <span><b>Agent</b>{agentStatusText(visibleAgent)}</span>}
                               {nodeSession && <span><b>Activity</b><time dateTime={activityTimestamp}>{activityAge === 'NOW' ? activityAge : `${activityAge} ago`}</time></span>}
                               {archivedChildCount > 0 && <span><b>Archived</b>{archivedChildCount} {archivedChildCount === 1 ? 'child' : 'children'}</span>}
-                              <span><b>Terminal</b>{nodeSession?.status ?? 'None'}</span>
+                              <span><b>Terminal</b>{nodeSession ? `${nodeSession.status} · ${agentSessionSummary(nodeSession)}` : 'None'}</span>
                             </span>
                           )}
                         </span>
@@ -1084,6 +1085,23 @@ function App() {
             </details>
           </div>
 
+          {session && (
+            <section className="agent-session-card" aria-label="Agent and terminal session identifiers">
+              <header>
+                <span>Session binding</span>
+                <small>{session.agent ? agentStatusText(session.agent) : session.status}</small>
+              </header>
+              <dl>
+                {agentSessionDetails(session).map((row) => (
+                  <div key={row.label}>
+                    <dt>{row.label}</dt>
+                    <dd title={row.title ?? row.value}>{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
+
           {selectedArchivedChildren.length > 0 && (
             <section className="node-archived-children" aria-label={`Archived children of ${selected.title}`}>
               <header><span>Archived children</span><small>{selectedArchivedChildren.length}</small></header>
@@ -1109,7 +1127,7 @@ function App() {
             ) : session && canRecoverCodexSession(session) ? (
               <div className="recover-codex-card">
                 <button className="attach-button recover-codex-button" type="button" onClick={() => void recoverCodexSession(session.id)} disabled={busy}>Resume Codex</button>
-                <small>Codex {session.agent?.externalSessionId?.slice(0, 8)} · {session.agent?.externalCwd ?? session.cwd}</small>
+                <small>{agentSessionSummary(session)} · {session.agent?.externalCwd ?? session.cwd}</small>
               </div>
             ) : (
               <button className="attach-button" type="button" onClick={() => void attachTerminal()} disabled={busy}>{session ? 'Restart terminal' : 'Attach terminal'}</button>
