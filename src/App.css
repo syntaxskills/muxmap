@@ -790,10 +790,15 @@ kbd {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  display: block;
 }
 
 .agent-icon-working {
   display: none;
+  position: absolute;
+  inset: 0;
+  transform: translate(1px, -2px);
+  transform-origin: center;
 }
 
 .agent-icon.is-codex,
