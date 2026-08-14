@@ -22,6 +22,10 @@ test('terminal links normalize source file paths into browser preview URLs', () 
     '/api/files/open?path=src%2FTerminalPanel.tsx&cwd=%2FUsers%2Fme%2Frepo&line=90',
   )
   assert.equal(
+    normalizeTerminalFileLink('my_ignore/swimlane_apm_direct_requests.md', { cwd: '/Users/me/repo/project', sessionId: 'sess_terminal' }),
+    '/api/files/open?path=my_ignore%2Fswimlane_apm_direct_requests.md&cwd=%2FUsers%2Fme%2Frepo%2Fproject&sessionId=sess_terminal',
+  )
+  assert.equal(
     normalizeTerminalFileLink('C:\\repo\\muxmap\\src\\App.tsx:8'),
     '/api/files/open?path=C%3A%5Crepo%5Cmuxmap%5Csrc%5CApp.tsx&line=8',
   )
@@ -89,6 +93,25 @@ test('terminal link provider opens source file links in a browser tab', async ()
   assert.equal(links.length, 1)
   ;(links[0] as { activate: () => void }).activate()
   assert.deepEqual(opened, ['/api/files/open?path=src%2FterminalLinks.ts&cwd=%2Frepo%2Fmuxmap&line=33'])
+})
+
+test('terminal link provider includes session id so file links can resolve against live cwd', async () => {
+  const opened: string[] = []
+  const terminal = {
+    buffer: {
+      active: {
+        getLine() {
+          return { translateToString: () => 'open my_ignore/swimlane_apm_direct_requests.md' }
+        },
+      },
+    },
+  }
+  const provider = createTerminalLinkProvider(terminal as never, { cwd: '/repo/project', sessionId: 'sess_live' }, (url) => opened.push(url))
+  const links = await new Promise<unknown[]>((resolve) => provider.provideLinks(1, (items) => resolve(items ?? [])))
+
+  assert.equal(links.length, 1)
+  ;(links[0] as { activate: () => void }).activate()
+  assert.deepEqual(opened, ['/api/files/open?path=my_ignore%2Fswimlane_apm_direct_requests.md&cwd=%2Frepo%2Fproject&sessionId=sess_live'])
 })
 
 test('terminal link provider returns no links when the buffer line is unavailable', async () => {

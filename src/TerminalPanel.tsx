@@ -66,7 +66,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     const fit = new FitAddon()
     terminal.loadAddon(fit)
     terminal.open(container.current)
-    const links = terminal.registerLinkProvider(createTerminalLinkProvider(terminal, session.cwd))
+    const links = terminal.registerLinkProvider(createTerminalLinkProvider(terminal, { cwd: session.cwd, sessionId: session.id }))
     const forceSelection = (event: MouseEvent) => forceTerminalTextSelection(event, terminal.element?.classList.contains('enable-mouse-events') ?? false)
     terminal.element?.addEventListener('mousedown', forceSelection, true)
     fit.fit()

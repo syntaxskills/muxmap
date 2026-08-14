@@ -197,19 +197,33 @@ function isWithinRoot(candidate: string, root: string) {
   return offset === '' || (!!offset && !offset.startsWith('..') && !isAbsolute(offset))
 }
 
-function safeFilePath(inputPath: string | null, inputCwd: string | null, allowedRoots: string[]) {
+function cwdInputs(inputCwd: string | null | Array<string | undefined>) {
+  const values = Array.isArray(inputCwd) ? inputCwd : [inputCwd ?? undefined]
+  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))]
+}
+
+function safeFilePath(inputPath: string | null, inputCwd: string | null | Array<string | undefined>, allowedRoots: string[]) {
   if (!inputPath?.trim()) throw new Error('File path is required')
   const roots = allowedRoots.map((root) => realpathSync(resolve(expandHome(root)))).filter(Boolean)
   if (roots.length === 0) throw new Error('No allowed file roots configured')
-  const cwd = inputCwd?.trim()
-    ? realpathSync(resolve(expandHome(inputCwd)))
-    : roots[0]
-  if (!roots.some((root) => isWithinRoot(cwd, root))) throw new Error('Working directory is outside allowed roots')
-  const candidate = realpathSync(isAbsolute(expandHome(inputPath)) ? resolve(expandHome(inputPath)) : resolve(cwd, expandHome(inputPath)))
-  if (!roots.some((root) => isWithinRoot(candidate, root))) throw new Error('File path is outside allowed roots')
-  const stat = statSync(candidate)
-  if (!stat.isFile()) throw new Error('Path is not a file')
-  return { path: candidate, size: stat.size }
+  const rawPath = expandHome(inputPath)
+  const cwdCandidates = cwdInputs(inputCwd)
+  const attempts = isAbsolute(rawPath) ? [roots[0]] : cwdCandidates.length > 0 ? cwdCandidates : [roots[0]]
+  const errors: string[] = []
+  for (const attempt of attempts) {
+    try {
+      const cwd = realpathSync(resolve(expandHome(attempt)))
+      if (!roots.some((root) => isWithinRoot(cwd, root))) throw new Error('Working directory is outside allowed roots')
+      const candidate = realpathSync(isAbsolute(rawPath) ? resolve(rawPath) : resolve(cwd, rawPath))
+      if (!roots.some((root) => isWithinRoot(candidate, root))) throw new Error('File path is outside allowed roots')
+      const stat = statSync(candidate)
+      if (!stat.isFile()) throw new Error('Path is not a file')
+      return { path: candidate, size: stat.size }
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : 'Unable to open file')
+    }
+  }
+  throw new Error(errors.find((message) => /outside allowed roots/i.test(message)) ?? errors[0] ?? 'Unable to open file')
 }
 
 function filePreviewHtml(path: string, content: string, line: number | undefined, column: number | undefined) {
@@ -340,7 +354,8 @@ export function createMuxMapServer(options: ServerOptions) {
         }
 
         if (request.method === 'GET' && url.pathname === '/api/files/open') {
-          const file = safeFilePath(url.searchParams.get('path'), url.searchParams.get('cwd'), options.allowedRoots)
+          const sessionCwd = url.searchParams.get('sessionId') ? sessions.currentWorkingDirectory(url.searchParams.get('sessionId')!) : undefined
+          const file = safeFilePath(url.searchParams.get('path'), [sessionCwd, url.searchParams.get('cwd') ?? undefined], options.allowedRoots)
           const extension = extname(file.path).toLowerCase()
           const browserMimeType = browserPreviewMimeTypes[extension]
           if (browserMimeType) {

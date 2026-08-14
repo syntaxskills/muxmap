@@ -17,6 +17,7 @@ export type MultiplexerAdapter = {
   list(): string[]
   create(name: string, cwd: string, command?: string[]): void
   stop(name: string): void
+  currentWorkingDirectory?(name: string): string | undefined
   panes?(): MultiplexerPane[]
 }
 
@@ -81,6 +82,10 @@ export const realTmux: MultiplexerAdapter = {
   stop(name) {
     const result = spawnSync(tmuxExecutable(), defaultTmuxArgs('kill-session', '-t', name), { encoding: 'utf8', env: defaultTmuxEnv() })
     if (result.status !== 0) throw new Error(result.stderr.trim() || 'Unable to stop tmux session')
+  },
+  currentWorkingDirectory(name) {
+    const result = spawnSync(tmuxExecutable(), defaultTmuxArgs('display-message', '-p', '-t', name, '#{pane_current_path}'), { encoding: 'utf8', env: defaultTmuxEnv() })
+    return result.status === 0 ? result.stdout.trim() || undefined : undefined
   },
   panes() {
     const result = spawnSync(tmuxExecutable(), defaultTmuxArgs('list-panes', '-a', '-F', '#{session_name}\t#{pane_id}\t#{pane_pid}'), { encoding: 'utf8', env: defaultTmuxEnv() })
@@ -268,6 +273,19 @@ export function createSessionManager(
     exists(session: TerminalSession) {
       return runtimeExists(session)
         || runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped'
+    },
+
+    currentWorkingDirectory(id: string) {
+      const session = store.getSession(id)
+      if (!session) return
+      try {
+        const adapter = adapterFor(session.backend)
+        const cwd = adapter.currentWorkingDirectory?.(session.runtimeName)
+        if (!cwd) return session.cwd
+        return safePath(cwd, allowedRoots)
+      } catch {
+        return session.cwd
+      }
     },
 
     markRunning(id: string) {

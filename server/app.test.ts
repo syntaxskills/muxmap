@@ -12,7 +12,7 @@ import type { TerminalSession } from '../src/model.ts'
 
 const { Terminal } = xterm
 
-function fakeTmux(): TmuxAdapter & { stopped: string[]; live: Set<string>; createCommands: Array<string[] | undefined> } {
+function fakeTmux(options: { currentWorkingDirectories?: Record<string, string> } = {}): TmuxAdapter & { stopped: string[]; live: Set<string>; createCommands: Array<string[] | undefined> } {
   const live = new Set<string>()
   return {
     live,
@@ -27,6 +27,9 @@ function fakeTmux(): TmuxAdapter & { stopped: string[]; live: Set<string>; creat
     stop(name) {
       this.stopped.push(name)
       live.delete(name)
+    },
+    currentWorkingDirectory(name) {
+      return options.currentWorkingDirectories?.[name]
     },
   }
 }
@@ -196,6 +199,51 @@ test('file preview API opens files inside allowed roots and rejects outside path
     await server.close()
     rmSync(root, { recursive: true, force: true })
     rmSync(outside, { recursive: true, force: true })
+  }
+})
+
+test('file preview API resolves terminal relative links against the live tmux pane cwd', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-live-cwd-files-')))
+  const initialCwd = join(root, 'initial')
+  const liveCwd = join(root, 'live')
+  mkdirSync(join(initialCwd, 'my_ignore'), { recursive: true })
+  mkdirSync(join(liveCwd, 'my_ignore'), { recursive: true })
+  writeFileSync(join(liveCwd, 'my_ignore', 'swimlane_apm_direct_requests.md'), '# opened from live cwd\n')
+  const currentWorkingDirectories: Record<string, string> = {}
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    tmux: fakeTmux({ currentWorkingDirectories }),
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const cookie = (await fetch(`${base}/api/auth`)).headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const node = await (await fetch(`${base}/api/workspaces/default/nodes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ parentId: 'workspace', title: 'Live cwd links', type: 'terminal' }),
+    })).json() as { id: string }
+    const attached = await (await fetch(`${base}/api/nodes/${node.id}/session`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ backend: 'tmux', cwd: initialCwd }),
+    })).json() as { session: TerminalSession }
+    currentWorkingDirectories[attached.session.runtimeName] = liveCwd
+
+    const preview = await fetch(`${base}/api/files/open?path=${encodeURIComponent('my_ignore/swimlane_apm_direct_requests.md')}&cwd=${encodeURIComponent(initialCwd)}&sessionId=${encodeURIComponent(attached.session.id)}`, { headers: { cookie } })
+    assert.equal(preview.status, 200)
+    const html = await preview.text()
+    assert.match(html, /opened from live cwd/)
+    assert.match(html, new RegExp(liveCwd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
   }
 })
 

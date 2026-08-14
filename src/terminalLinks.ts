@@ -1,6 +1,7 @@
 import type { ILink, ILinkProvider, Terminal } from '@xterm/xterm'
 
 type LinkOpener = (url: string) => void
+type TerminalLinkContext = string | { cwd?: string; sessionId?: string }
 
 const terminalUrlBody = String.raw`[^\s<>"{}^⟨⟩` + "`" + String.raw`']+`
 const terminalUrlPath = String.raw`[^\s<>"{}^⟨⟩` + "`" + String.raw`']*`
@@ -54,6 +55,10 @@ export function normalizeTerminalLink(raw: string) {
   if (/^(localhost|127(?:\.\d{1,3}){3})(?::\d{2,5})?(?:\/|$)/i.test(trimmed)) return `http://${trimmed}`
 }
 
+function linkContext(input?: TerminalLinkContext) {
+  return typeof input === 'string' ? { cwd: input } : input ?? {}
+}
+
 function parseFileLocation(raw: string): FileLocation | undefined {
   let path = stripTrailingPunctuation(raw.trim())
   if (!path) return
@@ -69,11 +74,13 @@ function parseFileLocation(raw: string): FileLocation | undefined {
   return { path, line, column }
 }
 
-export function normalizeTerminalFileLink(raw: string, cwd?: string) {
+export function normalizeTerminalFileLink(raw: string, context?: TerminalLinkContext) {
   const location = parseFileLocation(raw)
   if (!location) return
+  const { cwd, sessionId } = linkContext(context)
   const parameters = new URLSearchParams({ path: location.path })
   if (cwd) parameters.set('cwd', cwd)
+  if (sessionId) parameters.set('sessionId', sessionId)
   if (location.line !== undefined) parameters.set('line', String(location.line))
   if (location.column !== undefined) parameters.set('column', String(location.column))
   return `/api/files/open?${parameters.toString()}`
@@ -83,7 +90,7 @@ function overlaps(start: number, end: number, links: Array<{ start: number; end:
   return links.some((link) => start < link.end && end > link.start)
 }
 
-export function terminalLinksInLine(line: string, cwd?: string) {
+export function terminalLinksInLine(line: string, context?: TerminalLinkContext) {
   const links: Array<{ text: string; url: string; start: number; end: number }> = []
   for (const match of line.matchAll(rawLinkPattern)) {
     const raw = match[0]
@@ -100,20 +107,20 @@ export function terminalLinksInLine(line: string, cwd?: string) {
     const visibleText = stripTrailingPunctuation(raw)
     const end = start + visibleText.length
     if (overlaps(start, end, links)) continue
-    const url = normalizeTerminalFileLink(visibleText, cwd)
+    const url = normalizeTerminalFileLink(visibleText, context)
     if (!url) continue
     links.push({ text: visibleText, url, start, end })
   }
   return links.sort((left, right) => left.start - right.start)
 }
 
-export function createTerminalLinkProvider(terminal: Terminal, cwd?: string, open: LinkOpener = openBrowserLink): ILinkProvider {
+export function createTerminalLinkProvider(terminal: Terminal, context?: TerminalLinkContext, open: LinkOpener = openBrowserLink): ILinkProvider {
   return {
     provideLinks(bufferLineNumber, callback) {
       try {
         const line = terminal.buffer.active.getLine(bufferLineNumber - 1)?.translateToString(true)
         if (!line) return callback(undefined)
-        const links = terminalLinksInLine(line, cwd).map<ILink>((link) => ({
+        const links = terminalLinksInLine(line, context).map<ILink>((link) => ({
           text: link.text,
           range: { start: { x: link.start + 1, y: bufferLineNumber }, end: { x: link.end, y: bufferLineNumber } },
           decorations: { underline: true, pointerCursor: true },
