@@ -13,6 +13,7 @@ export function AgentIcon({ kind }: { kind: AgentKind }) {
   if (kind === 'ssh') return <DesktopIcon className="agent-icon is-ssh" aria-hidden="true" />
   return <span className={`agent-icon is-${kind}`} aria-hidden="true">
     <img className="agent-icon-image" src={`/agent-icons/${kind}.svg`} alt="" />
+    {kind === 'claude' && <img className="agent-icon-working" src="/agent-icons/claude-working.gif" alt="" />}
     {kind === 'pi' && <span className="pi-agent-matrix">
       {piAgentCells.map((enabled, index) => {
         const row = Math.floor(index / 4)

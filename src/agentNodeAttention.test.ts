@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import test from 'node:test'
 
 test('agent node attention distinguishes working, completed, and input-needed states', () => {
@@ -25,6 +25,12 @@ test('agent node attention distinguishes working, completed, and input-needed st
   assert.match(css, /\.agent-icon\.is-pi\s*\{[^}]*width:\s*21px;[^}]*height:\s*21px/s)
   assert.match(css, /\.terminal-badge\s+\.agent-icon\.is-pi\s*\{[^}]*width:\s*24px;[^}]*height:\s*24px/s)
   assert.match(css, /\.agent-icon\s*\{[^}]*line-height:\s*0;[^}]*vertical-align:\s*middle/s)
+  assert.match(icon, /agent-icon-working[\s\S]*claude-working\.gif/)
+  assert.match(css, /\.agent-icon-working\s*\{[^}]*display:\s*none/s)
+  assert.match(css, /\.is-working\s*>\s*\.agent-icon\.is-claude\s*\{[^}]*animation:\s*none/s)
+  assert.match(css, /\.is-working\s*>\s*\.agent-icon\.is-claude\s+\.agent-icon-image\s*\{[^}]*display:\s*none/s)
+  assert.match(css, /\.is-working\s*>\s*\.agent-icon\.is-claude\s+\.agent-icon-working\s*\{[^}]*display:\s*block/s)
+  assert.ok(statSync(new URL('../public/agent-icons/claude-working.gif', import.meta.url)).size > 1024)
   assert.match(css, /\.pi-agent-matrix\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px/s)
   assert.match(css, /\.pi-agent-matrix\s*\{[^}]*top:\s*50%;[^}]*left:\s*50%;[^}]*transform:\s*translate\(-50%,\s*calc\(-50%\s*-\s*2px\)\)/s)
   assert.match(css, /\.pi-agent-matrix\s*\{[^}]*gap:\s*0/s)

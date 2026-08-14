@@ -785,10 +785,15 @@ kbd {
   vertical-align: middle;
 }
 
-.agent-icon-image {
+.agent-icon-image,
+.agent-icon-working {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.agent-icon-working {
+  display: none;
 }
 
 .agent-icon.is-codex,
@@ -818,6 +823,18 @@ kbd {
 .is-working > .agent-icon.is-pi {
   animation: none;
   filter: none;
+}
+
+.is-working > .agent-icon.is-claude {
+  animation: none;
+}
+
+.is-working > .agent-icon.is-claude .agent-icon-image {
+  display: none;
+}
+
+.is-working > .agent-icon.is-claude .agent-icon-working {
+  display: block;
 }
 
 .pi-agent-matrix {
