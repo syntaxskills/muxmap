@@ -15,6 +15,7 @@ Most terminal-heavy workflows eventually become a pile of anonymous panes. MuxMa
 - Organize repos, features, tickets, notes, and terminal tasks in a compact tree.
 - Attach a persistent terminal to any node, then dock, float, resize, or full-screen it.
 - Reopen the browser and reattach to the same session.
+- Archive completed nodes to keep them searchable while stopping their live terminal sessions.
 - Manage orphan `muxmap*` sessions instead of leaving hidden tmux/Zellij clutter.
 - Track Codex, Claude Code, Pi, and SSH activity with optional system or in-page notifications.
 - Tune the workspace through a VS Code-style settings UI or JSON editor.
@@ -33,6 +34,18 @@ npm run dev
 ```
 
 Open <http://127.0.0.1:5173>.
+
+If opening a terminal shows `posix_spawnp failed` on macOS/Linux, check the file descriptor limit:
+
+```bash
+ulimit -n
+```
+
+`256` is too low for terminal-heavy use. Restart MuxMap from the same shell after:
+
+```bash
+ulimit -n 4096
+```
 
 For the production server:
 

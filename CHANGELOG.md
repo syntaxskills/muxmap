@@ -24,6 +24,7 @@ All notable changes to MuxMap are documented here.
 - Added `npm run doctor` for port, authentication, Zellij, Tailscale, and least-privilege Windows Firewall checks.
 - Added a VS Code-style settings editor with 20 live options, compact category UI, editable JSON, browser persistence, and platform-aware terminal backends.
 - Added configurable inactive-node dimming for old terminal nodes, guarded by both a minimum inactive age and the oldest visible activity cohort.
+- Added open-file-limit diagnostics for `posix_spawnp failed` terminal startup failures.
 - Changed settings JSON export to a nested structure while preserving legacy dotted-key import and persisted-setting migration.
 - Rewrote the README introduction around the core terminal-context pain point and added a dedicated screenshots guide.
 
@@ -37,6 +38,7 @@ All notable changes to MuxMap are documented here.
 - Hid tmux-specific delete choices when a node branch has no live session.
 - Stopped injecting detach keystrokes into Windows terminals and enabled Zellij's font-safe UI.
 - Kept authenticated Agent hooks working outside localhost while preserving the strict local hook path.
+- Stopped live terminal sessions automatically when archiving their node or branch.
 
 ## [0.1.0] - 2026-08-07
 

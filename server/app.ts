@@ -93,6 +93,21 @@ function shellQuote(value: string) {
   return `'${value.replace(/'/g, `'"'"'`)}'`
 }
 
+function branchNodeIds(nodes: Array<{ id: string; parentId: string | null }>, rootId: string) {
+  const nodeIds = new Set([rootId])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const child of nodes) {
+      if (child.parentId && nodeIds.has(child.parentId) && !nodeIds.has(child.id)) {
+        nodeIds.add(child.id)
+        changed = true
+      }
+    }
+  }
+  return nodeIds
+}
+
 export function tmuxPtyFallbackCommand(tmux: string, args: string[]) {
   return `exec ${[tmux, ...args].map(shellQuote).join(' ')}`
 }
@@ -440,10 +455,21 @@ export function createMuxMapServer(options: ServerOptions) {
 
         const archiveMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/(archive|restore)$/)
         if (request.method === 'POST' && archiveMatch) {
-          const node = archiveMatch[2] === 'archive'
-            ? store.archiveNode(archiveMatch[1])
-            : store.restoreNode(archiveMatch[1])
-          return sendJson(response, 200, { node })
+          if (archiveMatch[2] === 'restore') return sendJson(response, 200, { node: store.restoreNode(archiveMatch[1]) })
+          const existing = store.getNode(archiveMatch[1])
+          if (!existing) throw new Error('Node not found')
+          if (!existing.parentId) throw new Error('Workspace root cannot be archived')
+          const graph = store.getWorkspace(existing.workspaceId)
+          const nodeIds = branchNodeIds(graph.nodes, existing.id)
+          const archivedSessionNames: string[] = []
+          for (const session of graph.sessions.filter((session) => nodeIds.has(session.nodeId) && session.status !== 'stopped')) {
+            for (const pty of ptys.get(session.id) ?? []) pty.kill()
+            ptys.delete(session.id)
+            sessions.stop(session.id)
+            archivedSessionNames.push(session.runtimeName)
+          }
+          const node = store.archiveNode(existing.id)
+          return sendJson(response, 200, { node, stoppedSessionNames: archivedSessionNames })
         }
 
         const updateNodeMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)$/)
@@ -463,17 +489,7 @@ export function createMuxMapServer(options: ServerOptions) {
           const node = store.getNode(updateNodeMatch[1])
           if (!node) throw new Error('Node not found')
           const graph = store.getWorkspace(node.workspaceId)
-          const nodeIds = new Set([node.id])
-          let changed = true
-          while (changed) {
-            changed = false
-            for (const child of graph.nodes) {
-              if (child.parentId && nodeIds.has(child.parentId) && !nodeIds.has(child.id)) {
-                nodeIds.add(child.id)
-                changed = true
-              }
-            }
-          }
+          const nodeIds = branchNodeIds(graph.nodes, node.id)
           const branchSessions = graph.sessions.filter((session) => nodeIds.has(session.nodeId))
           if (body.stopSession) {
             for (const session of branchSessions) {

@@ -91,6 +91,24 @@ test('doctor rejects invalid ports before probing the network', async () => {
   assert.match(result.lines.join('\n'), /PORT must be an integer/)
 })
 
+test('doctor reports low open file limits before terminal spawning fails', async () => {
+  const low = await runDoctor({}, {
+    platform: 'darwin', interfaces, portAvailable: async () => true,
+    run: () => ({ status: 0, stdout: '', stderr: '' }), writeFile: () => {},
+    openFileLimit: () => 256,
+  })
+  const warning = await runDoctor({}, {
+    platform: 'darwin', interfaces, portAvailable: async () => true,
+    run: () => ({ status: 0, stdout: '', stderr: '' }), writeFile: () => {},
+    openFileLimit: () => 768,
+  })
+
+  assert.equal(low.ok, true)
+  assert.match(low.lines.join('\n'), /WARNING.*Open file limit is 256.*ulimit -n 4096.*posix_spawnp failed/s)
+  assert.equal(warning.ok, true)
+  assert.match(warning.lines.join('\n'), /WARNING.*Open file limit is 768/s)
+})
+
 test('Windows doctor rejects an outdated Zellij', async () => {
   const result = await runDoctor({}, {
     platform: 'win32', interfaces, portAvailable: async () => true,

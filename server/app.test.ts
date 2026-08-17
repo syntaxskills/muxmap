@@ -294,7 +294,7 @@ test('attachment API stores pasted images and rejects unsupported clipboard payl
   }
 })
 
-test('archive and restore keep the node and its terminal session intact', async () => {
+test('archive stops branch terminal sessions while restore keeps them stopped', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-archive-api-')))
   const tmux = fakeTmux()
   const server = createMuxMapServer({
@@ -318,18 +318,31 @@ test('archive and restore keep the node and its terminal session intact', async 
     const attached = await fetch(`${base}/api/nodes/${created.id}/session`, {
       method: 'POST', headers, body: JSON.stringify({ backend: 'tmux', cwd: root }),
     }).then((response) => response.json()) as { session: { id: string; runtimeName: string } }
+    const child = await fetch(`${base}/api/workspaces/default/nodes`, {
+      method: 'POST', headers, body: JSON.stringify({ parentId: created.id, title: 'Nested terminal', type: 'terminal', repoPath: root }),
+    }).then((response) => response.json()) as { id: string }
+    const childAttached = await fetch(`${base}/api/nodes/${child.id}/session`, {
+      method: 'POST', headers, body: JSON.stringify({ backend: 'tmux', cwd: root }),
+    }).then((response) => response.json()) as { session: { id: string; runtimeName: string } }
 
     const archivedResponse = await fetch(`${base}/api/nodes/${created.id}/archive`, { method: 'POST', headers, body: '{}' })
     assert.equal(archivedResponse.status, 200)
-    const archived = await archivedResponse.json() as { node: { archivedAt?: string } }
+    const archived = await archivedResponse.json() as { node: { archivedAt?: string }; stoppedSessionNames: string[] }
     assert.ok(archived.node.archivedAt)
-    assert.equal(tmux.live.has(attached.session.runtimeName), true)
-    assert.ok(server.store.getSession(attached.session.id))
+    assert.deepEqual(archived.stoppedSessionNames.sort(), [attached.session.runtimeName, childAttached.session.runtimeName].sort())
+    assert.equal(tmux.live.has(attached.session.runtimeName), false)
+    assert.equal(tmux.live.has(childAttached.session.runtimeName), false)
+    assert.equal(server.store.getSession(attached.session.id)?.status, 'stopped')
+    assert.equal(server.store.getSession(childAttached.session.id)?.status, 'stopped')
 
     const restoredResponse = await fetch(`${base}/api/nodes/${created.id}/restore`, { method: 'POST', headers, body: '{}' })
     assert.equal(restoredResponse.status, 200)
     const restored = await restoredResponse.json() as { node: { archivedAt?: string } }
     assert.equal(restored.node.archivedAt, undefined)
+    assert.equal(tmux.live.has(attached.session.runtimeName), false)
+    assert.equal(tmux.live.has(childAttached.session.runtimeName), false)
+    assert.equal(server.store.getSession(attached.session.id)?.status, 'stopped')
+    assert.equal(server.store.getSession(childAttached.session.id)?.status, 'stopped')
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })

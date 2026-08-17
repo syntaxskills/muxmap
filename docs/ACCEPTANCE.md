@@ -31,6 +31,7 @@
 - [x] Node creation with inherited or explicit project, color, and repository path
 - [x] Child nodes inherit color unless the user overrides it
 - [x] Archived nodes remain under their original parent context
+- [x] Archiving a node or branch stops its live terminal sessions
 - [x] Archived branches can be restored or permanently deleted with confirmation
 - [x] Reload from persisted graph
 - [x] Loading, empty, and error states

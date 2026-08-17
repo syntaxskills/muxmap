@@ -4,6 +4,7 @@ import { createServer } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { detectOpenFileLimit, openFileLimitDiagnostic } from './limits.ts'
 import { accessUrls, parseTailscaleIPv4, requestedAccessMode, requestedAuthMode, resolveNetworkAccess, type AccessMode } from './network.ts'
 
 type Interface = { address: string; family: string | number; internal: boolean; netmask: string }
@@ -14,6 +15,7 @@ type DoctorSystem = {
   run(command: string, args: string[]): CommandResult
   portAvailable(host: string, port: number): Promise<boolean>
   writeFile(path: string, contents: string): void
+  openFileLimit?(): number | undefined
 }
 
 const defaultSystem: DoctorSystem = {
@@ -32,6 +34,7 @@ const defaultSystem: DoctorSystem = {
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, contents)
   },
+  openFileLimit: () => detectOpenFileLimit(),
 }
 
 function ipv4Number(address: string) {
@@ -109,6 +112,13 @@ export async function runDoctor(env: NodeJS.ProcessEnv, system: DoctorSystem = d
   let ok = true
   if (await system.portAvailable(access.host, port)) lines.push(`[OK] Port ${port} is available`)
   else { ok = false; lines.push(`[ERROR] Port ${port} is already in use`) }
+
+  const limit = system.openFileLimit?.()
+  const limitDiagnostic = openFileLimitDiagnostic(limit)
+  if (limitDiagnostic) {
+    lines.push(limitDiagnostic.message)
+    if (!limitDiagnostic.ok) ok = false
+  }
 
   if (system.platform === 'win32') {
     const zellij = system.run(env.MUXMAP_ZELLIJ_BIN ?? 'zellij.exe', ['--version'])

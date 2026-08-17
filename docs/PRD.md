@@ -269,6 +269,7 @@ Required:
 Required:
 
 * Archive active nodes and branches without deleting them.
+* Stop live terminal sessions when their node or branch is archived.
 * Keep archived nodes under their original parent context.
 * Preserve nested archived children when the parent is restored.
 * Search archived nodes by title, ticket, project, or note.

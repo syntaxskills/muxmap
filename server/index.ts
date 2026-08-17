@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createMuxMapServer } from './app.ts'
+import { detectOpenFileLimit, openFileLimitDiagnostic } from './limits.ts'
 import { accessUrls, detectTailscaleIPv4, requestedAccessMode, requestedAuthMode, resolveNetworkAccess } from './network.ts'
 
 const port = Number(process.env.PORT ?? 4782)
@@ -29,6 +30,8 @@ for (const url of accessUrls(access, port)) console.log(`MuxMap open: ${url}`)
 if (access.requireBasicAuth) console.log('MuxMap Basic Auth: username "muxmap", password MUXMAP_TOKEN')
 if (access.mode !== 'local' && !access.requireBasicAuth) console.warn('MuxMap warning: network access has no password authentication')
 if (access.mode === 'tailscale') console.log(`For tailnet HTTPS instead, use local mode and run: tailscale serve --bg ${port}`)
+const limitDiagnostic = openFileLimitDiagnostic(detectOpenFileLimit())
+if (limitDiagnostic?.message) console[limitDiagnostic.ok ? 'log' : 'warn'](`MuxMap ${limitDiagnostic.message}`)
 
 async function shutdown() {
   await muxmap.close()
