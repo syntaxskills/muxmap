@@ -11,7 +11,7 @@ import { AgentIcon } from './AgentIcon.tsx'
 import { createTerminalLinkProvider } from './terminalLinks.ts'
 import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachment } from './imageAttachments.ts'
 import { NoteImagePreview } from './NoteImagePreview.tsx'
-import { agentSessionDetails } from './agentSessionDetails.ts'
+import { SessionBindingCard } from './SessionBindingCard.tsx'
 import {
   ChevronDownIcon,
   DrawingPinIcon,
@@ -218,17 +218,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
           <div><button type="button" onClick={() => setStopConfirming(false)} autoFocus>Cancel</button><button className="is-danger" type="button" onClick={requestStop} disabled={disabled}>Stop session</button></div>
         </div>}
         {showNodeEditor && <div className="terminal-node-editor">
-          <section className="terminal-agent-session is-wide" aria-label="Agent and terminal session identifiers">
-            <header><span>Session binding</span><small>{session.agent ? agentStatusText(session.agent) : status}</small></header>
-            <dl>
-              {agentSessionDetails(session).map((row) => (
-                <div key={row.label}>
-                  <dt>{row.label}</dt>
-                  <dd title={row.title ?? row.value}>{row.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
+          <SessionBindingCard session={session} statusLabel={session.agent ? agentStatusText(session.agent) : status} className="terminal-agent-session is-wide" />
           <label className="is-wide">Title<input defaultValue={node.title} onBlur={(event) => { if (event.target.value !== node.title) onUpdate({ title: event.target.value }) }} /></label>
           <label>Type<select value={node.type} onChange={(event) => onUpdate({ type: event.target.value as NodeType })}>{nodeTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <div className="terminal-color-field is-wide"><span>Color</span><NodeColorPicker value={node.color} onChange={(color) => onUpdate({ color })} /></div>

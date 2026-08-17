@@ -1547,11 +1547,50 @@ kbd {
 .terminal-agent-session dd {
   min-width: 0;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
   color: var(--text-strong);
   font: 10px/1.35 var(--mono);
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.session-binding-value {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-overflow: ellipsis;
+  user-select: text;
+}
+
+.session-binding-copy {
+  flex: 0 0 auto;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: 8px/1 var(--mono);
+}
+
+.session-binding-copy svg {
+  width: 11px;
+  height: 11px;
+}
+
+.session-binding-copy:hover,
+.session-binding-copy:focus-visible {
+  border-color: var(--accent);
+  color: var(--text-strong);
+  outline: 0;
 }
 
 .note-image-preview {
@@ -2630,6 +2669,17 @@ kbd {
 
 .terminal-agent-session dt {
   color: var(--terminal-muted);
+}
+
+.terminal-agent-session .session-binding-copy {
+  border-color: var(--terminal-line);
+  color: var(--terminal-muted);
+}
+
+.terminal-agent-session .session-binding-copy:hover,
+.terminal-agent-session .session-binding-copy:focus-visible {
+  border-color: var(--accent);
+  color: var(--terminal-text);
 }
 
 .terminal-color-field > span,

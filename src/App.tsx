@@ -29,9 +29,10 @@ import { loadSettings, notificationDeliveryTargets, SETTINGS_VERSION, type AppSe
 import { sendTestSystemNotification } from './systemNotifications.ts'
 import { activityStaleness, formatActivityAge, sessionActivityTimestamp } from './activityTime.ts'
 import { agentWorkingSweepDelay, synchronizeAgentWorkingSweeps } from './agentAnimations.ts'
-import { agentSessionDetails, agentSessionSummary } from './agentSessionDetails.ts'
+import { agentSessionSummary } from './agentSessionDetails.ts'
 import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachment } from './imageAttachments.ts'
 import { NoteImagePreview } from './NoteImagePreview.tsx'
+import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
@@ -1086,20 +1087,7 @@ function App() {
           </div>
 
           {session && (
-            <section className="agent-session-card" aria-label="Agent and terminal session identifiers">
-              <header>
-                <span>Session binding</span>
-                <small>{session.agent ? agentStatusText(session.agent) : session.status}</small>
-              </header>
-              <dl>
-                {agentSessionDetails(session).map((row) => (
-                  <div key={row.label}>
-                    <dt>{row.label}</dt>
-                    <dd title={row.title ?? row.value}>{row.value}</dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
+            <SessionBindingCard session={session} />
           )}
 
           {selectedArchivedChildren.length > 0 && (
