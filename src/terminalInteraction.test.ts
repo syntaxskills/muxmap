@@ -42,8 +42,9 @@ test('terminal copy shortcuts stay in the browser when text is selected', () => 
 })
 
 test('terminal wheel accumulates trackpad movement into scrollback lines', () => {
-  assert.deepEqual(consumeTerminalWheel(0, 8, 0, 30), { lines: 0, remainder: 8 })
-  assert.deepEqual(consumeTerminalWheel(8, 8, 0, 30), { lines: 1, remainder: 0 })
+  assert.deepEqual(consumeTerminalWheel(0, 2, 0, 30), { lines: 0, remainder: 2 })
+  assert.deepEqual(consumeTerminalWheel(2, 2, 0, 30), { lines: 1, remainder: 0 })
+  assert.deepEqual(consumeTerminalWheel(0, 16, 0, 30), { lines: 4, remainder: 0 })
   assert.deepEqual(consumeTerminalWheel(0, -3, 1, 30), { lines: -3, remainder: 0 })
   assert.deepEqual(consumeTerminalWheel(0, 1, 2, 24), { lines: 24, remainder: 0 })
 })

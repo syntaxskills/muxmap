@@ -20,10 +20,11 @@ export function shouldCopyTerminalSelection(
 }
 
 export function consumeTerminalWheel(remainder: number, deltaY: number, deltaMode: number, rows: number) {
+  const pixelsPerLine = deltaMode === 0 ? 4 : 16
   const total = remainder + deltaY * (deltaMode === 1 ? 16 : deltaMode === 2 ? rows * 16 : 1)
-  const rawLines = Math.trunc(total / 16)
+  const rawLines = Math.trunc(total / pixelsPerLine)
   const lines = Math.max(-200, Math.min(200, rawLines))
-  return { lines, remainder: lines === rawLines ? total - lines * 16 : 0 }
+  return { lines, remainder: lines === rawLines ? total - lines * pixelsPerLine : 0 }
 }
 
 export function terminalWheelHandledByApplication(applicationInteractive: boolean, mode: TerminalWheelMode) {
