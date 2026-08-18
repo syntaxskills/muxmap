@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { consumeTerminalWheel, dragOffset, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, stopSessionIntent, terminalShortcutData } from './terminalInteraction.ts'
+import { consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalWheelHandledByApplication } from './terminalInteraction.ts'
 
 test('terminal dragging follows the pointer without changing its starting offset', () => {
   assert.deepEqual(dragOffset({ x: 20, y: -10 }, { x: 100, y: 80 }, { x: 145, y: 55 }), { x: 65, y: -35 })
@@ -48,6 +48,13 @@ test('terminal wheel accumulates trackpad movement into scrollback lines', () =>
   assert.deepEqual(consumeTerminalWheel(0, 1, 2, 24), { lines: 24, remainder: 0 })
 })
 
+test('terminal wheel auto mode lets fullscreen terminal apps handle scrolling', () => {
+  assert.equal(terminalWheelHandledByApplication(true, 'auto'), true)
+  assert.equal(terminalWheelHandledByApplication(false, 'auto'), false)
+  assert.equal(terminalWheelHandledByApplication(false, 'application'), true)
+  assert.equal(terminalWheelHandledByApplication(true, 'muxmap'), false)
+})
+
 test('terminal mouse tracking cannot steal a primary-button text selection', () => {
   const event = { button: 0, altKey: false, shiftKey: false }
   assert.equal(forceTerminalTextSelection(event, true), true)
@@ -55,6 +62,23 @@ test('terminal mouse tracking cannot steal a primary-button text selection', () 
   assert.equal(event.shiftKey, true)
   assert.equal(forceTerminalTextSelection({ button: 2, altKey: false, shiftKey: false }, true), false)
   assert.equal(forceTerminalTextSelection({ button: 0, altKey: false, shiftKey: false }, false), false)
+})
+
+test('terminal input dedupe only drops repeated long bursts', () => {
+  const previous = { data: '这两个问题能解决吗?', at: 1000 }
+  assert.equal(shouldDropDuplicateTerminalInput('这两个问题能解决吗?', previous, 1200, true), true)
+  assert.equal(shouldDropDuplicateTerminalInput('这两个问题能解决吗?', previous, 2600, true), false)
+  assert.equal(shouldDropDuplicateTerminalInput('这两个问题能解决吗?', previous, 1200, false), false)
+  assert.equal(shouldDropDuplicateTerminalInput('短句', { data: '短句', at: 1000 }, 1100, true), false)
+  assert.equal(shouldDropDuplicateTerminalInput('另一句话', previous, 1200, true), false)
+})
+
+test('terminal output draining batches chunks without dropping overflow', () => {
+  const queue = ['ab', 'cdef', 'gh']
+  assert.equal(drainTerminalOutputBuffer(queue, 5), 'abcde')
+  assert.deepEqual(queue, ['f', 'gh'])
+  assert.equal(drainTerminalOutputBuffer(queue, 100), 'fgh')
+  assert.deepEqual(queue, [])
 })
 
 test('stopping a tmux session requires an explicit second action', () => {

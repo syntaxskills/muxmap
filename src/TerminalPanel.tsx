@@ -4,7 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import type { NodeType, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
-import { consumeTerminalWheel, dragOffset, forceTerminalTextSelection, shouldCopyTerminalSelection, stopSessionIntent, terminalShortcutData } from './terminalInteraction.ts'
+import { consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { AgentIcon } from './AgentIcon.tsx'
@@ -12,6 +12,7 @@ import { createTerminalLinkProvider } from './terminalLinks.ts'
 import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachment } from './imageAttachments.ts'
 import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
+import { AgentEventList } from './AgentEventList.tsx'
 import {
   ChevronDownIcon,
   DrawingPinIcon,
@@ -23,6 +24,8 @@ import {
   StopIcon,
 } from '@radix-ui/react-icons'
 
+const OUTPUT_CHARS_PER_FRAME = 128 * 1024
+
 type Props = {
   session: TerminalSession
   node: WorkNode
@@ -30,6 +33,8 @@ type Props = {
   fontSize: number
   cursorBlink: boolean
   scrollback: number
+  wheelMode: TerminalWheelMode
+  dedupeRepeatedInput: boolean
   floating: boolean
   disabled: boolean
   onClose(): void
@@ -44,7 +49,7 @@ const nodeTypes: Array<[NodeType, string]> = [
   ['note', 'Note'], ['todo', 'Todo'], ['terminal', 'Terminal task'],
 ]
 
-export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, scrollback, floating, disabled, onClose, onStop, onToggleFloating, onStatus, onUpdate }: Props) {
+export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, scrollback, wheelMode, dedupeRepeatedInput, floating, disabled, onClose, onStop, onToggleFloating, onStatus, onUpdate }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const drag = useRef<{ pointerId: number; origin: { x: number; y: number }; start: { x: number; y: number } } | null>(null)
   const [status, setStatus] = useState<TerminalStatus>(session.status)
@@ -68,11 +73,25 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     terminal.loadAddon(fit)
     terminal.open(container.current)
     const links = terminal.registerLinkProvider(createTerminalLinkProvider(terminal, { cwd: session.cwd, sessionId: session.id }))
-    const forceSelection = (event: MouseEvent) => forceTerminalTextSelection(event, terminal.element?.classList.contains('enable-mouse-events') ?? false)
+    const applicationInteractive = () => terminal.modes.mouseTrackingMode !== 'none' || terminal.buffer.active.type === 'alternate'
+    const forceSelection = (event: MouseEvent) => forceTerminalTextSelection(event, terminal.modes.mouseTrackingMode !== 'none')
     terminal.element?.addEventListener('mousedown', forceSelection, true)
     fit.fit()
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(`${protocol}//${window.location.host}/api/sessions/${session.id}/attach?cols=${terminal.cols}&rows=${terminal.rows}`)
+    let recentInput: RecentTerminalInput | undefined
+    const outputQueue: string[] = []
+    let outputFrame: number | undefined
+    const scheduleOutput = () => {
+      outputFrame ??= window.requestAnimationFrame(() => {
+        outputFrame = undefined
+        const output = drainTerminalOutputBuffer(outputQueue, OUTPUT_CHARS_PER_FRAME)
+        if (!output) return
+        terminal.write(output, () => {
+          if (outputQueue.length > 0) scheduleOutput()
+        })
+      })
+    }
     let wheelRemainder = 0
     let pendingScroll = 0
     let scrollTimer: number | undefined
@@ -82,6 +101,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       pendingScroll = 0
     }
     const scroll = (event: WheelEvent) => {
+      if (terminalWheelHandledByApplication(applicationInteractive(), wheelMode)) return
       event.preventDefault()
       event.stopImmediatePropagation()
       const intent = consumeTerminalWheel(wheelRemainder, event.deltaY, event.deltaMode, terminal.rows)
@@ -119,6 +139,9 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     resize.observe(container.current)
 
     const input = terminal.onData((data) => {
+      const now = Date.now()
+      if (shouldDropDuplicateTerminalInput(data, recentInput, now, dedupeRepeatedInput)) return
+      recentInput = { data, at: now }
       if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))
     })
     socket.addEventListener('open', () => {
@@ -129,7 +152,10 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     socket.addEventListener('message', (event) => {
       if (lifecycle.disposed()) return
       const message = JSON.parse(String(event.data)) as { type: string; data?: string; status?: TerminalStatus; message?: string }
-      if (message.type === 'output' && message.data) terminal.write(message.data)
+      if (message.type === 'output' && message.data) {
+        outputQueue.push(message.data)
+        scheduleOutput()
+      }
       if (message.type === 'status' && message.status) {
         setStatus(message.status)
         onStatus(session.id, message.status)
@@ -150,10 +176,11 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       terminal.element?.removeEventListener('mousedown', forceSelection, true)
       terminal.element?.removeEventListener('wheel', scroll, true)
       if (scrollTimer !== undefined) window.clearTimeout(scrollTimer)
+      if (outputFrame !== undefined) window.cancelAnimationFrame(outputFrame)
       socket.close()
       terminal.dispose()
     }
-  }, [cursorBlink, fontSize, onStatus, scrollback, session.cwd, session.id])
+  }, [cursorBlink, dedupeRepeatedInput, fontSize, onStatus, scrollback, session.cwd, session.id, wheelMode])
 
   function beginDrag(event: ReactPointerEvent<HTMLDivElement>) {
     if (!floating || isFullscreen || event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea')) return
@@ -219,6 +246,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
         </div>}
         {showNodeEditor && <div className="terminal-node-editor">
           <SessionBindingCard session={session} statusLabel={session.agent ? agentStatusText(session.agent) : status} className="terminal-agent-session is-wide" />
+          <div className="is-wide"><AgentEventList events={session.agentEvents} /></div>
           <label className="is-wide">Title<input defaultValue={node.title} onBlur={(event) => { if (event.target.value !== node.title) onUpdate({ title: event.target.value }) }} /></label>
           <label>Type<select value={node.type} onChange={(event) => onUpdate({ type: event.target.value as NodeType })}>{nodeTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <div className="terminal-color-field is-wide"><span>Color</span><NodeColorPicker value={node.color} onChange={(color) => onUpdate({ color })} /></div>

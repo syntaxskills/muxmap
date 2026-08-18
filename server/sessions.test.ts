@@ -122,6 +122,52 @@ test('attaching avoids adopting a live orphan with the same computed tmux name',
   }
 })
 
+test('workspace decoration reuses one runtime snapshot instead of checking each session', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-runtime-snapshot-')))
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  const originalExists = adapter.exists.bind(adapter)
+  const originalList = adapter.list.bind(adapter)
+  let existsCalls = 0
+  let listCalls = 0
+  adapter.exists = (name) => {
+    existsCalls++
+    return originalExists(name)
+  }
+  adapter.list = () => {
+    listCalls++
+    return originalList()
+  }
+  const manager = createSessionManager(store, adapter, [directory])
+
+  try {
+    for (const title of ['One', 'Two', 'Three']) {
+      const node = store.createNode('default', {
+        parentId: 'workspace',
+        title,
+        type: 'terminal',
+        repoPath: directory,
+      })
+      manager.attach(node.id)
+    }
+
+    existsCalls = 0
+    listCalls = 0
+    const live = manager.reconcile()
+    const inventory = manager.inventory()
+    const decorated = manager.decorate(store.listSessions(), inventory, live)
+    const orphans = manager.listOrphans(inventory, live)
+
+    assert.equal(decorated.length, 3)
+    assert.deepEqual(orphans, [])
+    assert.equal(listCalls, 1)
+    assert.equal(existsCalls, 0)
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('terminal cwd is restricted to configured repository roots', () => {
   const allowed = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-allowed-')))
   const outside = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-outside-')))
@@ -231,6 +277,7 @@ test('tmux descendant agents are detected and hook activity survives refresh', (
     assert.equal(manager.listOrphans()[0].agent?.state, 'working')
     assert.equal(manager.listOrphans()[0].agent?.since, '2026-08-07T10:00:00.000Z')
     assert.equal(manager.listOrphans()[0].agent?.externalSessionId, '019fd54a-12a9-72c2-8a66-ee62fc1c546e')
+    assert.equal(store.listAgentEvents('muxmap-agent-shell')[0]?.eventName, 'UserPromptSubmit')
   } finally {
     store.close()
     rmSync(directory, { recursive: true, force: true })

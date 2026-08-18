@@ -31,6 +31,8 @@ test('Codex and Claude lifecycle hooks map to working, input, and completed stat
   assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'Stop', last_assistant_message: 'All tests pass.' }, '2026-08-07T10:04:00.000Z').state, 'completed')
   assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'Stop', last_assistant_message: 'Which option should I use?' }, '2026-08-07T10:04:00.000Z').state, 'needs_input')
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'agent_needs_input' }, '2026-08-07T10:05:00.000Z').state, 'needs_input')
+  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, '2026-08-07T10:05:00.000Z').state, 'read')
+  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'StopFailure' }, '2026-08-07T10:05:00.000Z').state, 'completed')
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Stop' }, '2026-08-07T10:06:00.000Z').state, 'completed')
   assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'SessionStart' }, '2026-08-07T10:07:00.000Z').state, 'read')
 })

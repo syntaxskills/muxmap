@@ -4,6 +4,7 @@ import {
   seedNodes,
   type NodeType,
   type AgentActivity,
+  type AgentEventLogEntry,
   type TerminalBackend,
   type TerminalSession,
   type TerminalStatus,
@@ -80,6 +81,20 @@ export function createStore(path: string) {
       external_session_path TEXT,
       external_cwd TEXT
     );
+    CREATE TABLE IF NOT EXISTS agent_events (
+      id TEXT PRIMARY KEY,
+      tmux_name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      state TEXT NOT NULL,
+      notification_type TEXT,
+      agent_type TEXT,
+      agent_id TEXT,
+      summary TEXT,
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS agent_events_runtime_created ON agent_events(tmux_name, created_at DESC);
   `)
 
   const nodeColumns = database.prepare('PRAGMA table_info(nodes)').all() as Array<{ name: string }>
@@ -176,6 +191,29 @@ export function createStore(path: string) {
       externalSessionId: row.external_session_id ? String(row.external_session_id) : undefined,
       externalSessionPath: row.external_session_path ? String(row.external_session_path) : undefined,
       externalCwd: row.external_cwd ? String(row.external_cwd) : undefined,
+    }
+  }
+
+  function mapAgentEvent(row: Record<string, unknown>): AgentEventLogEntry {
+    let payload: Record<string, unknown> = {}
+    try {
+      const parsed = JSON.parse(String(row.payload_json))
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>
+    } catch {
+      payload = {}
+    }
+    return {
+      id: String(row.id),
+      runtimeName: String(row.tmux_name),
+      kind: String(row.kind) as AgentEventLogEntry['kind'],
+      eventName: String(row.event_name),
+      state: String(row.state) as AgentEventLogEntry['state'],
+      notificationType: row.notification_type ? String(row.notification_type) : undefined,
+      agentType: row.agent_type ? String(row.agent_type) : undefined,
+      agentId: row.agent_id ? String(row.agent_id) : undefined,
+      summary: row.summary ? String(row.summary) : undefined,
+      payload,
+      createdAt: String(row.created_at),
     }
   }
 
@@ -361,6 +399,31 @@ export function createStore(path: string) {
         activity.externalSessionId ?? null, activity.externalSessionPath ?? null, activity.externalCwd ?? null,
       )
       return this.getAgentActivity(runtimeName)!
+    },
+
+    recordAgentEvent(runtimeName: string, kind: AgentEventLogEntry['kind'], event: Record<string, unknown>, state: AgentActivity['state'], timestamp = new Date().toISOString()) {
+      const eventName = String(event.hook_event_name ?? event.type ?? 'unknown')
+      const notificationType = typeof event.notification_type === 'string' ? event.notification_type : undefined
+      const agentType = typeof event.agent_type === 'string' ? event.agent_type : undefined
+      const agentId = typeof event.agent_id === 'string' ? event.agent_id : typeof event.agentId === 'string' ? event.agentId : undefined
+      const message = typeof event.message === 'string' ? event.message : typeof event.last_assistant_message === 'string' ? event.last_assistant_message : undefined
+      const summary = message ? message.replace(/\s+/g, ' ').trim().slice(0, 180) : undefined
+      database.prepare(`
+        INSERT INTO agent_events (
+          id, tmux_name, kind, event_name, state, notification_type, agent_type, agent_id, summary, payload_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(randomUUID(), runtimeName, kind, eventName, state, notificationType ?? null, agentType ?? null, agentId ?? null, summary ?? null, JSON.stringify(event), timestamp)
+      database.prepare(`
+        DELETE FROM agent_events
+        WHERE tmux_name = ? AND id NOT IN (
+          SELECT id FROM agent_events WHERE tmux_name = ? ORDER BY created_at DESC LIMIT 80
+        )
+      `).run(runtimeName, runtimeName)
+    },
+
+    listAgentEvents(runtimeName: string, limit = 20) {
+      const rows = database.prepare('SELECT * FROM agent_events WHERE tmux_name = ? ORDER BY created_at DESC LIMIT ?').all(runtimeName, limit) as Record<string, unknown>[]
+      return rows.map(mapAgentEvent)
     },
 
     upsertSession(input: SessionInput) {

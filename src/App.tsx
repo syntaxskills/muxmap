@@ -33,6 +33,7 @@ import { agentSessionSummary } from './agentSessionDetails.ts'
 import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachment } from './imageAttachments.ts'
 import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
+import { AgentEventList } from './AgentEventList.tsx'
 import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
@@ -45,6 +46,7 @@ import {
 
 const NODE_WIDTH = 184
 const NODE_HEIGHT = 42
+const WORKSPACE_POLL_MS = 5000
 const TerminalPanel = lazy(() => import('./TerminalPanel.tsx'))
 
 const typeLabels: Record<NodeType, string> = {
@@ -124,8 +126,9 @@ function App() {
   useEffect(() => { void loadWorkspace() }, [loadWorkspace])
   useEffect(() => {
     const timer = window.setInterval(() => {
+      if (document.visibilityState === 'hidden') return
       void api<WorkspaceGraph>('/api/workspaces/default').then(setGraph).catch(() => {})
-    }, 3000)
+    }, WORKSPACE_POLL_MS)
     return () => window.clearInterval(timer)
   }, [])
   useEffect(() => setDeleteNodeId((current) => current === selectedId ? current : null), [selectedId])
@@ -854,6 +857,8 @@ function App() {
         fontSize={settings['terminal.fontSize']}
         cursorBlink={settings['terminal.cursorBlink']}
         scrollback={settings['terminal.scrollback']}
+        wheelMode={settings['terminal.wheelMode']}
+        dedupeRepeatedInput={settings['terminal.dedupeRepeatedInput']}
         floating={terminalFloating}
         onToggleFloating={() => setSurface(floatTerminal)}
         onStatus={updateSessionStatus}
@@ -1087,7 +1092,10 @@ function App() {
           </div>
 
           {session && (
-            <SessionBindingCard session={session} />
+            <>
+              <SessionBindingCard session={session} />
+              <AgentEventList events={session.agentEvents} />
+            </>
           )}
 
           {selectedArchivedChildren.length > 0 && (

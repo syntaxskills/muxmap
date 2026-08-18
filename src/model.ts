@@ -37,6 +37,20 @@ export type AgentActivity = {
   externalCwd?: string
 }
 
+export type AgentEventLogEntry = {
+  id: string
+  runtimeName: string
+  kind: Exclude<AgentKind, 'ssh'>
+  eventName: string
+  state: AgentActivity['state']
+  notificationType?: string
+  agentType?: string
+  agentId?: string
+  summary?: string
+  payload: Record<string, unknown>
+  createdAt: string
+}
+
 export type TerminalSession = {
   id: string
   workspaceId: string
@@ -51,6 +65,7 @@ export type TerminalSession = {
   lastAttachedAt?: string
   lastActivityAt?: string
   agent?: AgentActivity
+  agentEvents?: AgentEventLogEntry[]
   runtimeExists?: boolean
   canRecoverCodex?: boolean
 }

@@ -53,6 +53,7 @@ type ServerOptions = {
   processReader?: () => ProcessInfo[]
   platform?: RuntimePlatform
   activityWriteIntervalMs?: number
+  outputFlushIntervalMs?: number
   attachmentsDirectory?: string
 }
 
@@ -321,6 +322,7 @@ export function createMuxMapServer(options: ServerOptions) {
   const ptys = new Map<string, Set<PtyHandle>>()
   const lastActivityWrites = new Map<string, number>()
   const activityWriteIntervalMs = options.activityWriteIntervalMs ?? 5_000
+  const outputFlushIntervalMs = options.outputFlushIntervalMs ?? 16
   const attachmentsDirectory = attachmentDirectory(options.databasePath, options.attachmentsDirectory)
   let closing = false
 
@@ -416,10 +418,10 @@ export function createMuxMapServer(options: ServerOptions) {
 
         const workspaceMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)$/)
         if (request.method === 'GET' && workspaceMatch) {
-          sessions.reconcile(new Set(clients.keys()))
+          const live = sessions.reconcile(new Set(clients.keys()))
           const inventory = sessions.inventory()
           const graph = store.getWorkspace(workspaceMatch[1])
-          return sendJson(response, 200, { ...graph, sessions: sessions.decorate(graph.sessions, inventory), orphans: sessions.listOrphans(inventory), runtime: { platform, terminalBackends: terminalBackendsForPlatform(platform) } })
+          return sendJson(response, 200, { ...graph, sessions: sessions.decorate(graph.sessions, inventory, live), orphans: sessions.listOrphans(inventory, live), runtime: { platform, terminalBackends: terminalBackendsForPlatform(platform) } })
         }
 
         const nodeMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/nodes$/)
@@ -598,11 +600,33 @@ export function createMuxMapServer(options: ServerOptions) {
     const send = (message: unknown) => {
       if (webSocket.readyState === webSocket.OPEN) webSocket.send(JSON.stringify(message))
     }
-    pty.onData((data) => {
+    let outputBuffer = ''
+    let outputTimer: ReturnType<typeof setTimeout> | undefined
+    const flushOutput = () => {
+      outputTimer = undefined
+      if (!outputBuffer) return
+      const data = outputBuffer
+      outputBuffer = ''
       send({ type: 'output', data })
+    }
+    const queueOutput = (data: string) => {
+      outputBuffer += data
+      if (outputBuffer.length >= 64 * 1024) {
+        if (outputTimer) clearTimeout(outputTimer)
+        flushOutput()
+      } else {
+        outputTimer ??= setTimeout(flushOutput, outputFlushIntervalMs)
+      }
+    }
+    pty.onData((data) => {
+      queueOutput(data)
       recordSessionActivity(session.id)
     })
-    pty.onExit(() => send({ type: 'status', status: 'detached' }))
+    pty.onExit(() => {
+      if (outputTimer) clearTimeout(outputTimer)
+      flushOutput()
+      send({ type: 'status', status: 'detached' })
+    })
     send({ type: 'status', status: 'running' })
 
     webSocket.on('message', (raw) => {
@@ -629,6 +653,7 @@ export function createMuxMapServer(options: ServerOptions) {
     })
 
     webSocket.on('close', () => {
+      if (outputTimer) clearTimeout(outputTimer)
       pty.kill()
       handles.delete(pty)
       if (handles.size === 0) ptys.delete(session.id)

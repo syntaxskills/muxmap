@@ -69,6 +69,30 @@ test('agent activity stores external Codex resume metadata', () => {
   store.close()
 })
 
+test('agent event log stores recent hook payloads for debugging', () => {
+  const store = createStore(':memory:')
+  store.recordAgentEvent('muxmap-claude', 'claude', {
+    hook_event_name: 'Notification',
+    notification_type: 'idle_prompt',
+    message: 'Claude finished responding.',
+  }, 'read', '2026-08-07T10:00:00.000Z')
+  store.recordAgentEvent('muxmap-claude', 'claude', {
+    hook_event_name: 'SubagentStart',
+    agent_id: 'agent-1',
+    agent_type: 'Explore',
+  }, 'working', '2026-08-07T10:01:00.000Z')
+
+  const events = store.listAgentEvents('muxmap-claude')
+  assert.equal(events.length, 2)
+  assert.equal(events[0].eventName, 'SubagentStart')
+  assert.equal(events[0].agentId, 'agent-1')
+  assert.equal(events[0].agentType, 'Explore')
+  assert.equal(events[1].notificationType, 'idle_prompt')
+  assert.equal(events[1].summary, 'Claude finished responding.')
+  assert.equal(events[1].payload.notification_type, 'idle_prompt')
+  store.close()
+})
+
 test('terminal activity persists and legacy sessions fall back to their last attachment', () => {
   const directory = mkdtempSync(join(tmpdir(), 'muxmap-activity-migration-'))
   const database = join(directory, 'muxmap.db')

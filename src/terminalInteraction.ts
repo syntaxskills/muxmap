@@ -1,5 +1,7 @@
 type Point = { x: number; y: number }
 type TerminalSelectionEvent = { readonly button: number; readonly altKey: boolean; readonly shiftKey: boolean }
+export type TerminalWheelMode = 'auto' | 'muxmap' | 'application'
+export type RecentTerminalInput = { data: string; at: number }
 
 export function terminalShortcutData(event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'altKey'>) {
   if (event.metaKey && (event.key === 'Backspace' || event.key === 'Delete')) return '\x15'
@@ -24,14 +26,42 @@ export function consumeTerminalWheel(remainder: number, deltaY: number, deltaMod
   return { lines, remainder: lines === rawLines ? total - lines * 16 : 0 }
 }
 
+export function terminalWheelHandledByApplication(applicationInteractive: boolean, mode: TerminalWheelMode) {
+  if (mode === 'application') return true
+  if (mode === 'muxmap') return false
+  return applicationInteractive
+}
+
 export function forceTerminalTextSelection(event: TerminalSelectionEvent, mouseTracking: boolean) {
   if (!mouseTracking || event.button !== 0) return false
   Object.defineProperties(event, { altKey: { value: true }, shiftKey: { value: true } })
   return true
 }
 
+export function shouldDropDuplicateTerminalInput(data: string, previous: RecentTerminalInput | undefined, now: number, enabled: boolean) {
+  return enabled && data.length >= 8 && Boolean(previous) && previous!.data === data && now - previous!.at <= 1500
+}
+
 export function stopSessionIntent(confirming: boolean) {
   return confirming ? 'stop' : 'confirm'
+}
+
+export function drainTerminalOutputBuffer(queue: string[], maxChars: number) {
+  let remaining = Math.max(0, maxChars)
+  let output = ''
+  while (queue.length > 0 && remaining > 0) {
+    const chunk = queue[0]
+    if (chunk.length <= remaining) {
+      output += chunk
+      remaining -= chunk.length
+      queue.shift()
+    } else {
+      output += chunk.slice(0, remaining)
+      queue[0] = chunk.slice(remaining)
+      remaining = 0
+    }
+  }
+  return output
 }
 
 export function dragOffset(origin: Point, start: Point, current: Point): Point {

@@ -225,6 +225,17 @@ export function createSessionManager(
     return adapterFor(session.backend).exists(session.runtimeName)
   }
 
+  function runtimeSnapshot() {
+    return new Map(Object.values(adapters)
+      .filter((adapter): adapter is MultiplexerAdapter => Boolean(adapter))
+      .map((adapter) => [adapter.backend, new Set(adapter.list())]))
+  }
+
+  function runtimeExistsInSnapshot(session: TerminalSession, live: Map<TerminalBackend, Set<string>>) {
+    return live.get(session.backend)?.has(session.runtimeName) === true
+      || runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped'
+  }
+
   function canRecoverCodex(session: TerminalSession, agent: AgentActivity | undefined, exists: boolean) {
     return session.backend === 'tmux' && !exists && agent?.kind === 'codex' && Boolean(agent.externalSessionId)
   }
@@ -327,17 +338,20 @@ export function createSessionManager(
       if (tracked?.backend === backend) store.updateSessionStatus(tracked.id, 'stopped')
     },
 
-    decorate(items: TerminalSession[], inventory = agentInventory()) {
+    runtimeSnapshot,
+
+    decorate(items: TerminalSession[], inventory = agentInventory(), live = runtimeSnapshot()) {
       return items.map((session) => {
         const agent = agentFor(session.runtimeName, inventory)
-        const exists = runtimeExists(session)
-        return { ...session, ...(agent ? { agent } : {}), runtimeExists: exists, canRecoverCodex: canRecoverCodex(session, agent, exists) }
+        const exists = runtimeExistsInSnapshot(session, live)
+        const agentEvents = store.listAgentEvents(session.runtimeName)
+        return { ...session, ...(agent ? { agent } : {}), ...(agentEvents.length > 0 ? { agentEvents } : {}), runtimeExists: exists, canRecoverCodex: canRecoverCodex(session, agent, exists) }
       })
     },
 
-    listOrphans(inventory = agentInventory()) {
+    listOrphans(inventory = agentInventory(), live = runtimeSnapshot()) {
       const tracked = new Set(store.listSessions().map((session) => `${session.backend}:${session.runtimeName}`))
-      return Object.values(adapters).flatMap((adapter) => adapter?.list()
+      return Object.values(adapters).filter((adapter): adapter is MultiplexerAdapter => Boolean(adapter)).flatMap((adapter) => [...(live.get(adapter.backend) ?? [])]
         .filter((runtimeName) => runtimeName.startsWith('muxmap') && !tracked.has(`${adapter.backend}:${runtimeName}`))
         .map((runtimeName) => {
           const agent = agentFor(runtimeName, inventory)
@@ -350,13 +364,14 @@ export function createSessionManager(
       return agentInventory()
     },
 
-    recordAgentEvent(locator: AgentLocator, kind: Exclude<AgentKind, 'ssh'>, event: Record<string, unknown>, now?: string) {
+    recordAgentEvent(locator: AgentLocator, kind: Exclude<AgentKind, 'ssh'>, event: Record<string, unknown>, now = new Date().toISOString()) {
       const runtimeName = locator.backend === 'zellij'
         ? locator.runtimeName
         : adapters.tmux?.panes?.().find((item) => item.paneId === locator.paneId)?.runtimeName
       if (!runtimeName?.startsWith('muxmap') || !adapterFor(locator.backend).exists(runtimeName)) throw new Error('MuxMap terminal session not found')
       const activity = agentActivityFromEvent(kind, event, now)
       store.updateSessionActivityByRuntimeName(runtimeName, activity.since)
+      store.recordAgentEvent(runtimeName, kind, event, activity.state, activity.since)
       return store.upsertAgentActivity(runtimeName, activity)
     },
 
@@ -390,7 +405,7 @@ export function createSessionManager(
     },
 
     reconcile(activeSessionIds = new Set<string>()) {
-      const live = new Map(Object.values(adapters).map((adapter) => [adapter!.backend, new Set(adapter!.list())]))
+      const live = runtimeSnapshot()
       for (const session of store.listSessions()) {
         const running = live.get(session.backend)?.has(session.runtimeName)
         const status = running
@@ -398,6 +413,7 @@ export function createSessionManager(
           : runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped' ? 'detached' : 'stopped'
         store.updateSessionStatus(session.id, status)
       }
+      return live
     },
   }
 }

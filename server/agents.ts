@@ -85,9 +85,9 @@ export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: R
   const notification = String(input.notification_type ?? '')
   let state: AgentActivity['state'] = 'read'
   if (event === 'UserPromptSubmit' || event === 'before_agent_start' || event === 'agent_start' || event === 'SubagentStart' || event === 'SubagentStop' || event === 'TaskCreated' || event === 'TaskCompleted') state = 'working'
-  if (event === 'Stop' || event === 'agent_end') state = 'completed'
+  if (event === 'Stop' || event === 'StopFailure' || event === 'agent_end' || notification === 'agent_completed') state = 'completed'
   if (kind === 'claude' && event === 'Stop' && hasActiveDelegatedWork(input)) state = 'working'
-  if (event === 'PermissionRequest' || (event === 'Notification' && /permission_prompt|idle_prompt|agent_needs_input/.test(notification))) state = 'needs_input'
+  if (event === 'PermissionRequest' || (event === 'Notification' && /permission_prompt|agent_needs_input|elicitation_dialog|elicitation_url_dialog/.test(notification))) state = 'needs_input'
   if (event === 'Stop' && asksForInput(input.last_assistant_message)) state = 'needs_input'
   return { kind, state, since: now, ...agentSessionInfoFromEvent(input) }
 }

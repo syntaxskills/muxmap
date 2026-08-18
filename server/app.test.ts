@@ -471,6 +471,62 @@ test('terminal input and output both advance persisted last activity', async () 
   }
 })
 
+test('websocket terminal output is batched before reaching the browser', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-output-batch-')))
+  const tmux = fakeTmux()
+  let emitData: ((data: string) => void) | undefined
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    tmux,
+    outputFlushIntervalMs: 20,
+    ptyFactory: () => ({
+      onData(listener) { emitData = listener },
+      onExit() {},
+      write() {},
+      scroll() {},
+      resize() {},
+      kill() {},
+    }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const cookie = (await fetch(`${base}/api/auth`)).headers.get('set-cookie')?.split(';')[0] ?? ''
+    const node = await fetch(`${base}/api/workspaces/default/nodes`, {
+      method: 'POST',
+      headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ parentId: 'workspace', title: 'Batched shell', type: 'terminal', repoPath: root }),
+    }).then((response) => response.json()) as { id: string }
+    const { session } = await fetch(`${base}/api/nodes/${node.id}/session`, {
+      method: 'POST',
+      headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ backend: 'tmux', cwd: root }),
+    }).then((response) => response.json()) as { session: TerminalSession }
+
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/sessions/${session.id}/attach`, { headers: { cookie, origin: base } })
+    const outputs: string[] = []
+    ws.on('message', (raw) => {
+      const message = JSON.parse(raw.toString()) as { type: string; data?: string }
+      if (message.type === 'output') outputs.push(message.data ?? '')
+    })
+    await new Promise<void>((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject) })
+    emitData?.('a')
+    emitData?.('b')
+    emitData?.('c')
+    await eventually(() => outputs.length === 1)
+    assert.deepEqual(outputs, ['abc'])
+    ws.close()
+    await new Promise((resolve) => ws.once('close', resolve))
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('a PTY launch failure closes only the terminal connection and keeps the API alive', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-pty-failure-')))
   const tmux = fakeTmux()
@@ -782,7 +838,9 @@ test('local agent hooks update automatically detected tmux activity', async () =
       body: JSON.stringify({ nodeId: node.id, backend: 'tmux', runtimeName: 'muxmap-codex-work' }),
     }).then((response) => response.json()) as { session: TerminalSession }
     const unread = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
-    assert.equal(unread.sessions.find((session) => session.id === adopted.session.id)?.agent?.state, 'completed')
+    const unreadSession = unread.sessions.find((session) => session.id === adopted.session.id)
+    assert.equal(unreadSession?.agent?.state, 'completed')
+    assert.deepEqual(unreadSession?.agentEvents?.map((item) => item.eventName), ['Stop', 'UserPromptSubmit'])
 
     const acknowledged = await fetch(`${base}/api/sessions/${adopted.session.id}/agent/read`, {
       method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' }, body: '{}',
