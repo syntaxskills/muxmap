@@ -37,16 +37,26 @@ test('Codex and Claude lifecycle hooks map to working, input, and completed stat
   assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'SessionStart' }, '2026-08-07T10:07:00.000Z').state, 'read')
 })
 
-test('Claude subagent handoff events keep the parent node working instead of completed', () => {
+test('Claude Stop only stays working when Claude reports active delegated work', () => {
+  assert.equal(agentActivityFromEvent('claude', {
+    hook_event_name: 'Stop',
+    last_assistant_message: 'I handed this off to a sub-agent earlier and all work is now done.',
+    background_tasks: [],
+    session_crons: [],
+  }).state, 'completed')
   assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'Stop',
     last_assistant_message: 'I am handing this off to a sub-agent and will continue when it returns.',
+    background_tasks: [{ id: 'task-1' }],
   }).state, 'working')
   assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'Stop',
-    background_tasks: [{ id: 'task-1' }],
-    last_assistant_message: 'The implementation agent is working in the background.',
+    session_crons: [{ id: 'cron-1' }],
+    last_assistant_message: 'The implementation agent will wake this session later.',
   }).state, 'working')
+})
+
+test('Claude subagent lifecycle events keep the parent node working', () => {
   assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'SubagentStart',
     agent_id: 'agent-001',

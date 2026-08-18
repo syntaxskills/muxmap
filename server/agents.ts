@@ -52,8 +52,7 @@ function hasItems(value: unknown) {
 function hasActiveDelegatedWork(input: Record<string, unknown>) {
   if (hasItems(input.background_tasks) || hasItems(input.session_crons)) return true
   if (['SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted'].includes(String(input.hook_event_name ?? ''))) return true
-  const message = typeof input.last_assistant_message === 'string' ? input.last_assistant_message : ''
-  return /\b(sub-?agent|teammate|delegate|delegated|delegating|handoff|hand off|background task|working in the background)\b/i.test(message)
+  return false
 }
 
 function stringField(input: Record<string, unknown>, keys: string[]) {
