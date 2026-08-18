@@ -428,6 +428,53 @@ test('websocket detaches safely and workspace refresh surfaces a missing tmux se
   }
 })
 
+test('stopped node session API can start a new runtime instead of resuming the old one', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-api-start-new-')))
+  const tmux = fakeTmux()
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    tmux,
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const auth = await fetch(`${base}/api/auth`)
+    const cookie = auth.headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const node = await fetch(`${base}/api/workspaces/default/nodes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ parentId: 'workspace', title: 'Switch agent', type: 'terminal', repoPath: root }),
+    }).then((response) => response.json()) as { id: string }
+    const attached = await fetch(`${base}/api/nodes/${node.id}/session`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ backend: 'tmux', cwd: root }),
+    }).then((response) => response.json()) as { session: TerminalSession }
+    await fetch(`${base}/api/sessions/${attached.session.id}/stop`, { method: 'POST', headers, body: '{}' })
+
+    const fresh = await fetch(`${base}/api/nodes/${node.id}/session/new`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ backend: 'tmux', cwd: root }),
+    }).then((response) => response.json()) as { session: TerminalSession }
+
+    assert.equal(fresh.session.id, attached.session.id)
+    assert.equal(fresh.session.status, 'running')
+    assert.notEqual(fresh.session.runtimeName, attached.session.runtimeName)
+    assert.equal(tmux.live.has(attached.session.runtimeName), false)
+    assert.equal(tmux.live.has(fresh.session.runtimeName), true)
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('terminal input and output both advance persisted last activity', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-terminal-activity-')))
   const tmux = fakeTmux()

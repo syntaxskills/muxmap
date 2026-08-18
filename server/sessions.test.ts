@@ -96,6 +96,38 @@ test('duplicate node labels allocate distinct tmux session names instead of shar
   }
 })
 
+test('stopped node sessions can start a fresh terminal instead of reusing the old runtime', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-start-new-')))
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  const manager = createSessionManager(store, adapter, [directory])
+
+  try {
+    const node = store.createNode('default', {
+      parentId: 'workspace',
+      title: 'Switch agent',
+      type: 'terminal',
+      repoPath: directory,
+    })
+    const oldSession = manager.attach(node.id)
+    manager.stop(oldSession.id)
+    store.upsertAgentActivity(oldSession.runtimeName, { kind: 'codex', state: 'working', since: '2026-08-07T10:00:00.000Z', externalSessionId: 'codex-session' })
+
+    const fresh = manager.startNew(node.id)
+
+    assert.equal(fresh.id, oldSession.id)
+    assert.equal(fresh.status, 'running')
+    assert.notEqual(fresh.runtimeName, oldSession.runtimeName)
+    assert.equal(fresh.runtimeName, 'muxmap-default-switch-agent-' + node.id.replace(/-/g, '').slice(0, 8))
+    assert.deepEqual(adapter.created, [oldSession.runtimeName, fresh.runtimeName])
+    assert.equal(store.getSessionByRuntimeName(oldSession.runtimeName), undefined)
+    assert.equal(store.getAgentActivity(oldSession.runtimeName)?.externalSessionId, 'codex-session')
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('attaching avoids adopting a live orphan with the same computed tmux name', () => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-orphan-name-collision-')))
   const store = createStore(':memory:')

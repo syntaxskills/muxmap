@@ -448,6 +448,13 @@ export function createMuxMapServer(options: ServerOptions) {
           return sendJson(response, 201, { session: sessions.attach(attachMatch[1], typeof body.cwd === 'string' ? body.cwd : undefined, body.backend as TerminalBackend | undefined) })
         }
 
+        const newSessionMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/session\/new$/)
+        if (request.method === 'POST' && newSessionMatch) {
+          const body = await readJson(request)
+          if (body.backend !== undefined && !['tmux', 'zellij'].includes(String(body.backend))) throw new Error('Invalid terminal backend')
+          return sendJson(response, 201, { session: sessions.startNew(newSessionMatch[1], typeof body.cwd === 'string' ? body.cwd : undefined, body.backend as TerminalBackend | undefined) })
+        }
+
         const reorderMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/reorder$/)
         if (request.method === 'POST' && reorderMatch) {
           const body = await readJson(request)

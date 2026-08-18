@@ -240,11 +240,11 @@ export function createSessionManager(
     return session.backend === 'tmux' && !exists && agent?.kind === 'codex' && Boolean(agent.externalSessionId)
   }
 
-  function availableSessionNames(backend: TerminalBackend, workspaceId: string, label: string, nodeId: string, adapter: MultiplexerAdapter) {
+  function availableSessionNames(backend: TerminalBackend, workspaceId: string, label: string, nodeId: string, adapter: MultiplexerAdapter, forbiddenRuntimeNames = new Set<string>()) {
     const base = sessionNames(backend, workspaceId, label)
     const conflicts = (names: ReturnType<typeof sessionNames>) => {
       const tracked = store.getSessionByRuntimeName(names.runtimeName)
-      return Boolean(tracked && tracked.nodeId !== nodeId) || adapter.exists(names.runtimeName)
+      return forbiddenRuntimeNames.has(names.runtimeName) || Boolean(tracked && tracked.nodeId !== nodeId) || adapter.exists(names.runtimeName)
     }
     if (!conflicts(base)) return base
 
@@ -267,6 +267,33 @@ export function createSessionManager(
       const label = node.jiraKey ?? node.title.toLowerCase().replace(/\s+/g, '-')
       const names = existing ?? availableSessionNames(backend, node.workspaceId, label, node.id, adapter)
 
+      if (!adapter.exists(names.runtimeName)) adapter.create(names.runtimeName, cwd)
+
+      return store.upsertSession({
+        id: existing?.id ?? `sess_${node.id}`,
+        workspaceId: node.workspaceId,
+        nodeId,
+        ...names,
+        backend,
+        cwd,
+        status: 'running',
+        lastAttachedAt: new Date().toISOString(),
+      })
+    },
+
+    startNew(nodeId: string, requestedCwd?: string, requestedBackend = selectedDefaultBackend): TerminalSession {
+      const node = store.getNode(nodeId)
+      if (!node) throw new Error('Node not found')
+      const cwd = safePath(requestedCwd ?? node.repoPath ?? allowedRoots[0], allowedRoots)
+      const existing = store.getSessionByNode(nodeId)
+      const backend = requestedBackend
+      const adapter = adapterFor(backend)
+      const label = node.jiraKey ?? node.title.toLowerCase().replace(/\s+/g, '-')
+      const forbidden = existing ? new Set([existing.runtimeName]) : new Set<string>()
+      const names = availableSessionNames(backend, node.workspaceId, label, node.id, adapter, forbidden)
+
+      const existingAdapter = existing && existing.status !== 'stopped' ? adapterFor(existing.backend) : undefined
+      if (existing && existing.status !== 'stopped' && existingAdapter?.exists(existing.runtimeName)) existingAdapter.stop(existing.runtimeName)
       if (!adapter.exists(names.runtimeName)) adapter.create(names.runtimeName, cwd)
 
       return store.upsertSession({

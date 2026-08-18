@@ -658,12 +658,12 @@ function App() {
     if (splitDragRef.current === event.pointerId) splitDragRef.current = null
   }
 
-  async function attachTerminal() {
+  async function attachTerminal(startFresh = false) {
     if (!selected) return
     setBusy(true)
     setError('')
     try {
-      const response = await api<{ session: TerminalSession }>(`/api/nodes/${selected.id}/session`, {
+      const response = await api<{ session: TerminalSession }>(`/api/nodes/${selected.id}/session${startFresh ? '/new' : ''}`, {
         method: 'POST',
         body: JSON.stringify({ cwd: selected.repoPath, backend: settings['terminal.backend'] }),
       })
@@ -1124,11 +1124,14 @@ function App() {
               </button>
             ) : session && canRecoverCodexSession(session) ? (
               <div className="recover-codex-card">
-                <button className="attach-button recover-codex-button" type="button" onClick={() => void recoverCodexSession(session.id)} disabled={busy}>Resume Codex</button>
+                <div className="recover-codex-actions">
+                  <button className="attach-button recover-codex-button" type="button" onClick={() => void recoverCodexSession(session.id)} disabled={busy}>Resume Codex</button>
+                  <button className="attach-button" type="button" onClick={() => void attachTerminal(true)} disabled={busy}>Start new terminal</button>
+                </div>
                 <small>{agentSessionSummary(session)} · {session.agent?.externalCwd ?? session.cwd}</small>
               </div>
             ) : (
-              <button className="attach-button" type="button" onClick={() => void attachTerminal()} disabled={busy}>{session ? 'Restart terminal' : 'Attach terminal'}</button>
+              <button className="attach-button" type="button" onClick={() => void attachTerminal(Boolean(session))} disabled={busy}>{session ? 'Start new terminal' : 'Attach terminal'}</button>
             )}
             <button className="add-child-button" type="button" onClick={() => void addChild(selected)}>+ Add child node</button>
           </div>
