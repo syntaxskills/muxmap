@@ -4,7 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import type { NodeType, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
-import { consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
+import { consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { AgentIcon } from './AgentIcon.tsx'
@@ -103,7 +103,6 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       pendingScroll = 0
     }
     const scroll = (event: WheelEvent) => {
-      if (terminalWheelHandledByApplication(applicationInteractive(), wheelMode)) return
       event.preventDefault()
       event.stopImmediatePropagation()
       const measuredCell = terminal.element?.querySelector('.xterm-rows > div')?.getBoundingClientRect().height
@@ -114,6 +113,11 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       })
       wheelRemainder = intent.remainder
       if (!intent.lines) return
+      if (terminalWheelHandledByApplication(applicationInteractive(), wheelMode)) {
+        const data = terminalSgrWheelReports(intent.lines)
+        if (data && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))
+        return
+      }
       pendingScroll = Math.max(-200, Math.min(200, pendingScroll + intent.lines))
       scrollTimer ??= window.setTimeout(flushScroll, 32)
     }

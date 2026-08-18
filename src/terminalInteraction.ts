@@ -46,6 +46,12 @@ export function terminalWheelHandledByApplication(applicationInteractive: boolea
   return applicationInteractive
 }
 
+export function terminalSgrWheelReports(lines: number) {
+  const count = Math.min(200, Math.abs(Math.trunc(lines)))
+  if (!count) return ''
+  return `\x1b[<${lines < 0 ? 64 : 65};1;1M`.repeat(count)
+}
+
 export function forceTerminalTextSelection(event: TerminalSelectionEvent, mouseTracking: boolean) {
   if (!mouseTracking || event.button !== 0) return false
   Object.defineProperties(event, { altKey: { value: true }, shiftKey: { value: true } })

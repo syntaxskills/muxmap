@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalWheelHandledByApplication } from './terminalInteraction.ts'
+import { consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication } from './terminalInteraction.ts'
 
 test('terminal dragging follows the pointer without changing its starting offset', () => {
   assert.deepEqual(dragOffset({ x: 20, y: -10 }, { x: 100, y: 80 }, { x: 145, y: 55 }), { x: 65, y: -35 })
@@ -60,6 +60,13 @@ test('terminal wheel auto mode lets fullscreen terminal apps handle scrolling', 
   assert.equal(terminalWheelHandledByApplication(false, 'auto'), false)
   assert.equal(terminalWheelHandledByApplication(false, 'application'), true)
   assert.equal(terminalWheelHandledByApplication(true, 'muxmap'), false)
+})
+
+test('terminal wheel reports can be sent as proportional SGR mouse input', () => {
+  assert.equal(terminalSgrWheelReports(0), '')
+  assert.equal(terminalSgrWheelReports(-2), '\x1b[<64;1;1M\x1b[<64;1;1M')
+  assert.equal(terminalSgrWheelReports(3), '\x1b[<65;1;1M\x1b[<65;1;1M\x1b[<65;1;1M')
+  assert.equal(terminalSgrWheelReports(250).split('\x1b[<65;1;1M').length - 1, 200)
 })
 
 test('terminal mouse tracking cannot steal a primary-button text selection', () => {
