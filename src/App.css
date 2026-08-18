@@ -1,9 +1,11 @@
 .app-shell {
   --agent-working-color: #e2ad58;
   --agent-completed-color: #79bd94;
+  height: 100dvh;
   min-height: 100dvh;
   display: grid;
   grid-template-rows: 58px minmax(0, 1fr);
+  overflow: hidden;
   background: var(--background);
   color: var(--text);
 }
@@ -1062,9 +1064,12 @@ kbd {
 }
 
 .settings-panel {
+  height: 100%;
+  min-height: 0;
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
   overflow: hidden;
+  overscroll-behavior: contain;
   background: var(--surface);
 }
 
@@ -1155,10 +1160,14 @@ kbd {
   min-height: 0;
   display: grid;
   grid-template-columns: 94px minmax(0, 1fr);
+  overflow: hidden;
   border-top: 1px solid var(--line);
 }
 
 .settings-categories {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 7px 0;
   border-right: 1px solid var(--line);
   background: var(--background-subtle);
@@ -1192,7 +1201,9 @@ kbd {
 
 .settings-list {
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--surface);
 }
 
@@ -1359,6 +1370,7 @@ kbd {
   display: grid;
   grid-template-rows: auto minmax(220px, 1fr) auto auto;
   gap: 0;
+  overflow: hidden;
   padding: 10px;
 }
 
@@ -1394,6 +1406,8 @@ kbd {
   width: 100%;
   min-height: 0;
   resize: none;
+  overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--line-strong);
   outline: 0;
   padding: 12px;
