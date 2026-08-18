@@ -858,6 +858,8 @@ function App() {
         cursorBlink={settings['terminal.cursorBlink']}
         scrollback={settings['terminal.scrollback']}
         wheelMode={settings['terminal.wheelMode']}
+        precisionScrollMultiplier={settings['terminal.precisionScrollMultiplier']}
+        discreteScrollMultiplier={settings['terminal.discreteScrollMultiplier']}
         dedupeRepeatedInput={settings['terminal.dedupeRepeatedInput']}
         floating={terminalFloating}
         onToggleFloating={() => setSurface(floatTerminal)}

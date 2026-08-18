@@ -42,11 +42,17 @@ test('terminal copy shortcuts stay in the browser when text is selected', () => 
 })
 
 test('terminal wheel accumulates trackpad movement into scrollback lines', () => {
-  assert.deepEqual(consumeTerminalWheel(0, 2, 0, 30), { lines: 0, remainder: 2 })
-  assert.deepEqual(consumeTerminalWheel(2, 2, 0, 30), { lines: 1, remainder: 0 })
-  assert.deepEqual(consumeTerminalWheel(0, 16, 0, 30), { lines: 4, remainder: 0 })
-  assert.deepEqual(consumeTerminalWheel(0, -3, 1, 30), { lines: -3, remainder: 0 })
-  assert.deepEqual(consumeTerminalWheel(0, 1, 2, 24), { lines: 24, remainder: 0 })
+  assert.deepEqual(consumeTerminalWheel(0, 2, 0, 30, 16), { lines: 0, remainder: 8 })
+  assert.deepEqual(consumeTerminalWheel(8, 2, 0, 30, 16), { lines: 1, remainder: 0 })
+  assert.deepEqual(consumeTerminalWheel(0, 16, 0, 30, 16), { lines: 4, remainder: 0 })
+  assert.deepEqual(consumeTerminalWheel(0, -1, 1, 30, 16), { lines: -3, remainder: 0 })
+  assert.deepEqual(consumeTerminalWheel(0, 1, 2, 24, 16), { lines: 24, remainder: 0 })
+})
+
+test('terminal wheel follows Ghostty-style precision and discrete multipliers', () => {
+  assert.deepEqual(consumeTerminalWheel(0, 16, 0, 30, 16, { precision: 1, discrete: 3 }), { lines: 1, remainder: 0 })
+  assert.deepEqual(consumeTerminalWheel(0, 16, 0, 30, 16, { precision: 2, discrete: 3 }), { lines: 2, remainder: 0 })
+  assert.deepEqual(consumeTerminalWheel(0, 1, 1, 30, 16, { precision: 1, discrete: 5 }), { lines: 5, remainder: 0 })
 })
 
 test('terminal wheel auto mode lets fullscreen terminal apps handle scrolling', () => {

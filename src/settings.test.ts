@@ -12,8 +12,8 @@ import {
 } from './settings.ts'
 
 test('the settings schema exposes the compact adjustable settings', () => {
-  assert.equal(settingDefinitions.length, 26)
-  assert.equal(new Set(settingDefinitions.map((item) => item.key)).size, 26)
+  assert.equal(settingDefinitions.length, 28)
+  assert.equal(new Set(settingDefinitions.map((item) => item.key)).size, 28)
   assert.deepEqual([...new Set(settingDefinitions.map((item) => item.category))], [
     'Appearance',
     'Canvas',
@@ -34,13 +34,15 @@ test('notification delivery can target the system, the page, both, or neither', 
 
 test('settings JSON accepts partial overrides and round trips all effective values', () => {
   const parsed = parseSettingsJson(JSON.stringify({
-    terminal: { opacity: 82, wheelMode: 'application', dedupeRepeatedInput: false },
+    terminal: { opacity: 82, wheelMode: 'application', precisionScrollMultiplier: 2.5, discreteScrollMultiplier: 5, dedupeRepeatedInput: false },
     mindmap: { expandOnHover: false },
   }), 'linux')
 
   assert.deepEqual(parsed.errors, [])
   assert.equal(parsed.settings?.['terminal.opacity'], 82)
   assert.equal(parsed.settings?.['terminal.wheelMode'], 'application')
+  assert.equal(parsed.settings?.['terminal.precisionScrollMultiplier'], 2.5)
+  assert.equal(parsed.settings?.['terminal.discreteScrollMultiplier'], 5)
   assert.equal(parsed.settings?.['terminal.dedupeRepeatedInput'], false)
   assert.equal(parsed.settings?.['mindmap.expandOnHover'], false)
   assert.equal(parsed.settings?.['canvas.showGrid'], true)
@@ -49,6 +51,8 @@ test('settings JSON accepts partial overrides and round trips all effective valu
   const exported = JSON.parse(settingsJson(parsed.settings!)) as Record<string, Record<string, unknown>>
   assert.equal(exported.terminal.opacity, 82)
   assert.equal(exported.terminal.wheelMode, 'application')
+  assert.equal(exported.terminal.precisionScrollMultiplier, 2.5)
+  assert.equal(exported.terminal.discreteScrollMultiplier, 5)
   assert.equal(exported.terminal.dedupeRepeatedInput, false)
   assert.equal(exported.mindmap.expandOnHover, false)
   assert.equal((exported as Record<string, unknown>)['terminal.opacity'], undefined)

@@ -2,6 +2,7 @@ type Point = { x: number; y: number }
 type TerminalSelectionEvent = { readonly button: number; readonly altKey: boolean; readonly shiftKey: boolean }
 export type TerminalWheelMode = 'auto' | 'muxmap' | 'application'
 export type RecentTerminalInput = { data: string; at: number }
+export type TerminalScrollMultipliers = { precision: number; discrete: number }
 
 export function terminalShortcutData(event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'altKey'>) {
   if (event.metaKey && (event.key === 'Backspace' || event.key === 'Delete')) return '\x15'
@@ -19,12 +20,24 @@ export function shouldCopyTerminalSelection(
   return hasSelection && event.key.toLowerCase() === 'c' && (event.metaKey || (event.ctrlKey && event.shiftKey))
 }
 
-export function consumeTerminalWheel(remainder: number, deltaY: number, deltaMode: number, rows: number) {
-  const pixelsPerLine = deltaMode === 0 ? 4 : 16
-  const total = remainder + deltaY * (deltaMode === 1 ? 16 : deltaMode === 2 ? rows * 16 : 1)
-  const rawLines = Math.trunc(total / pixelsPerLine)
+export function consumeTerminalWheel(
+  remainder: number,
+  deltaY: number,
+  deltaMode: number,
+  rows: number,
+  cellHeight: number,
+  multipliers: TerminalScrollMultipliers = { precision: 4, discrete: 3 },
+) {
+  const unit = Math.max(1, cellHeight)
+  const adjusted = deltaMode === 0
+    ? deltaY * multipliers.precision
+    : deltaMode === 1
+      ? deltaY * unit * multipliers.discrete
+      : deltaY * rows * unit
+  const total = remainder + adjusted
+  const rawLines = Math.trunc(total / unit)
   const lines = Math.max(-200, Math.min(200, rawLines))
-  return { lines, remainder: lines === rawLines ? total - lines * pixelsPerLine : 0 }
+  return { lines, remainder: lines === rawLines ? total - lines * unit : 0 }
 }
 
 export function terminalWheelHandledByApplication(applicationInteractive: boolean, mode: TerminalWheelMode) {

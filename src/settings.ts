@@ -27,6 +27,8 @@ export type AppSettings = {
   'terminal.splitPercent': number
   'terminal.defaultPlacement': 'docked' | 'floating'
   'terminal.wheelMode': 'auto' | 'muxmap' | 'application'
+  'terminal.precisionScrollMultiplier': number
+  'terminal.discreteScrollMultiplier': number
   'terminal.dedupeRepeatedInput': boolean
   'notifications.delivery': 'both' | 'system' | 'in-page' | 'off'
   'notifications.completed': boolean
@@ -73,6 +75,8 @@ export const settingDefinitions: SettingDefinition[] = [
   { key: 'terminal.splitPercent', category: 'Terminal', label: 'Mindmap width', description: 'Share kept for the mindmap when a terminal is docked.', control: 'number', min: 25, max: 75, step: 1, unit: '%' },
   { key: 'terminal.defaultPlacement', category: 'Terminal', label: 'Open terminals', description: 'Chooses the initial terminal window placement.', control: 'select', options: [{ value: 'docked', label: 'Docked right' }, { value: 'floating', label: 'Floating' }] },
   { key: 'terminal.wheelMode', category: 'Terminal', label: 'Wheel routing', description: 'Auto lets Claude Code fullscreen/no-flicker handle its own scrolling, while shell sessions keep MuxMap scrollback.', control: 'select', options: [{ value: 'auto', label: 'Auto' }, { value: 'muxmap', label: 'MuxMap scrollback' }, { value: 'application', label: 'Terminal app' }] },
+  { key: 'terminal.precisionScrollMultiplier', category: 'Terminal', label: 'Trackpad scroll speed', description: 'Multiplier for precision pixel scrolling, similar to Ghostty precision scrolling.', control: 'number', min: 0.01, max: 20, step: 0.25, unit: '×' },
+  { key: 'terminal.discreteScrollMultiplier', category: 'Terminal', label: 'Wheel scroll speed', description: 'Lines per discrete mouse-wheel tick, similar to Ghostty discrete scrolling.', control: 'number', min: 0.01, max: 20, step: 0.25, unit: '×' },
   { key: 'terminal.dedupeRepeatedInput', category: 'Terminal', label: 'Dedupe repeated input', description: 'Drops repeated long text bursts from dictation or IME glitches before they reach the terminal.', control: 'boolean' },
   { key: 'notifications.delivery', category: 'Notifications', label: 'Delivery', description: 'Choose system notifications, in-page alerts, both, or neither.', control: 'select', options: [{ value: 'both', label: 'System + in-page' }, { value: 'system', label: 'System only' }, { value: 'in-page', label: 'In-page only' }, { value: 'off', label: 'Off' }] },
   { key: 'notifications.completed', category: 'Notifications', label: 'Task completed', description: 'Alerts when an agent finishes.', control: 'boolean' },
@@ -114,6 +118,8 @@ export function defaultSettings(platform: RuntimePlatform): AppSettings {
     'terminal.splitPercent': 50,
     'terminal.defaultPlacement': 'docked',
     'terminal.wheelMode': 'auto',
+    'terminal.precisionScrollMultiplier': 4,
+    'terminal.discreteScrollMultiplier': 3,
     'terminal.dedupeRepeatedInput': true,
     'notifications.delivery': 'both',
     'notifications.completed': true,

@@ -34,6 +34,8 @@ type Props = {
   cursorBlink: boolean
   scrollback: number
   wheelMode: TerminalWheelMode
+  precisionScrollMultiplier: number
+  discreteScrollMultiplier: number
   dedupeRepeatedInput: boolean
   floating: boolean
   disabled: boolean
@@ -49,7 +51,7 @@ const nodeTypes: Array<[NodeType, string]> = [
   ['note', 'Note'], ['todo', 'Todo'], ['terminal', 'Terminal task'],
 ]
 
-export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, scrollback, wheelMode, dedupeRepeatedInput, floating, disabled, onClose, onStop, onToggleFloating, onStatus, onUpdate }: Props) {
+export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, scrollback, wheelMode, precisionScrollMultiplier, discreteScrollMultiplier, dedupeRepeatedInput, floating, disabled, onClose, onStop, onToggleFloating, onStatus, onUpdate }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const drag = useRef<{ pointerId: number; origin: { x: number; y: number }; start: { x: number; y: number } } | null>(null)
   const [status, setStatus] = useState<TerminalStatus>(session.status)
@@ -104,7 +106,12 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       if (terminalWheelHandledByApplication(applicationInteractive(), wheelMode)) return
       event.preventDefault()
       event.stopImmediatePropagation()
-      const intent = consumeTerminalWheel(wheelRemainder, event.deltaY, event.deltaMode, terminal.rows)
+      const measuredCell = terminal.element?.querySelector('.xterm-rows > div')?.getBoundingClientRect().height
+      const cellHeight = measuredCell && Number.isFinite(measuredCell) ? measuredCell : fontSize * 1.4
+      const intent = consumeTerminalWheel(wheelRemainder, event.deltaY, event.deltaMode, terminal.rows, cellHeight, {
+        precision: precisionScrollMultiplier,
+        discrete: discreteScrollMultiplier,
+      })
       wheelRemainder = intent.remainder
       if (!intent.lines) return
       pendingScroll = Math.max(-200, Math.min(200, pendingScroll + intent.lines))
@@ -180,7 +187,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       socket.close()
       terminal.dispose()
     }
-  }, [cursorBlink, dedupeRepeatedInput, fontSize, onStatus, scrollback, session.cwd, session.id, wheelMode])
+  }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, onStatus, precisionScrollMultiplier, scrollback, session.cwd, session.id, wheelMode])
 
   function beginDrag(event: ReactPointerEvent<HTMLDivElement>) {
     if (!floating || isFullscreen || event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea')) return
