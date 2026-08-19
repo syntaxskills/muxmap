@@ -5,14 +5,15 @@ import test from 'node:test'
 const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
 const css = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
 
-test('todo nodes expose quick done and undo actions beside the node', () => {
+test('todo nodes use only a corner marker for open todo state', () => {
   assert.match(app, /<BoxIcon \/>Mark todo/)
   assert.match(app, /<CheckboxIcon \/>Mark done/)
-  assert.match(app, /className="node-task-action"/)
-  assert.match(app, /className="node-done-marker"/)
-  assert.match(app, /node\.doneAt \? 'Undo done' : 'Mark done'/)
-  assert.match(css, /\.node-task-action\s*\{[^}]*position:\s*absolute/s)
-  assert.match(css, /\.node-done-marker\s*\{[^}]*position:\s*absolute/s)
+  assert.match(app, /className="node-todo-marker"/)
+  assert.match(app, /node\.type === 'todo' && !node\.doneAt/)
+  assert.doesNotMatch(app, /className="node-task-action"/)
+  assert.doesNotMatch(app, /Undo done/)
+  assert.match(css, /\.node-todo-marker\s*\{[^}]*position:\s*absolute/s)
+  assert.doesNotMatch(css, /\.node-task-action\s*\{/)
   assert.doesNotMatch(css, /\.map-node\.is-done \.node-title\s*\{[^}]*text-decoration:\s*line-through/s)
 })
 

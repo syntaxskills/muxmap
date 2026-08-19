@@ -90,9 +90,10 @@ test('reordering moves nodes only within their existing sibling group', () => {
 test('expanded nodes grow only as much as their visible metadata needs', () => {
   assert.equal(expandedNodeHeight(nodes[1], false), 106)
   assert.equal(expandedNodeHeight({ ...nodes[1], type: 'todo' }, false), 106)
-  assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, true), 136)
-  assert.equal(expandedNodeHeight({ ...nodes[3], type: 'todo', project: 'Identity', repoPath: '/repo', note: 'Context' }, true, 0, true), 160)
-  assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, false, 1), 136)
+  assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, true), 142)
+  assert.equal(expandedNodeHeight({ ...nodes[3], type: 'todo', project: 'Identity', repoPath: '/repo', note: 'Context' }, true, 0, true), 155)
+  assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, false, 1), 142)
+  assert.equal(expandedNodeHeight({ ...nodes[3], repoPath: '/very/long/path/that/needs/to/wrap/because/it/would/overflow/the/expanded/node', note: 'Long notes should add height instead of spilling outside the node card.' }, false), 194)
 })
 
 test('an archived node remains discoverable directly inside its original parent', () => {

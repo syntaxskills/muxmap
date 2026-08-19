@@ -534,66 +534,18 @@ kbd {
   color: var(--accent);
 }
 
-.node-task-action {
+.node-todo-marker {
   position: absolute;
-  right: 8px;
-  bottom: -18px;
-  z-index: 4;
-  max-width: 92px;
-  overflow: hidden;
-  padding: 3px 7px;
-  border: 1px solid color-mix(in srgb, var(--node-color) 28%, var(--line));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
-  color: var(--text-muted);
-  cursor: pointer;
-  font: 9px/1 var(--mono);
-  opacity: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  box-shadow: 0 8px 18px var(--shadow-soft);
-  transition: opacity 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease;
-}
-
-.map-node:hover .node-task-action,
-.map-node:focus-within .node-task-action,
-.map-node.is-selected .node-task-action {
-  opacity: .9;
-}
-
-.node-task-action:hover,
-.node-task-action:focus-visible {
-  border-color: var(--node-color);
-  color: var(--text-strong);
-  outline: none;
-  transform: translateY(-1px);
-}
-
-.map-node.is-done .node-select {
-  background: color-mix(in srgb, #7fa77e 9%, var(--node-surface));
-}
-
-.node-done-marker {
-  position: absolute;
-  top: -5px;
-  right: -5px;
+  top: -4px;
+  right: -4px;
   z-index: 2;
-  width: 14px;
-  height: 14px;
-  display: grid;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, #6e936e 56%, var(--surface));
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--surface);
   border-radius: 999px;
-  background: #79bd94;
-  color: #102115;
-  box-shadow: 0 5px 14px color-mix(in srgb, #79bd94 30%, transparent);
-  font: 800 9px/1 var(--mono);
+  background: #d6534f;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #d6534f 72%, transparent), 0 5px 14px color-mix(in srgb, #d6534f 32%, transparent);
   pointer-events: none;
-}
-
-.map-node.is-done .node-task-action {
-  border-color: color-mix(in srgb, #6e936e 32%, var(--line));
-  color: #5f805f;
 }
 
 .node-color {
@@ -815,8 +767,8 @@ kbd {
 .node-expanded-content em,
 .node-expanded-content > span {
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .node-expanded-content code {

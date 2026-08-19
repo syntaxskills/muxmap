@@ -81,9 +81,24 @@ export function archivedNodeEntries(nodes: WorkNode[], query: string): ArchivedN
   return entries.filter((entry) => included.has(entry.node.id))
 }
 
+function wrappedLineCount(value: unknown, charsPerLine: number) {
+  if (typeof value !== 'string' || !value.trim()) return 0
+  return Math.max(1, Math.ceil(value.trim().length / charsPerLine))
+}
+
 export function expandedNodeHeight(node: WorkNode, hasAgent: boolean, archivedChildCount = 0, hasActivity = false) {
-  const rows = 1 + [node.project, node.jiraKey, node.repoPath, node.note].filter(Boolean).length + Number(node.type === 'todo') + Number(hasAgent) + Number(archivedChildCount > 0) + Number(hasActivity)
-  return Math.max(106, 64 + rows * 12)
+  const valueCharsPerLine = 22
+  const rows = [
+    wrappedLineCount(node.project, valueCharsPerLine),
+    wrappedLineCount(node.jiraKey, valueCharsPerLine),
+    wrappedLineCount(node.repoPath, valueCharsPerLine),
+    wrappedLineCount(node.note, valueCharsPerLine),
+    hasAgent ? 1 : 0,
+    archivedChildCount > 0 ? 1 : 0,
+    hasActivity ? 1 : 0,
+    1,
+  ].reduce((sum, row) => sum + row, 0)
+  return Math.max(106, 64 + rows * 13)
 }
 
 export function reorderSiblings(nodes: WorkNode[], movedId: string, targetId: string, position: ReorderPosition) {

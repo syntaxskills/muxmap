@@ -548,7 +548,7 @@ function App() {
 
   function beginNodeReorder(event: ReactPointerEvent<HTMLElement>, node: WorkNode) {
     const target = event.target as HTMLElement
-    if (event.button !== 0 || !node.parentId || renamingId === node.id || target.closest('input, .node-add-action, .node-task-action')) return
+    if (event.button !== 0 || !node.parentId || renamingId === node.id || target.closest('input, .node-add-action')) return
     nodePointerRef.current = { pointerId: event.pointerId, nodeId: node.id, parentId: node.parentId, x: event.clientX, y: event.clientY, dragging: false }
     target.setPointerCapture(event.pointerId)
   }
@@ -1027,7 +1027,7 @@ function App() {
                   const archivedChildCount = archivedChildCounts.get(node.id) ?? 0
                   const expanded = node.id === selectedId || node.id === hoveredId
                   const isTodoNode = node.type === 'todo'
-                  const isDoneNode = Boolean(node.doneAt)
+                  const hasOpenTodo = node.type === 'todo' && !node.doneAt
                   const style = {
                     left: point.x + 48,
                     top: point.y + 48,
@@ -1037,7 +1037,7 @@ function App() {
                   } as CSSProperties
                   return (
                     <article
-                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${isTodoNode ? 'is-todo' : ''} ${isDoneNode ? 'is-done' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${agentState ? `is-agent-${agentState}` : ''} ${activityFade !== 'fresh' ? `is-activity-${activityFade}` : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
+                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${isTodoNode ? 'is-todo' : ''} ${hasOpenTodo ? 'is-todo-open' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${agentState ? `is-agent-${agentState}` : ''} ${activityFade !== 'fresh' ? `is-activity-${activityFade}` : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
                       key={node.id}
                       style={style}
                       data-node-id={node.id}
@@ -1080,7 +1080,6 @@ function App() {
                               {node.repoPath && <span><b>Path</b><code>{node.repoPath}</code></span>}
                               {node.note && <span><b>Note</b><em>{node.note}</em></span>}
                               {visibleAgent && <span><b>Agent</b>{agentStatusText(visibleAgent)}</span>}
-                              {isTodoNode && <span><b>Todo</b>{node.doneAt ? `Done ${formatActivityAge(node.doneAt)} ago` : 'Open'}</span>}
                               {nodeSession && <span><b>Activity</b><time dateTime={activityTimestamp}>{activityAge === 'NOW' ? activityAge : `${activityAge} ago`}</time></span>}
                               {archivedChildCount > 0 && <span><b>Archived</b>{archivedChildCount} {archivedChildCount === 1 ? 'child' : 'children'}</span>}
                               <span><b>Terminal</b>{nodeSession ? `${nodeSession.status} · ${agentSessionSummary(nodeSession)}` : 'None'}</span>
@@ -1088,11 +1087,10 @@ function App() {
                           )}
                         </span>
                         {childCount > 0 && <span className="child-count">{collapsed.has(node.id) ? '+' : childCount}</span>}
-                        {isDoneNode && <span className="node-done-marker" aria-label="Todo done">✓</span>}
+                        {hasOpenTodo && <span className="node-todo-marker" aria-label="Todo open" title="Todo" />}
                         {nodeSession && <span className="node-runtime" title={`Last activity ${new Date(activityTimestamp!).toLocaleString()}`}><time className="node-last-activity" dateTime={activityTimestamp}>{activityAge}</time><span className={`terminal-badge is-${nodeSession.status} ${visibleAgent ? `is-${visibleAgent.state}` : ''}`} title={visibleAgent ? agentStatusText(visibleAgent) : nodeSession.runtimeExists === false ? 'Terminal runtime missing' : `Terminal ${nodeSession.status}`}>{visibleAgent ? <AgentIcon kind={visibleAgent.kind} /> : '>_'}</span></span>}
                       </button>
                       {agentState === 'needs_input' && <span className="agent-needs-input-marker" role="img" aria-label={`Agent needs input for ${node.title}`} title="Agent needs input">?</span>}
-                      {isTodoNode && <button className="node-task-action" type="button" onClick={() => node.doneAt ? void markNodeTodo(node) : void markNodeDone(node)} aria-label={`${node.doneAt ? 'Undo done' : 'Mark done'} for ${node.title}`}>{node.doneAt ? 'Undo done' : 'Mark done'}</button>}
                       <button className="node-add-action" type="button" onClick={() => void addChild(node)} aria-label={`Add child to ${node.title}`}>+</button>
                     </article>
                   )
@@ -1118,7 +1116,7 @@ function App() {
                 {node.parentId && <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void duplicateNode(node) }}><CopyIcon />Duplicate</button>}
                 {childCount > 0 && <button type="button" role="menuitem" onClick={() => { toggleNodeCollapsed(node.id); setContextMenu(null) }}>{collapsed.has(node.id) ? <ChevronDownIcon /> : <ChevronUpIcon />}{collapsed.has(node.id) ? 'Expand branch' : 'Collapse branch'}</button>}
                 {node.parentId && (node.type !== 'todo' || node.doneAt) && <button type="button" role="menuitem" onClick={() => void markNodeTodo(node)}><BoxIcon />Mark todo</button>}
-                {node.parentId && !node.doneAt && <button type="button" role="menuitem" onClick={() => void markNodeDone(node)}><CheckboxIcon />Mark done</button>}
+                {node.parentId && node.type === 'todo' && !node.doneAt && <button type="button" role="menuitem" onClick={() => void markNodeDone(node)}><CheckboxIcon />Mark done</button>}
                 {agentSession && <div className={`node-context-submenu ${submenuSide}`}>
                   <button className="node-context-submenu-trigger" type="button" role="menuitem" aria-haspopup="menu"><DesktopIcon />Set agent status<ChevronRightIcon /></button>
                   <div className="node-context-submenu-panel" role="menu" aria-label={`Set agent status for ${node.title}`}>
