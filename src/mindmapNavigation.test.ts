@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { blocksMindmapKeyboardNavigation, mindmapDirectionFromKey, navigateMindmapNode } from './mindmapNavigation.ts'
+import { blocksMindmapKeyboardNavigation, keyboardOwnerFromPointerTarget, mindmapDirectionFromKey, navigateMindmapNode, shouldMindmapHandleArrow } from './mindmapNavigation.ts'
 import type { WorkNode } from './model.ts'
 
 function node(id: string, sortOrder: number): WorkNode {
@@ -51,4 +51,16 @@ test('mindmap navigation does not steal arrows from terminal or form controls', 
   assert.equal(blocksMindmapKeyboardNavigation({ tagName: 'DIV', closest: (selector) => selector.includes('.terminal') ? ({}) : null }), true)
   assert.equal(blocksMindmapKeyboardNavigation({ tagName: 'BUTTON', closest: (selector) => selector.includes('.map-node') ? ({}) : null }), false)
   assert.equal(blocksMindmapKeyboardNavigation({ tagName: 'BUTTON', closest: () => null }), true)
+})
+
+test('last clicked surface decides whether arrows belong to terminal or mindmap', () => {
+  const terminalTarget = { tagName: 'TEXTAREA', closest: (selector: string) => selector.includes('.terminal') ? ({}) : null }
+  const mindmapTarget = { tagName: 'BUTTON', closest: (selector: string) => selector.includes('.map-node') ? ({}) : null }
+
+  assert.equal(keyboardOwnerFromPointerTarget(terminalTarget), 'terminal')
+  assert.equal(keyboardOwnerFromPointerTarget(mindmapTarget), 'mindmap')
+  assert.equal(shouldMindmapHandleArrow(terminalTarget, 'terminal'), false)
+  assert.equal(shouldMindmapHandleArrow(terminalTarget, 'mindmap'), true)
+  assert.equal(shouldMindmapHandleArrow(mindmapTarget, 'mindmap'), true)
+  assert.equal(shouldMindmapHandleArrow({ tagName: 'TEXTAREA', closest: () => null }, 'mindmap'), false)
 })

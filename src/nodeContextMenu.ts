@@ -3,6 +3,7 @@ import type { WorkNode } from './model.ts'
 const MENU_WIDTH = 200
 const MENU_HEIGHT = 220
 const VIEWPORT_MARGIN = 8
+export type ContextMenuConfirmation = 'archive' | 'delete'
 
 export function contextMenuPosition(x: number, y: number, viewportWidth: number, viewportHeight: number) {
   return {
@@ -23,4 +24,13 @@ export function duplicateNodeInput(node: WorkNode) {
     jiraKey: node.jiraKey,
     note: node.note,
   }
+}
+
+export function contextMenuConfirmationText(action: ContextMenuConfirmation, hasLiveSession: boolean) {
+  if (action === 'archive') return 'Confirm archive?'
+  return hasLiveSession ? 'Confirm delete?' : 'Confirm delete?'
+}
+
+export function contextMenuStopSessionConfirmationText(hasLiveSession: boolean) {
+  return hasLiveSession ? 'Stop sessions too?' : ''
 }

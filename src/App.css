@@ -672,6 +672,30 @@ kbd {
   color: currentColor;
 }
 
+.node-context-menu button.is-confirming {
+  background: #b84d45;
+  color: #fff7f1;
+  font-weight: 680;
+}
+
+.node-context-menu button.is-confirming:hover,
+.node-context-menu button.is-confirming:focus-visible {
+  background: #a83f38;
+  color: #fff;
+}
+
+.node-context-menu button.is-secondary-confirm {
+  margin-top: 3px;
+  background: color-mix(in srgb, #b84d45 14%, transparent);
+  color: #b84d45;
+}
+
+.node-context-menu button.is-secondary-confirm:hover,
+.node-context-menu button.is-secondary-confirm:focus-visible {
+  background: color-mix(in srgb, #b84d45 22%, transparent);
+  color: #9b322d;
+}
+
 .node-expanded-content > span {
   min-width: 0;
   display: grid;

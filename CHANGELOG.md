@@ -7,6 +7,7 @@ All notable changes to MuxMap are documented here.
 ### Changed
 
 - Added arrow-key mindmap navigation that hops to the nearest visible node while leaving arrow keys untouched inside terminals and form controls.
+- Moved right-click Archive/Delete confirmation into the context menu itself for faster destructive actions.
 - Reworked the README into a shorter open-source landing page and moved operational detail into focused architecture and Agent hook docs.
 - Updated the PRD and acceptance coverage to reflect archive, settings, mobile, Agent activity, Windows/Zellij, terminal links, and duplicate runtime-name behavior.
 - Added persistent last-activity timestamps for terminal input, terminal/Agent output, and Agent hooks, with compact minute/hour/day ages on every linked node.
@@ -32,6 +33,7 @@ All notable changes to MuxMap are documented here.
 
 ### Fixed
 
+- Arrow keys now follow the user's last clicked surface: terminal after a terminal click, mindmap after a map click, even if xterm's hidden textarea still has focus.
 - Claude Code permission approval now clears the `needs_input` node state on the next lightweight `PreToolUse` hook without installing the heavier `PostToolUse` hook.
 - Stopped terminal link detection from swallowing adjacent page text such as `Home` after local development URLs.
 - Kept archived nodes discoverable inside their original parent and preserved nested archive behavior when the parent is archived too.

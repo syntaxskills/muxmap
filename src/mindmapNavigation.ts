@@ -1,6 +1,7 @@
 import type { WorkNode } from './model.ts'
 
 export type MindmapDirection = 'up' | 'down' | 'left' | 'right'
+export type KeyboardOwner = 'mindmap' | 'terminal' | 'ui'
 
 export type NavigationPoint = {
   x: number
@@ -28,6 +29,25 @@ export function blocksMindmapKeyboardNavigation(target: NavigationTarget | null 
   if (target.closest?.('.terminal, .xterm, .terminal-mount, .side-panel, .settings-panel, .terminal-splitter')) return true
   if ((tag === 'BUTTON' || tag === 'A') && !target.closest?.('.map-node')) return true
   return false
+}
+
+export function keyboardOwnerFromPointerTarget(target: NavigationTarget | null | undefined): KeyboardOwner | undefined {
+  if (!target) return undefined
+  if (target.closest?.('.terminal, .xterm, .terminal-mount')) return 'terminal'
+  if (target.closest?.('.canvas, .map-node, .graph-stage')) return 'mindmap'
+  return undefined
+}
+
+export function shouldMindmapHandleArrow(target: NavigationTarget | null | undefined, owner: KeyboardOwner | undefined) {
+  if (owner === 'terminal') return false
+  if (owner === 'mindmap') {
+    if (!target) return true
+    if (target.isContentEditable) return false
+    const tag = target.tagName?.toUpperCase()
+    const terminalFocusProxy = Boolean(target.closest?.('.terminal, .xterm, .terminal-mount'))
+    return terminalFocusProxy || (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA')
+  }
+  return !blocksMindmapKeyboardNavigation(target)
 }
 
 export function navigateMindmapNode(nodes: WorkNode[], positions: Map<string, NavigationPoint>, selectedId: string | null, direction: MindmapDirection) {

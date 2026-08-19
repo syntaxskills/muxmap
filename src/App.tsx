@@ -21,7 +21,7 @@ import { readViewState, writeViewState } from './viewState.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { IN_PAGE_NOTIFICATION_LIFETIME_MS, mergeAgentNotifications, routeAgentNotifications, scanAgentNotifications, type AgentNotification } from './agentNotifications.ts'
 import { dragIntent, dropPositionAt, pointerReleaseIntent } from './nodeReorderInteraction.ts'
-import { contextMenuPosition, duplicateNodeInput } from './nodeContextMenu.ts'
+import { contextMenuConfirmationText, contextMenuPosition, contextMenuStopSessionConfirmationText, duplicateNodeInput, type ContextMenuConfirmation } from './nodeContextMenu.ts'
 import { AgentIcon } from './AgentIcon.tsx'
 import { SettingsPanel } from './SettingsPanel.tsx'
 import { ArchivePanel } from './ArchivePanel.tsx'
@@ -31,7 +31,7 @@ import { activityStaleness, formatActivityAge, sessionActivityTimestamp } from '
 import { agentWorkingSweepDelay, synchronizeAgentWorkingSweeps } from './agentAnimations.ts'
 import { agentSessionSummary } from './agentSessionDetails.ts'
 import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachment } from './imageAttachments.ts'
-import { blocksMindmapKeyboardNavigation, mindmapDirectionFromKey, navigateMindmapNode } from './mindmapNavigation.ts'
+import { keyboardOwnerFromPointerTarget, mindmapDirectionFromKey, navigateMindmapNode, shouldMindmapHandleArrow, type KeyboardOwner } from './mindmapNavigation.ts'
 import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { AgentEventList } from './AgentEventList.tsx'
@@ -73,7 +73,7 @@ function App() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameTitle, setRenameTitle] = useState('')
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number; confirm?: ContextMenuConfirmation } | null>(null)
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<{ id: string; position: ReorderPosition } | null>(null)
   const [surface, setSurface] = useState<WorkspaceSurface>(() => ({
@@ -111,6 +111,7 @@ function App() {
   const agentAlertTimers = useRef(new Map<string, number>())
   const splitDragRef = useRef<number | null>(null)
   const settingsPlatformRef = useRef(clientPlatform)
+  const keyboardOwnerRef = useRef<KeyboardOwner>('mindmap')
   const { rightPanel, terminalSessionId, terminalFloating } = surface
   const inPageNotificationsEnabled = notificationDeliveryTargets(settings['notifications.delivery']).inPage
 
@@ -362,12 +363,20 @@ function App() {
   }
 
   useEffect(() => {
+    const updateKeyboardOwner = (event: PointerEvent) => {
+      const owner = keyboardOwnerFromPointerTarget(event.target as HTMLElement | null)
+      if (owner) keyboardOwnerRef.current = owner
+    }
+    window.addEventListener('pointerdown', updateKeyboardOwner, true)
+    return () => window.removeEventListener('pointerdown', updateKeyboardOwner, true)
+  }, [])
+  useEffect(() => {
     function shortcuts(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null
       const tag = target?.tagName ?? ''
       const typing = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA'
       const direction = mindmapDirectionFromKey(event.key)
-      if (direction && !event.altKey && !event.ctrlKey && !event.metaKey && !blocksMindmapKeyboardNavigation(target)) {
+      if (direction && !event.altKey && !event.ctrlKey && !event.metaKey && shouldMindmapHandleArrow(target, keyboardOwnerRef.current)) {
         const nextId = navigateMindmapNode(nodes, positions, selectedId, direction)
         const next = nextId ? nodes.find((node) => node.id === nextId) : undefined
         if (next && next.id !== selectedId) {
@@ -766,24 +775,30 @@ function App() {
     }
   }
 
-  async function deleteSelected(stopSessionWithNode: boolean) {
-    if (!graph || !selected || selected.id === graph.workspace.rootNodeId) return
+  async function deleteNode(nodeId: string, stopSessionWithNode: boolean) {
+    if (!graph || nodeId === graph.workspace.rootNodeId) return
     setBusy(true)
     setError('')
     try {
-      await api(`/api/nodes/${selected.id}`, {
+      await api(`/api/nodes/${nodeId}`, {
         method: 'DELETE',
         body: JSON.stringify({ stopSession: stopSessionWithNode }),
       })
       setSelectedId(graph.workspace.rootNodeId)
       setSurface(closeTerminal)
       setDeleteNodeId(null)
+      setContextMenu(null)
       await loadWorkspace()
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Unable to delete node')
     } finally {
       setBusy(false)
     }
+  }
+
+  async function deleteSelected(stopSessionWithNode: boolean) {
+    if (!selected) return
+    await deleteNode(selected.id, stopSessionWithNode)
   }
 
   async function deleteArchivedNode(nodeId: string, stopSessionWithNode: boolean) {
@@ -1056,6 +1071,9 @@ function App() {
             const node = graph.nodes.find((candidate) => candidate.id === contextMenu.nodeId)
             if (!node) return null
             const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
+            const branchHasSession = branchHasLiveSession(activeGraphNodes, graph.sessions, node.id)
+            const confirmingArchive = contextMenu.confirm === 'archive'
+            const confirmingDelete = contextMenu.confirm === 'delete'
             return (
               <div className="node-context-menu" role="menu" aria-label={`Actions for ${node.title}`} style={{ left: contextMenu.x, top: contextMenu.y }} onContextMenu={(event) => event.preventDefault()}>
                 <div className="node-context-menu-title"><span>{node.title}</span><small>{typeLabels[node.type]}</small></div>
@@ -1063,8 +1081,9 @@ function App() {
                 <button type="button" role="menuitem" onClick={() => { setContextMenu(null); startRename(node) }}><Pencil2Icon />Rename</button>
                 {node.parentId && <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void duplicateNode(node) }}><CopyIcon />Duplicate</button>}
                 {childCount > 0 && <button type="button" role="menuitem" onClick={() => { toggleNodeCollapsed(node.id); setContextMenu(null) }}>{collapsed.has(node.id) ? <ChevronDownIcon /> : <ChevronUpIcon />}{collapsed.has(node.id) ? 'Expand branch' : 'Collapse branch'}</button>}
-                {node.parentId && <button type="button" role="menuitem" onClick={() => void archiveNode(node.id)}><ArchiveIcon />Archive</button>}
-                {node.parentId && <button className="is-danger" type="button" role="menuitem" onClick={() => { setSelectedId(node.id); setSurface((current) => current.terminalFloating ? { ...current, rightPanel: 'details' } : selectNodeSurface(null)); setDeleteNodeId(node.id); setContextMenu(null) }}><TrashIcon />Delete</button>}
+                {node.parentId && <button className={confirmingArchive ? 'is-danger is-confirming' : ''} type="button" role="menuitem" aria-label={confirmingArchive ? `Confirm archive ${node.title}` : `Archive ${node.title}`} onClick={() => confirmingArchive ? void archiveNode(node.id) : setContextMenu((current) => current?.nodeId === node.id ? { ...current, confirm: 'archive' } : current)}><ArchiveIcon />{confirmingArchive ? contextMenuConfirmationText('archive', branchHasSession) : 'Archive'}</button>}
+                {node.parentId && <button className={`is-danger ${confirmingDelete ? 'is-confirming' : ''}`} type="button" role="menuitem" aria-label={confirmingDelete ? `Confirm delete ${node.title}` : `Delete ${node.title}`} onClick={() => confirmingDelete ? void deleteNode(node.id, false) : setContextMenu((current) => current?.nodeId === node.id ? { ...current, confirm: 'delete' } : current)}><TrashIcon />{confirmingDelete ? contextMenuConfirmationText('delete', branchHasSession) : 'Delete'}</button>}
+                {node.parentId && confirmingDelete && branchHasSession && <button className="is-danger is-confirming is-secondary-confirm" type="button" role="menuitem" onClick={() => void deleteNode(node.id, true)}><TrashIcon />{contextMenuStopSessionConfirmationText(branchHasSession)}</button>}
               </div>
             )
           })()}
