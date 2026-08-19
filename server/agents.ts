@@ -51,7 +51,7 @@ function hasItems(value: unknown) {
 
 function hasActiveDelegatedWork(input: Record<string, unknown>) {
   if (hasItems(input.background_tasks) || hasItems(input.session_crons)) return true
-  if (['SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted'].includes(String(input.hook_event_name ?? ''))) return true
+  if (['SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted'].includes(eventField(input, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? '')) return true
   return false
 }
 
@@ -96,6 +96,40 @@ export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: R
   if (!state && event === 'SessionStart') state = 'read'
   if (!state) return null
   return { kind, state, since: now, ...agentSessionInfoFromEvent(input) }
+}
+
+export function shouldPreserveAgentState(current: AgentActivity | undefined, event: Record<string, unknown>, next: AgentActivity | null) {
+  const eventName = eventField(event, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? ''
+  if (!next) return true
+  if (next.state !== 'working') return false
+  if (!current || !['completed', 'read', 'needs_input'].includes(current.state)) return false
+  return ['SubagentStop', 'TaskCompleted'].includes(eventName)
+}
+
+function mergeActivity(current: AgentActivity | undefined, next: AgentActivity) {
+  return {
+    ...current,
+    ...next,
+    externalSessionId: next.externalSessionId ?? current?.externalSessionId,
+    externalSessionPath: next.externalSessionPath ?? current?.externalSessionPath,
+    externalCwd: next.externalCwd ?? current?.externalCwd,
+  }
+}
+
+export function agentActivityFromRecordedEvent(
+  kind: Exclude<AgentKind, 'ssh'>,
+  input: Record<string, unknown>,
+  recordedState: AgentActivity['state'],
+  createdAt: string,
+  current?: AgentActivity,
+) {
+  const event = eventField(input, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? ''
+  const manualState = event === 'manual_status' && ['working', 'completed', 'read'].includes(recordedState) ? recordedState : undefined
+  const next = manualState
+    ? { kind, state: manualState, since: manualState === 'read' ? current?.since ?? createdAt : createdAt, ...agentSessionInfoFromEvent(input) }
+    : agentActivityFromEvent(kind, input, createdAt)
+  if (shouldPreserveAgentState(current, input, next)) return current
+  return next ? mergeActivity(current, next) : current
 }
 
 export function isMuxMapAgentHookCommand(command: unknown, kind: AgentKind) {

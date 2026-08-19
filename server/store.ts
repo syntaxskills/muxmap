@@ -13,6 +13,7 @@ import {
   type WorkspaceGraph,
 } from '../src/model.ts'
 import { reorderSiblings, type ReorderPosition } from '../src/graph.ts'
+import { agentActivityFromRecordedEvent } from './agents.ts'
 
 type CreateNodeInput = {
   parentId: string
@@ -30,6 +31,60 @@ type UpdateNodeInput = Partial<Pick<WorkNode, 'title' | 'type' | 'project' | 'co
 type SessionInput = Omit<TerminalSession, 'createdAt' | 'updatedAt'>
 
 const nodeTypes: NodeType[] = ['workspace', 'repo', 'feature', 'ticket', 'note', 'todo', 'terminal']
+const agentKinds: AgentEventLogEntry['kind'][] = ['codex', 'claude', 'pi']
+const agentStates: AgentActivity['state'][] = ['unavailable', 'working', 'needs_input', 'completed', 'read']
+
+function parsePayloadJson(value: unknown) {
+  try {
+    const parsed = JSON.parse(String(value))
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>
+  } catch {
+    // Ignore malformed historical debug payloads.
+  }
+  return {}
+}
+
+function rebuildAgentActivityFromEvents(database: DatabaseSync) {
+  const rows = database.prepare(`
+    SELECT tmux_name, kind, state, payload_json, created_at
+    FROM agent_events
+    ORDER BY tmux_name, created_at, rowid
+  `).all() as Array<Record<string, unknown>>
+  const latest = new Map<string, AgentActivity>()
+  for (const row of rows) {
+    const runtimeName = String(row.tmux_name)
+    const kind = String(row.kind)
+    const state = String(row.state)
+    if (!agentKinds.includes(kind as AgentEventLogEntry['kind']) || !agentStates.includes(state as AgentActivity['state'])) continue
+    const next = agentActivityFromRecordedEvent(
+      kind as AgentEventLogEntry['kind'],
+      parsePayloadJson(row.payload_json),
+      state as AgentActivity['state'],
+      String(row.created_at),
+      latest.get(runtimeName),
+    )
+    if (next) latest.set(runtimeName, next)
+  }
+  if (latest.size === 0) return
+  const upsert = database.prepare(`
+    INSERT INTO agent_activity (
+      tmux_name, kind, state, since, external_session_id, external_session_path, external_cwd
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(tmux_name) DO UPDATE SET
+      kind = excluded.kind,
+      state = excluded.state,
+      since = excluded.since,
+      external_session_id = COALESCE(excluded.external_session_id, agent_activity.external_session_id),
+      external_session_path = COALESCE(excluded.external_session_path, agent_activity.external_session_path),
+      external_cwd = COALESCE(excluded.external_cwd, agent_activity.external_cwd)
+  `)
+  for (const [runtimeName, activity] of latest) {
+    upsert.run(
+      runtimeName, activity.kind, activity.state, activity.since ?? new Date().toISOString(),
+      activity.externalSessionId ?? null, activity.externalSessionPath ?? null, activity.externalCwd ?? null,
+    )
+  }
+}
 
 export function createStore(path: string) {
   const database = new DatabaseSync(path)
@@ -117,6 +172,7 @@ export function createStore(path: string) {
   for (const [column, type] of [['external_session_id', 'TEXT'], ['external_session_path', 'TEXT'], ['external_cwd', 'TEXT']] as const) {
     if (!agentColumns.some((item) => item.name === column)) database.exec(`ALTER TABLE agent_activity ADD COLUMN ${column} ${type}`)
   }
+  rebuildAgentActivityFromEvents(database)
 
   if (!database.prepare('SELECT id FROM workspaces WHERE id = ?').get('default')) {
     const now = new Date().toISOString()

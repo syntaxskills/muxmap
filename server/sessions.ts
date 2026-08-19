@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import type { AgentActivity, AgentKind, TerminalBackend, TerminalSession } from '../src/model.ts'
 import type { WorkspaceStore } from './store.ts'
-import { agentActivityFromEvent, detectAgentKind, readProcesses, type ProcessInfo } from './agents.ts'
+import { agentActivityFromEvent, detectAgentKind, readProcesses, shouldPreserveAgentState, type ProcessInfo } from './agents.ts'
 import { platformLabel, terminalBackendsForPlatform, type RuntimePlatform } from '../src/settings.ts'
 
 export type MultiplexerPane = { runtimeName: string; paneId: string; pid: number }
@@ -240,14 +240,6 @@ export function createSessionManager(
     return session.backend === 'tmux' && !exists && agent?.kind === 'codex' && Boolean(agent.externalSessionId)
   }
 
-  function shouldPreserveAgentState(current: AgentActivity | undefined, event: Record<string, unknown>, next: AgentActivity | null) {
-    const eventName = String(event.hook_event_name ?? event.type ?? '')
-    if (!next) return true
-    if (next.state !== 'working') return false
-    if (!current || !['completed', 'read', 'needs_input'].includes(current.state)) return false
-    return ['SubagentStop', 'TaskCompleted'].includes(eventName)
-  }
-
   function availableSessionNames(backend: TerminalBackend, workspaceId: string, label: string, nodeId: string, adapter: MultiplexerAdapter, forbiddenRuntimeNames = new Set<string>()) {
     const base = sessionNames(backend, workspaceId, label)
     const conflicts = (names: ReturnType<typeof sessionNames>) => {
@@ -421,7 +413,10 @@ export function createSessionManager(
       if (!session) throw new Error('Session not found')
       const activity = store.getAgentActivity(session.runtimeName)
       if (!activity || activity.state !== 'completed') return activity
-      return store.upsertAgentActivity(session.runtimeName, { ...activity, state: 'read' })
+      const now = new Date().toISOString()
+      const next = store.upsertAgentActivity(session.runtimeName, { ...activity, state: 'read' })
+      if (next.kind !== 'ssh') store.recordAgentEvent(session.runtimeName, next.kind, { type: 'manual_status', state: 'read' }, next.state, now)
+      return next
     },
 
     setAgentStatus(id: string, state: 'working' | 'completed' | 'read', now = new Date().toISOString()) {
