@@ -2802,13 +2802,14 @@ kbd {
 }
 
 .terminal-node-editor .agent-event-list {
-  border-color: var(--terminal-line);
-  background: #171b18;
+  border-color: rgba(220, 188, 110, 0.34);
+  background: #f4efe3;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 10px 22px rgba(0, 0, 0, 0.18);
 }
 
 .terminal-node-editor .agent-event-list > summary,
 .terminal-node-editor .agent-event-list strong {
-  color: var(--terminal-text);
+  color: #182016;
 }
 
 .terminal-node-editor .agent-event-list p,
@@ -2816,11 +2817,16 @@ kbd {
 .terminal-node-editor .agent-event-list span,
 .terminal-node-editor .agent-event-list small,
 .terminal-node-editor .agent-event-list > summary::after {
-  color: var(--terminal-muted);
+  color: #66705f;
+}
+
+.terminal-node-editor .agent-event-list li {
+  border-left-color: rgba(24, 32, 22, 0.16);
+  background: rgba(255, 255, 255, 0.56);
 }
 
 .terminal-node-editor .agent-event-list em {
-  color: var(--terminal-text);
+  color: #293225;
 }
 
 .terminal-color-field > span,
