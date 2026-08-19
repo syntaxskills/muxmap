@@ -77,9 +77,11 @@ test('agent event log stores recent hook payloads for debugging', () => {
     message: 'Claude finished responding.',
   }, 'read', '2026-08-07T10:00:00.000Z')
   store.recordAgentEvent('muxmap-claude', 'claude', {
-    hook_event_name: 'SubagentStart',
-    agent_id: 'agent-1',
-    agent_type: 'Explore',
+    payload: {
+      hookEventName: 'SubagentStart',
+      agentId: 'agent-1',
+      agent_type: 'Explore',
+    },
   }, 'working', '2026-08-07T10:01:00.000Z')
 
   const events = store.listAgentEvents('muxmap-claude')

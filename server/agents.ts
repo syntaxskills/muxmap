@@ -62,6 +62,11 @@ function stringField(input: Record<string, unknown>, keys: string[]) {
   }
 }
 
+function eventField(input: Record<string, unknown>, keys: string[]) {
+  const payload = input.payload && typeof input.payload === 'object' ? input.payload as Record<string, unknown> : undefined
+  return stringField(input, keys) ?? (payload ? stringField(payload, keys) : undefined)
+}
+
 export function agentSessionInfoFromEvent(input: Record<string, unknown>) {
   const muxmap = input.muxmap && typeof input.muxmap === 'object' ? input.muxmap as Record<string, unknown> : undefined
   const payload = input.payload && typeof input.payload === 'object' ? input.payload as Record<string, unknown> : undefined
@@ -80,8 +85,8 @@ export function agentSessionInfoFromEvent(input: Record<string, unknown>) {
 }
 
 export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: Record<string, unknown>, now = new Date().toISOString()): AgentActivity | null {
-  const event = String(input.hook_event_name ?? input.type ?? '')
-  const notification = String(input.notification_type ?? '')
+  const event = eventField(input, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? ''
+  const notification = eventField(input, ['notification_type', 'notificationType']) ?? ''
   let state: AgentActivity['state'] | undefined
   if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'before_agent_start' || event === 'agent_start' || event === 'SubagentStart' || event === 'SubagentStop' || event === 'TaskCreated' || event === 'TaskCompleted') state = 'working'
   if (event === 'Stop' || event === 'StopFailure' || event === 'agent_end' || notification === 'agent_completed') state = 'completed'

@@ -404,6 +404,8 @@ test('unmapped Claude idle prompts and late subagent stops preserve the current 
     manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, '2026-08-07T10:01:00.000Z')
     assert.equal(manager.decorate([session])[0].agent?.state, 'needs_input')
     assert.equal(store.getSession(session.id)?.lastActivityAt, '2026-08-07T10:00:00.000Z')
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { payload: { hookEventName: 'PreToolUse' } }, '2026-08-07T10:01:30.000Z')
+    assert.equal(manager.decorate([session])[0].agent?.state, 'working')
 
     manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'Stop' }, '2026-08-07T10:02:00.000Z')
     manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'SubagentStop', agent_id: 'agent-late' }, '2026-08-07T10:03:00.000Z')
@@ -411,6 +413,7 @@ test('unmapped Claude idle prompts and late subagent stops preserve the current 
     assert.deepEqual(store.listAgentEvents(session.runtimeName).map((event) => [event.eventName, event.state]), [
       ['SubagentStop', 'completed'],
       ['Stop', 'completed'],
+      ['PreToolUse', 'working'],
       ['Notification', 'needs_input'],
       ['PermissionRequest', 'needs_input'],
     ])

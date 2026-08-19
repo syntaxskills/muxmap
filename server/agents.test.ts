@@ -42,6 +42,9 @@ test('Codex and Claude lifecycle hooks map to working, input, and completed stat
 test('Claude PreToolUse clears permission prompts by marking the node working', () => {
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'PermissionRequest' })!.state, 'needs_input')
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'PreToolUse' })!.state, 'working')
+  assert.equal(agentActivityFromEvent('claude', { hookEventName: 'PreToolUse' })!.state, 'working')
+  assert.equal(agentActivityFromEvent('claude', { payload: { hook_event_name: 'PreToolUse' } })!.state, 'working')
+  assert.equal(agentActivityFromEvent('claude', { payload: { hookEventName: 'Notification', notificationType: 'agent_needs_input' } })!.state, 'needs_input')
 })
 
 test('Claude Stop only stays working when Claude reports active delegated work', () => {

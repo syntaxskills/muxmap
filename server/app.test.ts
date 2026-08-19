@@ -933,6 +933,19 @@ test('local agent hooks update automatically detected tmux activity', async () =
       ['manual_status', 'completed'],
       ['manual_status', 'working'],
     ])
+
+    await fetch(`${base}/api/sessions/${adopted.session.id}/agent/status`, {
+      method: 'POST',
+      headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'working' }),
+    })
+    await fetch(`${base}/api/agent-events`, {
+      method: 'POST',
+      headers: { 'x-muxmap-hook': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'codex', tmuxPane: '%7', event: { hook_event_name: 'Stop' } }),
+    })
+    const autoCompleted = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
+    assert.equal(autoCompleted.sessions.find((item) => item.id === adopted.session.id)?.agent?.state, 'completed')
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })

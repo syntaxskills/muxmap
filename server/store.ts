@@ -408,11 +408,12 @@ export function createStore(path: string) {
     },
 
     recordAgentEvent(runtimeName: string, kind: AgentEventLogEntry['kind'], event: Record<string, unknown>, state: AgentActivity['state'], timestamp = new Date().toISOString()) {
-      const eventName = String(event.hook_event_name ?? event.type ?? 'unknown')
-      const notificationType = typeof event.notification_type === 'string' ? event.notification_type : undefined
-      const agentType = typeof event.agent_type === 'string' ? event.agent_type : undefined
-      const agentId = typeof event.agent_id === 'string' ? event.agent_id : typeof event.agentId === 'string' ? event.agentId : undefined
-      const message = typeof event.message === 'string' ? event.message : typeof event.last_assistant_message === 'string' ? event.last_assistant_message : undefined
+      const payload = event.payload && typeof event.payload === 'object' ? event.payload as Record<string, unknown> : undefined
+      const eventName = String(event.hook_event_name ?? event.hookEventName ?? event.type ?? event.event ?? payload?.hook_event_name ?? payload?.hookEventName ?? payload?.type ?? payload?.event ?? 'unknown')
+      const notificationType = typeof event.notification_type === 'string' ? event.notification_type : typeof event.notificationType === 'string' ? event.notificationType : typeof payload?.notification_type === 'string' ? payload.notification_type : typeof payload?.notificationType === 'string' ? payload.notificationType : undefined
+      const agentType = typeof event.agent_type === 'string' ? event.agent_type : typeof payload?.agent_type === 'string' ? payload.agent_type : undefined
+      const agentId = typeof event.agent_id === 'string' ? event.agent_id : typeof event.agentId === 'string' ? event.agentId : typeof payload?.agent_id === 'string' ? payload.agent_id : typeof payload?.agentId === 'string' ? payload.agentId : undefined
+      const message = typeof event.message === 'string' ? event.message : typeof event.last_assistant_message === 'string' ? event.last_assistant_message : typeof payload?.message === 'string' ? payload.message : typeof payload?.last_assistant_message === 'string' ? payload.last_assistant_message : undefined
       const summary = message ? message.replace(/\s+/g, ' ').trim().slice(0, 180) : undefined
       database.prepare(`
         INSERT INTO agent_events (
