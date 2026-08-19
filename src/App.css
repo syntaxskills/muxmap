@@ -475,6 +475,7 @@ kbd {
 
 .map-node.is-agent-completed .node-select {
   border-color: color-mix(in srgb, var(--agent-completed-color) 46%, var(--line-strong));
+  animation: agent-completed-edge-pulse 1.65s cubic-bezier(.28, .84, .42, 1) infinite;
 }
 
 .map-node.is-agent-completed .node-select::before {
@@ -3230,6 +3231,21 @@ kbd {
   42% { opacity: .46; transform: translateY(-1px) scale(1.006); }
 }
 
+@keyframes agent-completed-edge-pulse {
+  0%, 58%, 100% {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-completed-color) 18%, transparent), 0 6px 16px var(--shadow-soft);
+  }
+  15% {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-completed-color) 58%, transparent), inset 0 0 16px color-mix(in srgb, var(--agent-completed-color) 16%, transparent), 0 0 0 3px color-mix(in srgb, var(--agent-completed-color) 18%, transparent), 0 12px 26px color-mix(in srgb, var(--agent-completed-color) 16%, var(--shadow-soft));
+  }
+  30% {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-completed-color) 30%, transparent), 0 8px 18px var(--shadow-soft);
+  }
+  42% {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-completed-color) 44%, transparent), 0 0 0 2px color-mix(in srgb, var(--agent-completed-color) 12%, transparent), 0 10px 22px color-mix(in srgb, var(--agent-completed-color) 10%, var(--shadow-soft));
+  }
+}
+
 @keyframes agent-alert-lifetime {
   0%, 70% { opacity: 1; transform: translateY(0); }
   100% { opacity: 0; transform: translateY(-6px); }
@@ -3343,6 +3359,7 @@ kbd {
   .agent-alert,
   .terminal-preview-screen i,
   .map-node.is-agent-working .node-select::after,
+  .map-node.is-agent-completed .node-select,
   .map-node.is-agent-completed .node-select::before,
   .is-working > .agent-icon,
   .is-working > .agent-icon.is-pi .pi-agent-cell.is-lit,
@@ -3364,6 +3381,7 @@ kbd {
 .reduce-motion .agent-icon,
 .reduce-motion .is-working > .agent-icon.is-pi .pi-agent-cell.is-lit,
 .reduce-motion .map-node.is-agent-working .node-select::after,
+.reduce-motion .map-node.is-agent-completed .node-select,
 .reduce-motion .map-node.is-agent-completed .node-select::before {
   animation: none !important;
   transition: none !important;
