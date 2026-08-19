@@ -573,11 +573,22 @@ kbd {
   background: color-mix(in srgb, #7fa77e 9%, var(--node-surface));
 }
 
-.map-node.is-done .node-title {
-  color: var(--text-muted);
-  text-decoration: line-through;
-  text-decoration-thickness: 1px;
-  text-decoration-color: color-mix(in srgb, #6e936e 72%, transparent);
+.node-done-marker {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  z-index: 2;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, #6e936e 56%, var(--surface));
+  border-radius: 999px;
+  background: #79bd94;
+  color: #102115;
+  box-shadow: 0 5px 14px color-mix(in srgb, #79bd94 30%, transparent);
+  font: 800 9px/1 var(--mono);
+  pointer-events: none;
 }
 
 .map-node.is-done .node-task-action {

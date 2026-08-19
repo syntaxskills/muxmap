@@ -9,9 +9,11 @@ test('todo nodes expose quick done and undo actions beside the node', () => {
   assert.match(app, /<BoxIcon \/>Mark todo/)
   assert.match(app, /<CheckboxIcon \/>Mark done/)
   assert.match(app, /className="node-task-action"/)
+  assert.match(app, /className="node-done-marker"/)
   assert.match(app, /node\.doneAt \? 'Undo done' : 'Mark done'/)
   assert.match(css, /\.node-task-action\s*\{[^}]*position:\s*absolute/s)
-  assert.match(css, /\.map-node\.is-done \.node-title\s*\{[^}]*text-decoration:\s*line-through/s)
+  assert.match(css, /\.node-done-marker\s*\{[^}]*position:\s*absolute/s)
+  assert.doesNotMatch(css, /\.map-node\.is-done \.node-title\s*\{[^}]*text-decoration:\s*line-through/s)
 })
 
 test('agent sessions expose a right-click status submenu', () => {

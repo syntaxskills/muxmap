@@ -35,6 +35,7 @@ All notable changes to MuxMap are documented here.
 
 ### Fixed
 
+- Changed done todo nodes from full-title strikethrough to a small corner completion marker.
 - Preserved completed and needs-input Agent states when Claude sends a later `idle_prompt`, and stopped late `SubagentStop` events from reviving completed nodes as working.
 - Arrow keys now follow the user's last clicked surface: terminal after a terminal click, mindmap after a map click, even if xterm's hidden textarea still has focus.
 - Claude Code permission approval now clears the `needs_input` node state on the next lightweight `PreToolUse` hook without installing the heavier `PostToolUse` hook.
