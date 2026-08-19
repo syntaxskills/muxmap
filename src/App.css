@@ -51,6 +51,14 @@
   font: 12px/1 var(--mono);
 }
 
+.demo-badge {
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--text-strong);
+}
+
 .topbar-status button {
   padding: 6px 8px;
   border: 1px solid transparent;
@@ -554,11 +562,11 @@ kbd {
 
 .node-todo-marker {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  z-index: 2;
-  width: 11px;
-  height: 11px;
+  top: 3px;
+  right: 3px;
+  z-index: 3;
+  width: 9px;
+  height: 9px;
   border: 2px solid var(--surface);
   border-radius: 999px;
   background: #d6534f;
@@ -770,8 +778,9 @@ kbd {
 .node-expanded-content > span {
   min-width: 0;
   display: grid;
-  grid-template-columns: 43px minmax(0, 1fr);
-  gap: 5px;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px;
   color: var(--text);
   font: 9px/1.35 var(--mono);
 }
@@ -779,13 +788,25 @@ kbd {
 .node-expanded-content b {
   color: var(--text-muted);
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .node-expanded-content code,
 .node-expanded-content em,
-.node-expanded-content > span {
+.node-expanded-content time,
+.node-expanded-content > span > span {
+  min-width: 0;
+  display: block;
   overflow: hidden;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.node-expanded-content .is-note em {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   white-space: normal;
 }
 

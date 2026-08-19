@@ -19,6 +19,7 @@ All notable changes to MuxMap are documented here.
 - Made Agent state unmistakable: active work sweeps a green light across its node, Pi uses a compact black square-matrix loader, completion jumps the Agent icon, and input requests show a node-corner question mark.
 - Added a green edge pulse for completed-but-unread Agent nodes so completion remains visible even without a sweep ray.
 - Added a separate delegated Agent state for Claude `Stop` events that report active background work, with its own subdued background-work indicator.
+- Added a client-side `?demo=agents` workspace for UI review and screenshots with long paths, todos, archived nodes, and every Agent state.
 - Added notification delivery controls for system-only, in-page-only, combined, or fully disabled alerts.
 - Added a Settings action that sends a real browser-mediated system notification and reports permission or delivery errors in place.
 - Added a clickable in-app alert fallback and hid node types by default.
@@ -43,6 +44,8 @@ All notable changes to MuxMap are documented here.
 - Arrow keys now follow the user's last clicked surface: terminal after a terminal click, mindmap after a map click, even if xterm's hidden textarea still has focus.
 - Claude Code permission approval now clears the `needs_input` node state on the next lightweight `PreToolUse` hook without installing the heavier `PostToolUse` hook.
 - Stopped terminal link detection from swallowing adjacent page text such as `Home` after local development URLs.
+- Kept expanded mindmap nodes bounded by truncating metadata previews, showing path tails, and clamping notes while leaving full content in Details.
+- Moved the todo corner marker outside the animated node button so it is not clipped by Agent state effects.
 - Kept archived nodes discoverable inside their original parent and preserved nested archive behavior when the parent is archived too.
 - Made the full expanded node surface open its linked Terminal, including metadata in the lower half.
 - Removed the duplicate node-level Terminal button because selecting a terminal-enabled node already opens it.

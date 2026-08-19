@@ -35,6 +35,7 @@ import { keyboardOwnerFromPointerTarget, mindmapDirectionFromKey, navigateMindma
 import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { AgentEventList } from './AgentEventList.tsx'
+import { demoWorkspaceGraph } from './demoGraph.ts'
 import { ArchiveIcon, BoxIcon, CheckboxIcon, CheckCircledIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, EyeOpenIcon, GearIcon, Pencil2Icon, PlayIcon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
@@ -61,10 +62,29 @@ const typeLabels: Record<NodeType, string> = {
   terminal: 'Terminal task',
 }
 
+function middleEllipsis(value: string, maxLength = 42) {
+  if (value.length <= maxLength) return value
+  const head = Math.max(8, Math.floor((maxLength - 1) * 0.42))
+  const tail = Math.max(8, maxLength - head - 1)
+  return `${value.slice(0, head)}…${value.slice(-tail)}`
+}
+
+function compactPath(value: string) {
+  const normalized = value.replace(/\\/g, '/')
+  const parts = normalized.split('/').filter(Boolean)
+  if (parts.length === 0) return middleEllipsis(value, 18)
+  const tail = parts.at(-1) ?? normalized
+  return tail.length > 20 ? `…${tail.slice(-19)}` : `…/${tail}`
+}
+
 function App() {
+  const demoMode = new URLSearchParams(window.location.search).get('demo') === 'agents'
   const [clientPlatform] = useState(() => /Win/i.test(navigator.platform) ? 'win32' : /Mac/i.test(navigator.platform) ? 'darwin' : 'linux')
-  const [initialView] = useState(() => readViewState(window.location.search))
-  const [graph, setGraph] = useState<WorkspaceGraph | null>(null)
+  const [initialView] = useState(() => {
+    const view = readViewState(window.location.search)
+    return demoMode && !view.selectedId ? { ...view, selectedId: 'demo-api-contract' } : view
+  })
+  const [graph, setGraph] = useState<WorkspaceGraph | null>(() => demoMode ? demoWorkspaceGraph : null)
   const [selectedId, setSelectedId] = useState<string | null>(initialView.selectedId ?? 'dev-1420')
   const [collapsed, setCollapsed] = useState(new Set<string>())
   const [query, setQuery] = useState('')
@@ -118,22 +138,27 @@ function App() {
 
   const loadWorkspace = useCallback(async () => {
     setError('')
+    if (demoMode) {
+      setGraph(demoWorkspaceGraph)
+      return
+    }
     try {
       await api('/api/auth')
       setGraph(await api<WorkspaceGraph>('/api/workspaces/default'))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load workspace')
     }
-  }, [])
+  }, [demoMode])
 
   useEffect(() => { void loadWorkspace() }, [loadWorkspace])
   useEffect(() => {
+    if (demoMode) return
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return
       void api<WorkspaceGraph>('/api/workspaces/default').then(setGraph).catch(() => {})
     }, WORKSPACE_POLL_MS)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [demoMode])
   useEffect(() => setDeleteNodeId((current) => current === selectedId ? current : null), [selectedId])
   useEffect(() => {
     if (!contextMenu) return
@@ -459,6 +484,13 @@ function App() {
 
   async function saveNode(nodeId: string, changes: NodePatch) {
     setError('')
+    if (demoMode) {
+      setGraph((current) => current ? {
+        ...current,
+        nodes: current.nodes.map((node) => node.id === nodeId ? { ...node, ...changes, doneAt: changes.doneAt === null ? undefined : changes.doneAt ?? node.doneAt, updatedAt: new Date().toISOString() } : node),
+      } : current)
+      return
+    }
     try {
       const updated = await api<WorkNode>(`/api/nodes/${nodeId}`, {
         method: 'PATCH',
@@ -612,6 +644,10 @@ function App() {
   function selectNode(node: WorkNode) {
     setContextMenu(null)
     setSelectedId(node.id)
+    if (demoMode) {
+      setSurface(selectNodeSurface(null))
+      return
+    }
     setSurface(selectNodeSurface(liveSessionIdForNode(graph?.sessions ?? [], node.id)))
   }
 
@@ -672,6 +708,10 @@ function App() {
   }
 
   function openTerminal(id: string) {
+    if (demoMode) {
+      setError('Demo mode uses terminal previews only. Start MuxMap normally to attach a real terminal.')
+      return
+    }
     setSurface((current) => settings['terminal.defaultPlacement'] === 'floating'
       ? { rightPanel: current.rightPanel ?? 'details', terminalSessionId: id, terminalFloating: true }
       : openTerminalSurface(current, id))
@@ -944,6 +984,7 @@ function App() {
           <kbd>/</kbd>
         </label>
         <div className="topbar-status" aria-label="Workspace status">
+          {demoMode && <span className="demo-badge">Demo data</span>}
           <span>{activeGraphNodes.length} nodes</span>
           {agentCount > 0 && <span>{agentCount} agents</span>}
           <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))} aria-expanded={rightPanel === 'archive'} aria-label={`${archivedCount} archived nodes`} title="Archive"><ArchiveIcon /><span>{archivedCount} archived</span></button>
@@ -1075,21 +1116,21 @@ function App() {
                           {settings['mindmap.showNodeType'] && <span className="node-type">{typeLabels[node.type]}</span>}
                           {expanded && (
                             <span className="node-expanded-content">
-                              {node.project && <span><b>Project</b>{node.project}</span>}
-                              {node.jiraKey && <span><b>Ticket</b>{node.jiraKey}</span>}
-                              {node.repoPath && <span><b>Path</b><code>{node.repoPath}</code></span>}
-                              {node.note && <span><b>Note</b><em>{node.note}</em></span>}
-                              {visibleAgent && <span><b>Agent</b>{agentStatusText(visibleAgent)}</span>}
+                              {node.project && <span><b>Project</b><span title={node.project}>{node.project}</span></span>}
+                              {node.jiraKey && <span><b>Ticket</b><span title={node.jiraKey}>{node.jiraKey}</span></span>}
+                              {node.repoPath && <span className="is-path"><b>Path</b><code title={node.repoPath}>{compactPath(node.repoPath)}</code></span>}
+                              {node.note && <span className="is-note"><b>Note</b><em title={node.note}>{node.note}</em></span>}
+                              {visibleAgent && <span><b>Agent</b><span title={agentStatusText(visibleAgent)}>{agentStatusText(visibleAgent)}</span></span>}
                               {nodeSession && <span><b>Activity</b><time dateTime={activityTimestamp}>{activityAge === 'NOW' ? activityAge : `${activityAge} ago`}</time></span>}
-                              {archivedChildCount > 0 && <span><b>Archived</b>{archivedChildCount} {archivedChildCount === 1 ? 'child' : 'children'}</span>}
-                              <span><b>Terminal</b>{nodeSession ? `${nodeSession.status} · ${agentSessionSummary(nodeSession)}` : 'None'}</span>
+                              {archivedChildCount > 0 && <span><b>Archived</b><span>{archivedChildCount} {archivedChildCount === 1 ? 'child' : 'children'}</span></span>}
+                              <span><b>Terminal</b><span title={nodeSession ? `${nodeSession.status} · ${agentSessionSummary(nodeSession)}` : 'None'}>{nodeSession ? `${nodeSession.status} · ${agentSessionSummary(nodeSession)}` : 'None'}</span></span>
                             </span>
                           )}
                         </span>
                         {childCount > 0 && <span className="child-count">{collapsed.has(node.id) ? '+' : childCount}</span>}
-                        {hasOpenTodo && <span className="node-todo-marker" aria-label="Todo open" title="Todo" />}
                         {nodeSession && <span className="node-runtime" title={`Last activity ${new Date(activityTimestamp!).toLocaleString()}`}><time className="node-last-activity" dateTime={activityTimestamp}>{activityAge}</time><span className={`terminal-badge is-${nodeSession.status} ${visibleAgent ? `is-${visibleAgent.state}` : ''}`} title={visibleAgent ? agentStatusText(visibleAgent) : nodeSession.runtimeExists === false ? 'Terminal runtime missing' : `Terminal ${nodeSession.status}`}>{visibleAgent ? <AgentIcon kind={visibleAgent.kind} /> : '>_'}</span></span>}
                       </button>
+                      {hasOpenTodo && <span className="node-todo-marker" aria-label="Todo open" title="Todo" />}
                       {agentState === 'needs_input' && <span className="agent-needs-input-marker" role="img" aria-label={`Agent needs input for ${node.title}`} title="Agent needs input">?</span>}
                       <button className="node-add-action" type="button" onClick={() => void addChild(node)} aria-label={`Add child to ${node.title}`}>+</button>
                     </article>

@@ -9,6 +9,7 @@ test('todo nodes use only a corner marker for open todo state', () => {
   assert.match(app, /<BoxIcon \/>Mark todo/)
   assert.match(app, /<CheckboxIcon \/>Mark done/)
   assert.match(app, /className="node-todo-marker"/)
+  assert.match(app, /<\/button>\s*\{hasOpenTodo && <span className="node-todo-marker"/)
   assert.match(app, /node\.type === 'todo' && !node\.doneAt/)
   assert.doesNotMatch(app, /className="node-task-action"/)
   assert.doesNotMatch(app, /Undo done/)
