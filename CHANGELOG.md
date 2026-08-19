@@ -31,6 +31,7 @@ All notable changes to MuxMap are documented here.
 
 ### Fixed
 
+- Claude Code permission approval now clears the `needs_input` node state on the next lightweight `PreToolUse` hook without installing the heavier `PostToolUse` hook.
 - Stopped terminal link detection from swallowing adjacent page text such as `Home` after local development URLs.
 - Kept archived nodes discoverable inside their original parent and preserved nested archive behavior when the parent is archived too.
 - Made the full expanded node surface open its linked Terminal, including metadata in the lower half.

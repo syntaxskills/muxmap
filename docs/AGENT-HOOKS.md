@@ -27,11 +27,17 @@ The hook sends the current terminal locator to MuxMap:
 - tmux: `TMUX_PANE`;
 - Zellij: `ZELLIJ_SESSION_NAME` and optional `ZELLIJ_PANE_ID`;
 - Codex: direct `session_id` when supplied by the event;
-- Claude Code: lifecycle, notification, task-created/completed, and subagent-start/stop fields when supplied.
+- Claude Code: lifecycle, permission, `PreToolUse`, notification, task-created/completed, and subagent-start/stop fields when supplied.
 
 MuxMap resolves the locator to a live runtime name. Only runtime names starting with `muxmap` are accepted for management.
 
-Claude Code note: its `Stop` hook fires whenever Claude finishes a response, not only when the whole task is done. `Stop.background_tasks` is the authoritative signal that the main session is paused while background work continues. MuxMap treats non-empty `background_tasks` / `session_crons`, `TaskCreated`, `TaskCompleted`, `SubagentStart`, and `SubagentStop` as still `working` so a parent node does not flash as completed while a subagent or teammate is running or being integrated. MuxMap intentionally does not install a broad `PostToolUse` hook because that would fire after every tool; if we later need exact Agent-tool launch telemetry, it should be added with an `Agent` matcher only.
+Claude Code notes:
+
+- `PermissionRequest` marks a node as `needs_input`.
+- Claude Code does not emit a separate "permission answered" hook; after approval, the next `PreToolUse` is the lightweight signal that work has resumed.
+- `Stop` fires whenever Claude finishes a response, not only when the whole task is done. `Stop.background_tasks` is the authoritative signal that the main session is paused while background work continues.
+- MuxMap treats non-empty `background_tasks` / `session_crons`, `TaskCreated`, `TaskCompleted`, `SubagentStart`, and `SubagentStop` as still `working` so a parent node does not flash as completed while a subagent or teammate is running or being integrated.
+- MuxMap intentionally does not install `PostToolUse` because it fires after every tool call and is not needed for the permission-approved transition.
 
 ## Outside MuxMap
 
