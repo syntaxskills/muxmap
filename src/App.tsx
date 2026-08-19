@@ -31,6 +31,7 @@ import { activityStaleness, formatActivityAge, sessionActivityTimestamp } from '
 import { agentWorkingSweepDelay, synchronizeAgentWorkingSweeps } from './agentAnimations.ts'
 import { agentSessionSummary } from './agentSessionDetails.ts'
 import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachment } from './imageAttachments.ts'
+import { blocksMindmapKeyboardNavigation, mindmapDirectionFromKey, navigateMindmapNode } from './mindmapNavigation.ts'
 import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { AgentEventList } from './AgentEventList.tsx'
@@ -362,8 +363,21 @@ function App() {
 
   useEffect(() => {
     function shortcuts(event: KeyboardEvent) {
-      const tag = (event.target as HTMLElement).tagName
+      const target = event.target as HTMLElement | null
+      const tag = target?.tagName ?? ''
       const typing = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA'
+      const direction = mindmapDirectionFromKey(event.key)
+      if (direction && !event.altKey && !event.ctrlKey && !event.metaKey && !blocksMindmapKeyboardNavigation(target)) {
+        const nextId = navigateMindmapNode(nodes, positions, selectedId, direction)
+        const next = nextId ? nodes.find((node) => node.id === nextId) : undefined
+        if (next && next.id !== selectedId) {
+          event.preventDefault()
+          setContextMenu(null)
+          setSelectedId(next.id)
+          setSurface(selectNodeSurface(liveSessionIdForNode(graph?.sessions ?? [], next.id)))
+        }
+        return
+      }
       if (event.key === '/' && !typing) {
         event.preventDefault()
         searchRef.current?.focus()
@@ -387,7 +401,7 @@ function App() {
     }
     window.addEventListener('keydown', shortcuts)
     return () => window.removeEventListener('keydown', shortcuts)
-  }, [centerView, contextMenu, fitView, graph?.nodes, selectedId, terminalSessionId])
+  }, [centerView, contextMenu, fitView, graph?.nodes, graph?.sessions, nodes, positions, selectedId, terminalSessionId])
 
   async function addChild(parent: WorkNode) {
     setBusy(true)
@@ -1055,7 +1069,7 @@ function App() {
             )
           })()}
 
-          {settings['canvas.showLegend'] && <div className="canvas-legend"><span><i className="legend-line" /> relationship</span><span><b>&gt;_</b> terminal</span><span>drag to pan</span><span><kbd>C</kbd> center</span><span><kbd>N</kbd> new node</span></div>}
+          {settings['canvas.showLegend'] && <div className="canvas-legend"><span><i className="legend-line" /> relationship</span><span><b>&gt;_</b> terminal</span><span>drag to pan</span><span><kbd>↑↓←→</kbd> navigate</span><span><kbd>C</kbd> center</span><span><kbd>N</kbd> new node</span></div>}
         </div>
 
         {sidePanelOpen && rightPanel === 'details' && selected && <aside className="side-panel detail-panel" aria-label="Node details" aria-live="polite">
