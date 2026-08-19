@@ -8,6 +8,7 @@ All notable changes to MuxMap are documented here.
 
 - Added arrow-key mindmap navigation that hops to the nearest visible node while leaving arrow keys untouched inside terminals and form controls.
 - Moved right-click Archive/Delete confirmation into the context menu itself for faster destructive actions.
+- Added persistent todo/done node state, right-click Mark todo/Mark done actions, and a subtle per-node Mark done/Undo done quick action.
 - Reworked the README into a shorter open-source landing page and moved operational detail into focused architecture and Agent hook docs.
 - Updated the PRD and acceptance coverage to reflect archive, settings, mobile, Agent activity, Windows/Zellij, terminal links, and duplicate runtime-name behavior.
 - Added persistent last-activity timestamps for terminal input, terminal/Agent output, and Agent hooks, with compact minute/hour/day ages on every linked node.

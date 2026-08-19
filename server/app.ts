@@ -484,11 +484,19 @@ export function createMuxMapServer(options: ServerOptions) {
         const updateNodeMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)$/)
         if (request.method === 'PATCH' && updateNodeMatch) {
           const body = await readJson(request)
-          const input: Record<string, string> = {}
-          for (const field of ['title', 'type', 'project', 'color', 'repoPath', 'jiraKey', 'note']) {
+          const input: Partial<Omit<import('../src/model.ts').WorkNode, 'doneAt'>> & { doneAt?: string | null } = {}
+          for (const field of ['title', 'project', 'color', 'repoPath', 'jiraKey', 'note'] as const) {
             if (body[field] === undefined) continue
             if (typeof body[field] !== 'string') throw new Error(`${field} must be a string`)
             input[field] = body[field]
+          }
+          if (body.type !== undefined) {
+            if (typeof body.type !== 'string') throw new Error('type must be a string')
+            input.type = body.type as import('../src/model.ts').NodeType
+          }
+          if (body.doneAt !== undefined) {
+            if (body.doneAt !== null && typeof body.doneAt !== 'string') throw new Error('doneAt must be a string or null')
+            input.doneAt = body.doneAt
           }
           return sendJson(response, 200, store.updateNode(updateNodeMatch[1], input))
         }

@@ -82,7 +82,7 @@ export function archivedNodeEntries(nodes: WorkNode[], query: string): ArchivedN
 }
 
 export function expandedNodeHeight(node: WorkNode, hasAgent: boolean, archivedChildCount = 0, hasActivity = false) {
-  const rows = 1 + [node.project, node.jiraKey, node.repoPath, node.note].filter(Boolean).length + Number(hasAgent) + Number(archivedChildCount > 0) + Number(hasActivity)
+  const rows = 1 + [node.project, node.jiraKey, node.repoPath, node.note].filter(Boolean).length + Number(node.type === 'todo') + Number(hasAgent) + Number(archivedChildCount > 0) + Number(hasActivity)
   return Math.max(106, 64 + rows * 12)
 }
 

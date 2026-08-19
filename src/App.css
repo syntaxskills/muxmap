@@ -534,6 +534,57 @@ kbd {
   color: var(--accent);
 }
 
+.node-task-action {
+  position: absolute;
+  right: 8px;
+  bottom: -18px;
+  z-index: 4;
+  max-width: 92px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--node-color) 28%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-elevated) 92%, transparent);
+  color: var(--text-muted);
+  cursor: pointer;
+  font: 9px/1 var(--mono);
+  opacity: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 8px 18px var(--shadow-soft);
+  transition: opacity 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.map-node:hover .node-task-action,
+.map-node:focus-within .node-task-action,
+.map-node.is-selected .node-task-action {
+  opacity: .9;
+}
+
+.node-task-action:hover,
+.node-task-action:focus-visible {
+  border-color: var(--node-color);
+  color: var(--text-strong);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.map-node.is-done .node-select {
+  background: color-mix(in srgb, #7fa77e 9%, var(--node-surface));
+}
+
+.map-node.is-done .node-title {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, #6e936e 72%, transparent);
+}
+
+.map-node.is-done .node-task-action {
+  border-color: color-mix(in srgb, #6e936e 32%, var(--line));
+  color: #5f805f;
+}
+
 .node-color {
   width: 6px;
   height: 28px;

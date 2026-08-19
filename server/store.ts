@@ -25,7 +25,7 @@ type CreateNodeInput = {
   note?: string
 }
 
-type UpdateNodeInput = Partial<Pick<WorkNode, 'title' | 'type' | 'project' | 'color' | 'repoPath' | 'jiraKey' | 'note'>>
+type UpdateNodeInput = Partial<Pick<WorkNode, 'title' | 'type' | 'project' | 'color' | 'repoPath' | 'jiraKey' | 'note'>> & { doneAt?: string | null }
 
 type SessionInput = Omit<TerminalSession, 'createdAt' | 'updatedAt'>
 
@@ -101,6 +101,9 @@ export function createStore(path: string) {
   if (!nodeColumns.some((column) => column.name === 'archived_at')) {
     database.exec('ALTER TABLE nodes ADD COLUMN archived_at TEXT')
   }
+  if (!nodeColumns.some((column) => column.name === 'done_at')) {
+    database.exec('ALTER TABLE nodes ADD COLUMN done_at TEXT')
+  }
 
   const sessionColumns = database.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>
   if (!sessionColumns.some((column) => column.name === 'last_activity_at')) {
@@ -160,6 +163,7 @@ export function createStore(path: string) {
       jiraKey: row.jira_key ? String(row.jira_key) : undefined,
       note: row.note ? String(row.note) : undefined,
       sortOrder: Number(row.sort_order),
+      doneAt: row.done_at ? String(row.done_at) : undefined,
       archivedAt: row.archived_at ? String(row.archived_at) : undefined,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
@@ -285,14 +289,16 @@ export function createStore(path: string) {
         repoPath: input.repoPath === undefined ? existing.repoPath : input.repoPath.trim() || undefined,
         jiraKey: input.jiraKey === undefined ? existing.jiraKey : input.jiraKey.trim() || undefined,
         note: input.note === undefined ? existing.note : input.note.trim() || undefined,
+        doneAt: input.doneAt === undefined ? existing.doneAt : input.doneAt?.trim() || undefined,
         updatedAt: now,
       }
       database.prepare(`
         UPDATE nodes SET title = ?, type = ?, project = ?, color = ?, repo_path = ?,
-          jira_key = ?, note = ?, updated_at = ? WHERE id = ?
+          jira_key = ?, note = ?, done_at = ?, updated_at = ? WHERE id = ?
       `).run(
         updated.title, updated.type, updated.project ?? null, updated.color,
         updated.repoPath ?? null, updated.jiraKey ?? null, updated.note ?? null,
+        updated.doneAt ?? null,
         updated.updatedAt, updated.id,
       )
       database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, updated.workspaceId)

@@ -48,6 +48,7 @@ import {
 const NODE_WIDTH = 184
 const NODE_HEIGHT = 42
 const WORKSPACE_POLL_MS = 5000
+type NodePatch = Partial<Omit<WorkNode, 'doneAt'>> & { doneAt?: string | null }
 const TerminalPanel = lazy(() => import('./TerminalPanel.tsx'))
 
 const typeLabels: Record<NodeType, string> = {
@@ -456,7 +457,7 @@ function App() {
     }
   }
 
-  async function saveNode(nodeId: string, changes: Partial<WorkNode>) {
+  async function saveNode(nodeId: string, changes: NodePatch) {
     setError('')
     try {
       const updated = await api<WorkNode>(`/api/nodes/${nodeId}`, {
@@ -471,6 +472,16 @@ function App() {
       setError(updateError instanceof Error ? updateError.message : 'Unable to update node')
       await loadWorkspace()
     }
+  }
+
+  async function markNodeTodo(node: WorkNode) {
+    await saveNode(node.id, { type: 'todo', doneAt: null })
+    setContextMenu(null)
+  }
+
+  async function markNodeDone(node: WorkNode) {
+    await saveNode(node.id, { type: 'todo', doneAt: new Date().toISOString() })
+    setContextMenu(null)
   }
 
   async function pasteNoteImage(event: ReactClipboardEvent<HTMLTextAreaElement>, node: WorkNode) {
@@ -519,7 +530,7 @@ function App() {
 
   function beginNodeReorder(event: ReactPointerEvent<HTMLElement>, node: WorkNode) {
     const target = event.target as HTMLElement
-    if (event.button !== 0 || !node.parentId || renamingId === node.id || target.closest('input, .node-add-action')) return
+    if (event.button !== 0 || !node.parentId || renamingId === node.id || target.closest('input, .node-add-action, .node-task-action')) return
     nodePointerRef.current = { pointerId: event.pointerId, nodeId: node.id, parentId: node.parentId, x: event.clientX, y: event.clientY, dragging: false }
     target.setPointerCapture(event.pointerId)
   }
@@ -997,6 +1008,8 @@ function App() {
                   const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
                   const archivedChildCount = archivedChildCounts.get(node.id) ?? 0
                   const expanded = node.id === selectedId || node.id === hoveredId
+                  const isTodoNode = node.type === 'todo'
+                  const isDoneNode = Boolean(node.doneAt)
                   const style = {
                     left: point.x + 48,
                     top: point.y + 48,
@@ -1006,7 +1019,7 @@ function App() {
                   } as CSSProperties
                   return (
                     <article
-                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${agentState ? `is-agent-${agentState}` : ''} ${activityFade !== 'fresh' ? `is-activity-${activityFade}` : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
+                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${isTodoNode ? 'is-todo' : ''} ${isDoneNode ? 'is-done' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${agentState ? `is-agent-${agentState}` : ''} ${activityFade !== 'fresh' ? `is-activity-${activityFade}` : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
                       key={node.id}
                       style={style}
                       data-node-id={node.id}
@@ -1049,6 +1062,7 @@ function App() {
                               {node.repoPath && <span><b>Path</b><code>{node.repoPath}</code></span>}
                               {node.note && <span><b>Note</b><em>{node.note}</em></span>}
                               {visibleAgent && <span><b>Agent</b>{agentStatusText(visibleAgent)}</span>}
+                              {isTodoNode && <span><b>Todo</b>{node.doneAt ? `Done ${formatActivityAge(node.doneAt)} ago` : 'Open'}</span>}
                               {nodeSession && <span><b>Activity</b><time dateTime={activityTimestamp}>{activityAge === 'NOW' ? activityAge : `${activityAge} ago`}</time></span>}
                               {archivedChildCount > 0 && <span><b>Archived</b>{archivedChildCount} {archivedChildCount === 1 ? 'child' : 'children'}</span>}
                               <span><b>Terminal</b>{nodeSession ? `${nodeSession.status} · ${agentSessionSummary(nodeSession)}` : 'None'}</span>
@@ -1059,6 +1073,7 @@ function App() {
                         {nodeSession && <span className="node-runtime" title={`Last activity ${new Date(activityTimestamp!).toLocaleString()}`}><time className="node-last-activity" dateTime={activityTimestamp}>{activityAge}</time><span className={`terminal-badge is-${nodeSession.status} ${visibleAgent ? `is-${visibleAgent.state}` : ''}`} title={visibleAgent ? agentStatusText(visibleAgent) : nodeSession.runtimeExists === false ? 'Terminal runtime missing' : `Terminal ${nodeSession.status}`}>{visibleAgent ? <AgentIcon kind={visibleAgent.kind} /> : '>_'}</span></span>}
                       </button>
                       {agentState === 'needs_input' && <span className="agent-needs-input-marker" role="img" aria-label={`Agent needs input for ${node.title}`} title="Agent needs input">?</span>}
+                      {isTodoNode && <button className="node-task-action" type="button" onClick={() => node.doneAt ? void markNodeTodo(node) : void markNodeDone(node)} aria-label={`${node.doneAt ? 'Undo done' : 'Mark done'} for ${node.title}`}>{node.doneAt ? 'Undo done' : 'Mark done'}</button>}
                       <button className="node-add-action" type="button" onClick={() => void addChild(node)} aria-label={`Add child to ${node.title}`}>+</button>
                     </article>
                   )
@@ -1081,6 +1096,8 @@ function App() {
                 <button type="button" role="menuitem" onClick={() => { setContextMenu(null); startRename(node) }}><Pencil2Icon />Rename</button>
                 {node.parentId && <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void duplicateNode(node) }}><CopyIcon />Duplicate</button>}
                 {childCount > 0 && <button type="button" role="menuitem" onClick={() => { toggleNodeCollapsed(node.id); setContextMenu(null) }}>{collapsed.has(node.id) ? <ChevronDownIcon /> : <ChevronUpIcon />}{collapsed.has(node.id) ? 'Expand branch' : 'Collapse branch'}</button>}
+                {node.parentId && (node.type !== 'todo' || node.doneAt) && <button type="button" role="menuitem" onClick={() => void markNodeTodo(node)}>☐ Mark todo</button>}
+                {node.parentId && !node.doneAt && <button type="button" role="menuitem" onClick={() => void markNodeDone(node)}>☑ Mark done</button>}
                 {node.parentId && <button className={confirmingArchive ? 'is-danger is-confirming' : ''} type="button" role="menuitem" aria-label={confirmingArchive ? `Confirm archive ${node.title}` : `Archive ${node.title}`} onClick={() => confirmingArchive ? void archiveNode(node.id) : setContextMenu((current) => current?.nodeId === node.id ? { ...current, confirm: 'archive' } : current)}><ArchiveIcon />{confirmingArchive ? contextMenuConfirmationText('archive', branchHasSession) : 'Archive'}</button>}
                 {node.parentId && <button className={`is-danger ${confirmingDelete ? 'is-confirming' : ''}`} type="button" role="menuitem" aria-label={confirmingDelete ? `Confirm delete ${node.title}` : `Delete ${node.title}`} onClick={() => confirmingDelete ? void deleteNode(node.id, false) : setContextMenu((current) => current?.nodeId === node.id ? { ...current, confirm: 'delete' } : current)}><TrashIcon />{confirmingDelete ? contextMenuConfirmationText('delete', branchHasSession) : 'Delete'}</button>}
                 {node.parentId && confirmingDelete && branchHasSession && <button className="is-danger is-confirming is-secondary-confirm" type="button" role="menuitem" onClick={() => void deleteNode(node.id, true)}><TrashIcon />{contextMenuStopSessionConfirmationText(branchHasSession)}</button>}

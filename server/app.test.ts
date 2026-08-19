@@ -99,12 +99,21 @@ test('secured workspace and node APIs return persisted graph data', async () => 
     const renamed = await fetch(`${base}/api/nodes/${createdNode.id}`, {
       method: 'PATCH',
       headers: { cookie, origin: base, 'content-type': 'application/json' },
-      body: JSON.stringify({ title: 'Renamed in place', type: 'todo' }),
+      body: JSON.stringify({ title: 'Renamed in place', type: 'todo', doneAt: '2026-08-19T12:00:00.000Z' }),
     })
     assert.equal(renamed.status, 200)
-    const renamedNode = await renamed.json() as { title: string; type: string }
+    const renamedNode = await renamed.json() as { title: string; type: string; doneAt?: string }
     assert.equal(renamedNode.title, 'Renamed in place')
     assert.equal(renamedNode.type, 'todo')
+    assert.equal(renamedNode.doneAt, '2026-08-19T12:00:00.000Z')
+
+    const undone = await fetch(`${base}/api/nodes/${createdNode.id}`, {
+      method: 'PATCH',
+      headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ doneAt: null }),
+    })
+    assert.equal(undone.status, 200)
+    assert.equal(((await undone.json()) as { doneAt?: string }).doneAt, undefined)
 
     const second = await fetch(`${base}/api/workspaces/default/nodes`, {
       method: 'POST',
@@ -122,10 +131,11 @@ test('secured workspace and node APIs return persisted graph data', async () => 
     assert.deepEqual(reorderedNodes.nodes.filter((node) => node.id === createdNode.id || node.id === secondNode.id).map((node) => node.id), [secondNode.id, createdNode.id])
 
     const workspace = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } })
-    const graph = await workspace.json() as { nodes: Array<{ id: string; title: string; type: string }>; runtime: { platform: string; terminalBackends: string[] } }
+    const graph = await workspace.json() as { nodes: Array<{ id: string; title: string; type: string; doneAt?: string }>; runtime: { platform: string; terminalBackends: string[] } }
     assert.equal(graph.nodes.some((node) => node.id === createdNode.id), true)
     assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.title, 'Renamed in place')
     assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.type, 'todo')
+    assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.doneAt, undefined)
     assert.equal(graph.runtime.platform, 'linux')
     assert.equal(graph.runtime.terminalBackends.includes('tmux'), true)
   } finally {
