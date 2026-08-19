@@ -484,7 +484,7 @@ function App() {
     setContextMenu(null)
   }
 
-  async function setAgentStatus(sessionId: string, state: 'working' | 'completed' | 'read') {
+  async function setAgentStatus(sessionId: string, state: 'working' | 'delegated' | 'completed' | 'read') {
     setError('')
     try {
       const response = await api<{ activity: NonNullable<TerminalSession['agent']> }>(`/api/sessions/${sessionId}/agent/status`, {
@@ -1121,6 +1121,7 @@ function App() {
                   <button className="node-context-submenu-trigger" type="button" role="menuitem" aria-haspopup="menu"><DesktopIcon />Set agent status<ChevronRightIcon /></button>
                   <div className="node-context-submenu-panel" role="menu" aria-label={`Set agent status for ${node.title}`}>
                     <button type="button" role="menuitem" onClick={() => void setAgentStatus(agentSession.id, 'working')}><PlayIcon />Working</button>
+                    <button type="button" role="menuitem" onClick={() => void setAgentStatus(agentSession.id, 'delegated')}><GearIcon />Background</button>
                     <button type="button" role="menuitem" onClick={() => void setAgentStatus(agentSession.id, 'completed')}><CheckCircledIcon />Completed</button>
                     <button type="button" role="menuitem" onClick={() => void setAgentStatus(agentSession.id, 'read')}><EyeOpenIcon />Read</button>
                   </div>

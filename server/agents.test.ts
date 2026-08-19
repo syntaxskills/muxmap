@@ -47,7 +47,7 @@ test('Claude PreToolUse clears permission prompts by marking the node working', 
   assert.equal(agentActivityFromEvent('claude', { payload: { hookEventName: 'Notification', notificationType: 'agent_needs_input' } })!.state, 'needs_input')
 })
 
-test('Claude Stop only stays working when Claude reports active delegated work', () => {
+test('Claude Stop becomes delegated when Claude reports active background work', () => {
   assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'Stop',
     last_assistant_message: 'I handed this off to a sub-agent earlier and all work is now done.',
@@ -58,15 +58,15 @@ test('Claude Stop only stays working when Claude reports active delegated work',
     hook_event_name: 'Stop',
     last_assistant_message: 'I am handing this off to a sub-agent and will continue when it returns.',
     background_tasks: [{ id: 'task-1' }],
-  })!.state, 'working')
+  })!.state, 'delegated')
   assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'Stop',
     session_crons: [{ id: 'cron-1' }],
     last_assistant_message: 'The implementation agent will wake this session later.',
-  })!.state, 'working')
+  })!.state, 'delegated')
 })
 
-test('Claude subagent lifecycle events keep the parent node working', () => {
+test('Claude subagent start events mark working but finish events preserve current state', () => {
   assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'SubagentStart',
     agent_id: 'agent-001',
@@ -81,7 +81,7 @@ test('Claude subagent lifecycle events keep the parent node working', () => {
     hook_event_name: 'TaskCompleted',
     task_id: 'task-001',
     task_subject: 'Implement session recovery',
-  })!.state, 'working')
+  }), null)
   const subagentStop = agentActivityFromEvent('claude', {
     hook_event_name: 'SubagentStop',
     agent_id: 'agent-001',
@@ -89,9 +89,7 @@ test('Claude subagent lifecycle events keep the parent node working', () => {
     agent_transcript_path: '/home/user/.claude/projects/repo/session/subagents/agent-001.jsonl',
     last_assistant_message: 'Analysis complete.',
   })
-  assert.ok(subagentStop)
-  assert.equal(subagentStop.state, 'working')
-  assert.equal(subagentStop.externalSessionPath, '/home/user/.claude/projects/repo/session/subagents/agent-001.jsonl')
+  assert.equal(subagentStop, null)
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Stop', last_assistant_message: 'All done.' })!.state, 'completed')
 })
 

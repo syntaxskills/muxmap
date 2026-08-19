@@ -18,6 +18,7 @@ All notable changes to MuxMap are documented here.
 - Let long mindmap titles wrap onto a second line before truncating.
 - Made Agent state unmistakable: active work sweeps a green light across its node, Pi uses a compact black square-matrix loader, completion jumps the Agent icon, and input requests show a node-corner question mark.
 - Added a green edge pulse for completed-but-unread Agent nodes so completion remains visible even without a sweep ray.
+- Added a separate delegated Agent state for Claude `Stop` events that report active background work, with its own subdued background-work indicator.
 - Added notification delivery controls for system-only, in-page-only, combined, or fully disabled alerts.
 - Added a Settings action that sends a real browser-mediated system notification and reports permission or delivery errors in place.
 - Added a clickable in-app alert fallback and hid node types by default.

@@ -77,6 +77,10 @@ test('agent event log stores recent hook payloads for debugging', () => {
     message: 'Claude finished responding.',
   }, 'read', '2026-08-07T10:00:00.000Z')
   store.recordAgentEvent('muxmap-claude', 'claude', {
+    hook_event_name: 'Stop',
+    background_tasks: [{ id: 'task-1', description: 'Run mvn test in the background' }],
+  }, 'delegated', '2026-08-07T10:02:00.000Z')
+  store.recordAgentEvent('muxmap-claude', 'claude', {
     payload: {
       hookEventName: 'SubagentStart',
       agentId: 'agent-1',
@@ -85,13 +89,16 @@ test('agent event log stores recent hook payloads for debugging', () => {
   }, 'working', '2026-08-07T10:01:00.000Z')
 
   const events = store.listAgentEvents('muxmap-claude')
-  assert.equal(events.length, 2)
-  assert.equal(events[0].eventName, 'SubagentStart')
-  assert.equal(events[0].agentId, 'agent-1')
-  assert.equal(events[0].agentType, 'Explore')
-  assert.equal(events[1].notificationType, 'idle_prompt')
-  assert.equal(events[1].summary, 'Claude finished responding.')
-  assert.equal(events[1].payload.notification_type, 'idle_prompt')
+  assert.equal(events.length, 3)
+  assert.equal(events[0].eventName, 'Stop')
+  assert.equal(events[0].state, 'delegated')
+  assert.equal(events[0].summary, 'Run mvn test in the background')
+  assert.equal(events[1].eventName, 'SubagentStart')
+  assert.equal(events[1].agentId, 'agent-1')
+  assert.equal(events[1].agentType, 'Explore')
+  assert.equal(events[2].notificationType, 'idle_prompt')
+  assert.equal(events[2].summary, 'Claude finished responding.')
+  assert.equal(events[2].payload.notification_type, 'idle_prompt')
   store.close()
 })
 
@@ -112,6 +119,9 @@ test('agent activity rebuilds from event log on startup instead of trusting stal
     first.recordAgentEvent('muxmap-manual-working', 'codex', { type: 'manual_status', state: 'working' }, 'working', '2026-08-07T10:04:00.000Z')
     first.recordAgentEvent('muxmap-manual-working', 'codex', { hook_event_name: 'Stop' }, 'completed', '2026-08-07T10:05:00.000Z')
     first.upsertAgentActivity('muxmap-manual-working', { kind: 'codex', state: 'working', since: '2026-08-07T10:04:00.000Z' })
+
+    first.recordAgentEvent('muxmap-claude-delegated', 'claude', { hook_event_name: 'Stop', background_tasks: [{ id: 'task-1', description: 'Run mvn test' }] }, 'delegated', '2026-08-07T10:06:00.000Z')
+    first.upsertAgentActivity('muxmap-claude-delegated', { kind: 'claude', state: 'working', since: '2026-08-07T10:06:00.000Z' })
     first.close()
 
     const rebuilt = createStore(database)
@@ -119,6 +129,8 @@ test('agent activity rebuilds from event log on startup instead of trusting stal
     assert.equal(rebuilt.getAgentActivity('muxmap-claude-completed')?.since, '2026-08-07T10:00:00.000Z')
     assert.equal(rebuilt.getAgentActivity('muxmap-claude-permission')?.state, 'working')
     assert.equal(rebuilt.getAgentActivity('muxmap-manual-working')?.state, 'completed')
+    assert.equal(rebuilt.getAgentActivity('muxmap-claude-delegated')?.state, 'delegated')
+    assert.equal(rebuilt.getAgentActivity('muxmap-claude-delegated')?.since, '2026-08-07T10:06:00.000Z')
     rebuilt.close()
   } finally {
     rmSync(directory, { recursive: true, force: true })

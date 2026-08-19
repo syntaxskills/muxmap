@@ -51,7 +51,7 @@ function hasItems(value: unknown) {
 
 function hasActiveDelegatedWork(input: Record<string, unknown>) {
   if (hasItems(input.background_tasks) || hasItems(input.session_crons)) return true
-  if (['SubagentStart', 'SubagentStop', 'TaskCreated', 'TaskCompleted'].includes(eventField(input, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? '')) return true
+  if (['SubagentStart', 'TaskCreated'].includes(eventField(input, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? '')) return true
   return false
 }
 
@@ -88,9 +88,9 @@ export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: R
   const event = eventField(input, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? ''
   const notification = eventField(input, ['notification_type', 'notificationType']) ?? ''
   let state: AgentActivity['state'] | undefined
-  if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'before_agent_start' || event === 'agent_start' || event === 'SubagentStart' || event === 'SubagentStop' || event === 'TaskCreated' || event === 'TaskCompleted') state = 'working'
+  if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'before_agent_start' || event === 'agent_start' || event === 'SubagentStart' || event === 'TaskCreated') state = 'working'
   if (event === 'Stop' || event === 'StopFailure' || event === 'agent_end' || notification === 'agent_completed') state = 'completed'
-  if (kind === 'claude' && event === 'Stop' && hasActiveDelegatedWork(input)) state = 'working'
+  if (kind === 'claude' && event === 'Stop' && hasActiveDelegatedWork(input)) state = 'delegated'
   if (event === 'PermissionRequest' || (event === 'Notification' && /permission_prompt|agent_needs_input|elicitation_dialog|elicitation_url_dialog/.test(notification))) state = 'needs_input'
   if (event === 'Stop' && asksForInput(input.last_assistant_message)) state = 'needs_input'
   if (!state && event === 'SessionStart') state = 'read'
@@ -102,7 +102,7 @@ export function shouldPreserveAgentState(current: AgentActivity | undefined, eve
   const eventName = eventField(event, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? ''
   if (!next) return true
   if (next.state !== 'working') return false
-  if (!current || !['completed', 'read', 'needs_input'].includes(current.state)) return false
+  if (!current || !['completed', 'read', 'needs_input', 'delegated'].includes(current.state)) return false
   return ['SubagentStop', 'TaskCompleted'].includes(eventName)
 }
 
@@ -124,7 +124,7 @@ export function agentActivityFromRecordedEvent(
   current?: AgentActivity,
 ) {
   const event = eventField(input, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? ''
-  const manualState = event === 'manual_status' && ['working', 'completed', 'read'].includes(recordedState) ? recordedState : undefined
+  const manualState = event === 'manual_status' && ['working', 'completed', 'read', 'delegated'].includes(recordedState) ? recordedState : undefined
   const next = manualState
     ? { kind, state: manualState, since: manualState === 'read' ? current?.since ?? createdAt : createdAt, ...agentSessionInfoFromEvent(input) }
     : agentActivityFromEvent(kind, input, createdAt)

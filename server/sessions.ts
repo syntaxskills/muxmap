@@ -419,7 +419,7 @@ export function createSessionManager(
       return next
     },
 
-    setAgentStatus(id: string, state: 'working' | 'completed' | 'read', now = new Date().toISOString()) {
+    setAgentStatus(id: string, state: 'working' | 'delegated' | 'completed' | 'read', now = new Date().toISOString()) {
       const session = store.getSession(id)
       if (!session) throw new Error('Session not found')
       const current = agentFor(session.runtimeName, agentInventory())

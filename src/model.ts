@@ -31,7 +31,7 @@ export type TerminalBackend = 'tmux' | 'zellij'
 export type AgentKind = 'codex' | 'claude' | 'pi' | 'ssh'
 export type AgentActivity = {
   kind: AgentKind
-  state: 'unavailable' | 'working' | 'needs_input' | 'completed' | 'read'
+  state: 'unavailable' | 'working' | 'delegated' | 'needs_input' | 'completed' | 'read'
   since?: string
   externalSessionId?: string
   externalSessionPath?: string

@@ -20,6 +20,7 @@ test('todo nodes use only a corner marker for open todo state', () => {
 test('agent sessions expose a right-click status submenu', () => {
   assert.match(app, /Set agent status/)
   assert.match(app, /setAgentStatus\(agentSession\.id, 'working'\)/)
+  assert.match(app, /setAgentStatus\(agentSession\.id, 'delegated'\)/)
   assert.match(app, /setAgentStatus\(agentSession\.id, 'completed'\)/)
   assert.match(app, /setAgentStatus\(agentSession\.id, 'read'\)/)
   assert.match(css, /\.node-context-submenu-panel\s*\{[^}]*position:\s*absolute/s)

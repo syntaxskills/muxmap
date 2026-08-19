@@ -32,7 +32,7 @@ type SessionInput = Omit<TerminalSession, 'createdAt' | 'updatedAt'>
 
 const nodeTypes: NodeType[] = ['workspace', 'repo', 'feature', 'ticket', 'note', 'todo', 'terminal']
 const agentKinds: AgentEventLogEntry['kind'][] = ['codex', 'claude', 'pi']
-const agentStates: AgentActivity['state'][] = ['unavailable', 'working', 'needs_input', 'completed', 'read']
+const agentStates: AgentActivity['state'][] = ['unavailable', 'working', 'delegated', 'needs_input', 'completed', 'read']
 
 function parsePayloadJson(value: unknown) {
   try {
@@ -42,6 +42,32 @@ function parsePayloadJson(value: unknown) {
     // Ignore malformed historical debug payloads.
   }
   return {}
+}
+
+function taskDescription(value: unknown) {
+  if (!value || typeof value !== 'object') return undefined
+  const task = value as Record<string, unknown>
+  for (const key of ['description', 'task_subject', 'subject', 'command', 'prompt']) {
+    const candidate = task[key]
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
+  }
+}
+
+function eventSummary(event: Record<string, unknown>, payload?: Record<string, unknown>) {
+  const message = typeof event.message === 'string' ? event.message
+    : typeof event.last_assistant_message === 'string' ? event.last_assistant_message
+    : typeof event.task_subject === 'string' ? event.task_subject
+    : typeof payload?.message === 'string' ? payload.message
+    : typeof payload?.last_assistant_message === 'string' ? payload.last_assistant_message
+    : typeof payload?.task_subject === 'string' ? payload.task_subject
+    : undefined
+  if (message) return message.replace(/\s+/g, ' ').trim().slice(0, 180)
+  const backgroundTasks = Array.isArray(event.background_tasks) ? event.background_tasks : Array.isArray(payload?.background_tasks) ? payload.background_tasks : []
+  const task = backgroundTasks.map(taskDescription).find(Boolean)
+  if (task) return task.replace(/\s+/g, ' ').trim().slice(0, 180)
+  const sessionCrons = Array.isArray(event.session_crons) ? event.session_crons : Array.isArray(payload?.session_crons) ? payload.session_crons : []
+  const cron = sessionCrons.map(taskDescription).find(Boolean)
+  return cron ? cron.replace(/\s+/g, ' ').trim().slice(0, 180) : undefined
 }
 
 function rebuildAgentActivityFromEvents(database: DatabaseSync) {
@@ -469,8 +495,7 @@ export function createStore(path: string) {
       const notificationType = typeof event.notification_type === 'string' ? event.notification_type : typeof event.notificationType === 'string' ? event.notificationType : typeof payload?.notification_type === 'string' ? payload.notification_type : typeof payload?.notificationType === 'string' ? payload.notificationType : undefined
       const agentType = typeof event.agent_type === 'string' ? event.agent_type : typeof payload?.agent_type === 'string' ? payload.agent_type : undefined
       const agentId = typeof event.agent_id === 'string' ? event.agent_id : typeof event.agentId === 'string' ? event.agentId : typeof payload?.agent_id === 'string' ? payload.agent_id : typeof payload?.agentId === 'string' ? payload.agentId : undefined
-      const message = typeof event.message === 'string' ? event.message : typeof event.last_assistant_message === 'string' ? event.last_assistant_message : typeof payload?.message === 'string' ? payload.message : typeof payload?.last_assistant_message === 'string' ? payload.last_assistant_message : undefined
-      const summary = message ? message.replace(/\s+/g, ' ').trim().slice(0, 180) : undefined
+      const summary = eventSummary(event, payload)
       database.prepare(`
         INSERT INTO agent_events (
           id, tmux_name, kind, event_name, state, notification_type, agent_type, agent_id, summary, payload_json, created_at

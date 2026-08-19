@@ -918,7 +918,7 @@ test('local agent hooks update automatically detected tmux activity', async () =
     const read = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
     assert.equal(read.sessions.find((session) => session.id === adopted.session.id)?.agent?.state, 'read')
 
-    for (const state of ['working', 'completed', 'read'] as const) {
+    for (const state of ['working', 'delegated', 'completed', 'read'] as const) {
       const updated = await fetch(`${base}/api/sessions/${adopted.session.id}/agent/status`, {
         method: 'POST',
         headers: { cookie, origin: base, 'content-type': 'application/json' },
@@ -931,7 +931,7 @@ test('local agent hooks update automatically detected tmux activity', async () =
     assert.deepEqual(manualEvents.slice(0, 3).map((item) => [item.eventName, item.state]), [
       ['manual_status', 'read'],
       ['manual_status', 'completed'],
-      ['manual_status', 'working'],
+      ['manual_status', 'delegated'],
     ])
 
     await fetch(`${base}/api/sessions/${adopted.session.id}/agent/status`, {

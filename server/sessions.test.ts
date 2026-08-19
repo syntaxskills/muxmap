@@ -417,6 +417,14 @@ test('unmapped Claude idle prompts and late subagent stops preserve the current 
       ['Notification', 'needs_input'],
       ['PermissionRequest', 'needs_input'],
     ])
+
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'PreToolUse' }, '2026-08-07T10:04:00.000Z')
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'Stop', background_tasks: [{ id: 'task-1', description: 'Run mvn test' }] }, '2026-08-07T10:05:00.000Z')
+    assert.equal(manager.decorate([session])[0].agent?.state, 'delegated')
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'TaskCompleted', task_id: 'task-1' }, '2026-08-07T10:06:00.000Z')
+    assert.equal(manager.decorate([session])[0].agent?.state, 'delegated')
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'PreToolUse' }, '2026-08-07T10:07:00.000Z')
+    assert.equal(manager.decorate([session])[0].agent?.state, 'working')
   } finally {
     store.close()
     rmSync(directory, { recursive: true, force: true })
