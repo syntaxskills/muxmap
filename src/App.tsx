@@ -35,7 +35,7 @@ import { keyboardOwnerFromPointerTarget, mindmapDirectionFromKey, navigateMindma
 import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { AgentEventList } from './AgentEventList.tsx'
-import { ArchiveIcon, ChevronDownIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, GearIcon, Pencil2Icon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
+import { ArchiveIcon, BoxIcon, CheckboxIcon, CheckCircledIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, EyeOpenIcon, GearIcon, Pencil2Icon, PlayIcon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
   floatTerminal,
@@ -482,6 +482,24 @@ function App() {
   async function markNodeDone(node: WorkNode) {
     await saveNode(node.id, { type: 'todo', doneAt: new Date().toISOString() })
     setContextMenu(null)
+  }
+
+  async function setAgentStatus(sessionId: string, state: 'working' | 'completed' | 'read') {
+    setError('')
+    try {
+      const response = await api<{ activity: NonNullable<TerminalSession['agent']> }>(`/api/sessions/${sessionId}/agent/status`, {
+        method: 'POST',
+        body: JSON.stringify({ state }),
+      })
+      setGraph((current) => current ? {
+        ...current,
+        sessions: current.sessions.map((item) => item.id === sessionId ? { ...item, agent: response.activity } : item),
+      } : current)
+      setContextMenu(null)
+    } catch (statusError) {
+      setError(statusError instanceof Error ? statusError.message : 'Unable to update agent status')
+      await loadWorkspace()
+    }
   }
 
   async function pasteNoteImage(event: ReactClipboardEvent<HTMLTextAreaElement>, node: WorkNode) {
@@ -1087,6 +1105,8 @@ function App() {
             if (!node) return null
             const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
             const branchHasSession = branchHasLiveSession(activeGraphNodes, graph.sessions, node.id)
+            const agentSession = graph.sessions.find((item) => item.nodeId === node.id && item.agent && item.agent.kind !== 'ssh')
+            const submenuSide = contextMenu.x > window.innerWidth - 420 ? 'is-submenu-left' : 'is-submenu-right'
             const confirmingArchive = contextMenu.confirm === 'archive'
             const confirmingDelete = contextMenu.confirm === 'delete'
             return (
@@ -1096,8 +1116,16 @@ function App() {
                 <button type="button" role="menuitem" onClick={() => { setContextMenu(null); startRename(node) }}><Pencil2Icon />Rename</button>
                 {node.parentId && <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void duplicateNode(node) }}><CopyIcon />Duplicate</button>}
                 {childCount > 0 && <button type="button" role="menuitem" onClick={() => { toggleNodeCollapsed(node.id); setContextMenu(null) }}>{collapsed.has(node.id) ? <ChevronDownIcon /> : <ChevronUpIcon />}{collapsed.has(node.id) ? 'Expand branch' : 'Collapse branch'}</button>}
-                {node.parentId && (node.type !== 'todo' || node.doneAt) && <button type="button" role="menuitem" onClick={() => void markNodeTodo(node)}>☐ Mark todo</button>}
-                {node.parentId && !node.doneAt && <button type="button" role="menuitem" onClick={() => void markNodeDone(node)}>☑ Mark done</button>}
+                {node.parentId && (node.type !== 'todo' || node.doneAt) && <button type="button" role="menuitem" onClick={() => void markNodeTodo(node)}><BoxIcon />Mark todo</button>}
+                {node.parentId && !node.doneAt && <button type="button" role="menuitem" onClick={() => void markNodeDone(node)}><CheckboxIcon />Mark done</button>}
+                {agentSession && <div className={`node-context-submenu ${submenuSide}`}>
+                  <button className="node-context-submenu-trigger" type="button" role="menuitem" aria-haspopup="menu"><DesktopIcon />Set agent status<ChevronRightIcon /></button>
+                  <div className="node-context-submenu-panel" role="menu" aria-label={`Set agent status for ${node.title}`}>
+                    <button type="button" role="menuitem" onClick={() => void setAgentStatus(agentSession.id, 'working')}><PlayIcon />Working</button>
+                    <button type="button" role="menuitem" onClick={() => void setAgentStatus(agentSession.id, 'completed')}><CheckCircledIcon />Completed</button>
+                    <button type="button" role="menuitem" onClick={() => void setAgentStatus(agentSession.id, 'read')}><EyeOpenIcon />Read</button>
+                  </div>
+                </div>}
                 {node.parentId && <button className={confirmingArchive ? 'is-danger is-confirming' : ''} type="button" role="menuitem" aria-label={confirmingArchive ? `Confirm archive ${node.title}` : `Archive ${node.title}`} onClick={() => confirmingArchive ? void archiveNode(node.id) : setContextMenu((current) => current?.nodeId === node.id ? { ...current, confirm: 'archive' } : current)}><ArchiveIcon />{confirmingArchive ? contextMenuConfirmationText('archive', branchHasSession) : 'Archive'}</button>}
                 {node.parentId && <button className={`is-danger ${confirmingDelete ? 'is-confirming' : ''}`} type="button" role="menuitem" aria-label={confirmingDelete ? `Confirm delete ${node.title}` : `Delete ${node.title}`} onClick={() => confirmingDelete ? void deleteNode(node.id, false) : setContextMenu((current) => current?.nodeId === node.id ? { ...current, confirm: 'delete' } : current)}><TrashIcon />{confirmingDelete ? contextMenuConfirmationText('delete', branchHasSession) : 'Delete'}</button>}
                 {node.parentId && confirmingDelete && branchHasSession && <button className="is-danger is-confirming is-secondary-confirm" type="button" role="menuitem" onClick={() => void deleteNode(node.id, true)}><TrashIcon />{contextMenuStopSessionConfirmationText(branchHasSession)}</button>}

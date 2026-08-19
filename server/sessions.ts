@@ -424,6 +424,22 @@ export function createSessionManager(
       return store.upsertAgentActivity(session.runtimeName, { ...activity, state: 'read' })
     },
 
+    setAgentStatus(id: string, state: 'working' | 'completed' | 'read', now = new Date().toISOString()) {
+      const session = store.getSession(id)
+      if (!session) throw new Error('Session not found')
+      const current = agentFor(session.runtimeName, agentInventory())
+      if (!current || current.kind === 'ssh') throw new Error('Agent status is unavailable')
+      const kind = current.kind
+      const next = store.upsertAgentActivity(session.runtimeName, {
+        ...current,
+        kind,
+        state,
+        since: state === 'read' ? current.since : now,
+      })
+      store.recordAgentEvent(session.runtimeName, kind, { type: 'manual_status', state }, next.state, now)
+      return next
+    },
+
     adopt(nodeId: string, backend: TerminalBackend, runtimeName: string) {
       const adapter = adapterFor(backend)
       if (!runtimeName.startsWith('muxmap') || !adapter.exists(runtimeName)) throw new Error('MuxMap terminal session not found')

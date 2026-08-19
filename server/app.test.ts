@@ -917,6 +917,22 @@ test('local agent hooks update automatically detected tmux activity', async () =
     assert.equal(acknowledged.status, 200)
     const read = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
     assert.equal(read.sessions.find((session) => session.id === adopted.session.id)?.agent?.state, 'read')
+
+    for (const state of ['working', 'completed', 'read'] as const) {
+      const updated = await fetch(`${base}/api/sessions/${adopted.session.id}/agent/status`, {
+        method: 'POST',
+        headers: { cookie, origin: base, 'content-type': 'application/json' },
+        body: JSON.stringify({ state }),
+      }).then((response) => response.json()) as { activity: { state: string } }
+      assert.equal(updated.activity.state, state)
+    }
+    const manuallyRead = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
+    const manualEvents = manuallyRead.sessions.find((item) => item.id === adopted.session.id)?.agentEvents ?? []
+    assert.deepEqual(manualEvents.slice(0, 3).map((item) => [item.eventName, item.state]), [
+      ['manual_status', 'read'],
+      ['manual_status', 'completed'],
+      ['manual_status', 'working'],
+    ])
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })

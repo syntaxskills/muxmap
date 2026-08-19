@@ -6,6 +6,7 @@ All notable changes to MuxMap are documented here.
 
 ### Changed
 
+- Added a right-click Agent status submenu for manually setting linked Agent sessions to Working, Completed, or Read.
 - Added arrow-key mindmap navigation that hops to the nearest visible node while leaving arrow keys untouched inside terminals and form controls.
 - Moved right-click Archive/Delete confirmation into the context menu itself for faster destructive actions.
 - Added persistent todo/done node state, right-click Mark todo/Mark done actions, and a subtle per-node Mark done/Undo done quick action.
