@@ -240,6 +240,14 @@ export function createSessionManager(
     return session.backend === 'tmux' && !exists && agent?.kind === 'codex' && Boolean(agent.externalSessionId)
   }
 
+  function shouldPreserveAgentState(current: AgentActivity | undefined, event: Record<string, unknown>, next: AgentActivity | null) {
+    const eventName = String(event.hook_event_name ?? event.type ?? '')
+    if (!next) return true
+    if (next.state !== 'working') return false
+    if (!current || !['completed', 'read', 'needs_input'].includes(current.state)) return false
+    return ['SubagentStop', 'TaskCompleted'].includes(eventName)
+  }
+
   function availableSessionNames(backend: TerminalBackend, workspaceId: string, label: string, nodeId: string, adapter: MultiplexerAdapter, forbiddenRuntimeNames = new Set<string>()) {
     const base = sessionNames(backend, workspaceId, label)
     const conflicts = (names: ReturnType<typeof sessionNames>) => {
@@ -397,6 +405,12 @@ export function createSessionManager(
         : adapters.tmux?.panes?.().find((item) => item.paneId === locator.paneId)?.runtimeName
       if (!runtimeName?.startsWith('muxmap') || !adapterFor(locator.backend).exists(runtimeName)) throw new Error('MuxMap terminal session not found')
       const activity = agentActivityFromEvent(kind, event, now)
+      const current = store.getAgentActivity(runtimeName)
+      if (!activity || shouldPreserveAgentState(current, event, activity)) {
+        const preserved = current ?? { kind, state: 'unavailable' as const, since: now }
+        store.recordAgentEvent(runtimeName, kind, event, preserved.state, now)
+        return preserved
+      }
       store.updateSessionActivityByRuntimeName(runtimeName, activity.since)
       store.recordAgentEvent(runtimeName, kind, event, activity.state, activity.since)
       return store.upsertAgentActivity(runtimeName, activity)

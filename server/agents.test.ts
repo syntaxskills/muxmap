@@ -28,19 +28,20 @@ test('agent kind is detected from tmux pane descendants without false node match
 test('Codex and Claude lifecycle hooks map to working, input, and completed states', () => {
   const working = agentActivityFromEvent('codex', { hook_event_name: 'UserPromptSubmit' }, '2026-08-07T10:00:00.000Z')
   assert.deepEqual(working, { kind: 'codex', state: 'working', since: '2026-08-07T10:00:00.000Z' })
-  assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'PermissionRequest' }, '2026-08-07T10:02:00.000Z').state, 'needs_input')
-  assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'Stop', last_assistant_message: 'All tests pass.' }, '2026-08-07T10:04:00.000Z').state, 'completed')
-  assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'Stop', last_assistant_message: 'Which option should I use?' }, '2026-08-07T10:04:00.000Z').state, 'needs_input')
-  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'agent_needs_input' }, '2026-08-07T10:05:00.000Z').state, 'needs_input')
-  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, '2026-08-07T10:05:00.000Z').state, 'read')
-  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'StopFailure' }, '2026-08-07T10:05:00.000Z').state, 'completed')
-  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Stop' }, '2026-08-07T10:06:00.000Z').state, 'completed')
-  assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'SessionStart' }, '2026-08-07T10:07:00.000Z').state, 'read')
+  assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'PermissionRequest' }, '2026-08-07T10:02:00.000Z')!.state, 'needs_input')
+  assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'Stop', last_assistant_message: 'All tests pass.' }, '2026-08-07T10:04:00.000Z')!.state, 'completed')
+  assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'Stop', last_assistant_message: 'Which option should I use?' }, '2026-08-07T10:04:00.000Z')!.state, 'needs_input')
+  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'agent_needs_input' }, '2026-08-07T10:05:00.000Z')!.state, 'needs_input')
+  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, '2026-08-07T10:05:00.000Z'), null)
+  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'unknown' }, '2026-08-07T10:05:00.000Z'), null)
+  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'StopFailure' }, '2026-08-07T10:05:00.000Z')!.state, 'completed')
+  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Stop' }, '2026-08-07T10:06:00.000Z')!.state, 'completed')
+  assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'SessionStart' }, '2026-08-07T10:07:00.000Z')!.state, 'read')
 })
 
 test('Claude PreToolUse clears permission prompts by marking the node working', () => {
-  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'PermissionRequest' }).state, 'needs_input')
-  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'PreToolUse' }).state, 'working')
+  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'PermissionRequest' })!.state, 'needs_input')
+  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'PreToolUse' })!.state, 'working')
 })
 
 test('Claude Stop only stays working when Claude reports active delegated work', () => {
@@ -49,17 +50,17 @@ test('Claude Stop only stays working when Claude reports active delegated work',
     last_assistant_message: 'I handed this off to a sub-agent earlier and all work is now done.',
     background_tasks: [],
     session_crons: [],
-  }).state, 'completed')
+  })!.state, 'completed')
   assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'Stop',
     last_assistant_message: 'I am handing this off to a sub-agent and will continue when it returns.',
     background_tasks: [{ id: 'task-1' }],
-  }).state, 'working')
+  })!.state, 'working')
   assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'Stop',
     session_crons: [{ id: 'cron-1' }],
     last_assistant_message: 'The implementation agent will wake this session later.',
-  }).state, 'working')
+  })!.state, 'working')
 })
 
 test('Claude subagent lifecycle events keep the parent node working', () => {
@@ -67,17 +68,17 @@ test('Claude subagent lifecycle events keep the parent node working', () => {
     hook_event_name: 'SubagentStart',
     agent_id: 'agent-001',
     agent_type: 'Explore',
-  }).state, 'working')
+  })!.state, 'working')
   assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'TaskCreated',
     task_id: 'task-001',
     task_subject: 'Implement session recovery',
-  }).state, 'working')
+  })!.state, 'working')
   assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'TaskCompleted',
     task_id: 'task-001',
     task_subject: 'Implement session recovery',
-  }).state, 'working')
+  })!.state, 'working')
   const subagentStop = agentActivityFromEvent('claude', {
     hook_event_name: 'SubagentStop',
     agent_id: 'agent-001',
@@ -85,9 +86,10 @@ test('Claude subagent lifecycle events keep the parent node working', () => {
     agent_transcript_path: '/home/user/.claude/projects/repo/session/subagents/agent-001.jsonl',
     last_assistant_message: 'Analysis complete.',
   })
+  assert.ok(subagentStop)
   assert.equal(subagentStop.state, 'working')
   assert.equal(subagentStop.externalSessionPath, '/home/user/.claude/projects/repo/session/subagents/agent-001.jsonl')
-  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Stop', last_assistant_message: 'All done.' }).state, 'completed')
+  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Stop', last_assistant_message: 'All done.' })!.state, 'completed')
 })
 
 test('Codex lifecycle metadata extracts resumable session ids', () => {
@@ -99,6 +101,7 @@ test('Codex lifecycle metadata extracts resumable session ids', () => {
       cwd: '/home/user/project',
     },
   })
+  assert.ok(direct)
   assert.equal(direct.externalSessionId, '019fd54a-12a9-72c2-8a66-ee62fc1c546e')
   assert.equal(direct.externalSessionPath, '/home/user/.codex/sessions/session.jsonl')
   assert.equal(direct.externalCwd, '/home/user/project')
@@ -106,8 +109,8 @@ test('Codex lifecycle metadata extracts resumable session ids', () => {
 })
 
 test('Pi extension events map to working and completed states', () => {
-  assert.equal(agentActivityFromEvent('pi', { type: 'agent_start' }, '2026-08-07T10:00:00.000Z').state, 'working')
-  assert.equal(agentActivityFromEvent('pi', { type: 'agent_end' }, '2026-08-07T10:01:00.000Z').state, 'completed')
+  assert.equal(agentActivityFromEvent('pi', { type: 'agent_start' }, '2026-08-07T10:00:00.000Z')!.state, 'working')
+  assert.equal(agentActivityFromEvent('pi', { type: 'agent_end' }, '2026-08-07T10:01:00.000Z')!.state, 'completed')
 })
 
 test('hook installation preserves existing handlers and is idempotent', () => {

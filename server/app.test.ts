@@ -884,6 +884,18 @@ test('local agent hooks update automatically detected tmux activity', async () =
       body: JSON.stringify({ kind: 'codex', tmuxPane: '%7', event: { hook_event_name: 'Stop' } }),
     })
     assert.equal(completed.status, 202)
+    const idlePrompt = await fetch(`${base}/api/agent-events`, {
+      method: 'POST',
+      headers: { 'x-muxmap-hook': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'claude', tmuxPane: '%7', event: { hook_event_name: 'Notification', notification_type: 'idle_prompt' } }),
+    })
+    assert.equal(idlePrompt.status, 202)
+    const lateSubagentStop = await fetch(`${base}/api/agent-events`, {
+      method: 'POST',
+      headers: { 'x-muxmap-hook': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'claude', tmuxPane: '%7', event: { hook_event_name: 'SubagentStop', agent_id: 'agent-late' } }),
+    })
+    assert.equal(lateSubagentStop.status, 202)
     const node = await fetch(`${base}/api/workspaces/default/nodes`, {
       method: 'POST',
       headers: { cookie, origin: base, 'content-type': 'application/json' },
@@ -897,7 +909,7 @@ test('local agent hooks update automatically detected tmux activity', async () =
     const unread = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
     const unreadSession = unread.sessions.find((session) => session.id === adopted.session.id)
     assert.equal(unreadSession?.agent?.state, 'completed')
-    assert.deepEqual(unreadSession?.agentEvents?.map((item) => item.eventName), ['Stop', 'UserPromptSubmit'])
+    assert.deepEqual(unreadSession?.agentEvents?.map((item) => item.eventName), ['SubagentStop', 'Notification', 'Stop', 'UserPromptSubmit'])
 
     const acknowledged = await fetch(`${base}/api/sessions/${adopted.session.id}/agent/read`, {
       method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' }, body: '{}',

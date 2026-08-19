@@ -389,6 +389,37 @@ test('completed agent activity stays read after reopening the workspace', () => 
   }
 })
 
+test('unmapped Claude idle prompts and late subagent stops preserve the current state', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-agent-preserve-')))
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  const manager = createSessionManager(store, adapter, [directory])
+
+  try {
+    const node = store.createNode('default', { parentId: 'workspace', title: 'Claude preserve', type: 'terminal', repoPath: directory })
+    const session = manager.attach(node.id)
+    adapter.panes = () => [{ runtimeName: session.runtimeName, paneId: '%21', pid: 2100 }]
+
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'PermissionRequest' }, '2026-08-07T10:00:00.000Z')
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, '2026-08-07T10:01:00.000Z')
+    assert.equal(manager.decorate([session])[0].agent?.state, 'needs_input')
+    assert.equal(store.getSession(session.id)?.lastActivityAt, '2026-08-07T10:00:00.000Z')
+
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'Stop' }, '2026-08-07T10:02:00.000Z')
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'SubagentStop', agent_id: 'agent-late' }, '2026-08-07T10:03:00.000Z')
+    assert.equal(manager.decorate([session])[0].agent?.state, 'completed')
+    assert.deepEqual(store.listAgentEvents(session.runtimeName).map((event) => [event.eventName, event.state]), [
+      ['SubagentStop', 'completed'],
+      ['Stop', 'completed'],
+      ['Notification', 'needs_input'],
+      ['PermissionRequest', 'needs_input'],
+    ])
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('Windows defaults to persistent Zellij sessions and accepts hook events by session name', () => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-zellij-')))
   const store = createStore(':memory:')
