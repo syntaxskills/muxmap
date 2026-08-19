@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { addCommandHooks, agentActivityFromEvent, agentSessionInfoFromEvent, detectAgentKind, isMuxMapAgentHookCommand, type ProcessInfo } from './agents.ts'
 
@@ -35,6 +36,11 @@ test('Codex and Claude lifecycle hooks map to working, input, and completed stat
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'StopFailure' }, '2026-08-07T10:05:00.000Z').state, 'completed')
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Stop' }, '2026-08-07T10:06:00.000Z').state, 'completed')
   assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'SessionStart' }, '2026-08-07T10:07:00.000Z').state, 'read')
+})
+
+test('Claude PreToolUse clears permission prompts by marking the node working', () => {
+  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'PermissionRequest' }).state, 'needs_input')
+  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'PreToolUse' }).state, 'working')
 })
 
 test('Claude Stop only stays working when Claude reports active delegated work', () => {
@@ -134,4 +140,10 @@ test('hook installation updates stale MuxMap hook paths without touching user ho
   assert.deepEqual(promptCommands, ['node "/new/repo/muxmap/server/agent-hook.mjs" codex'])
   assert.equal(isMuxMapAgentHookCommand('node "/new/repo/muxmap/server/agent-hook.mjs" codex', 'codex'), true)
   assert.equal(isMuxMapAgentHookCommand('node "/new/repo/muxmap/server/agent-hook.mjs" claude', 'codex'), false)
+})
+
+test('Claude hook installer includes the lightweight PreToolUse transition hook', () => {
+  const installer = readFileSync(new URL('../scripts/install-agent-hooks.ts', import.meta.url), 'utf8')
+  assert.match(installer, /'PermissionRequest', 'PreToolUse', 'Notification'/)
+  assert.doesNotMatch(installer, /PostToolUse/)
 })
