@@ -26,6 +26,7 @@
     "hooks:install": "node --experimental-strip-types scripts/install-agent-hooks.ts",
     "hooks:update": "node --experimental-strip-types scripts/install-agent-hooks.ts",
     "hooks:status": "node --experimental-strip-types scripts/install-agent-hooks.ts status",
+    "mcp": "node --experimental-strip-types server/mcp-adapter.ts",
     "start": "node --experimental-strip-types server/index.ts",
     "preview": "npm run build && npm start"
   },

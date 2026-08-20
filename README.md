@@ -71,6 +71,25 @@ npm run hooks:update
 Hooks are safe outside MuxMap sessions: plain terminals no-op, ordinary tmux sessions are ignored, and live `muxmap*` sessions can appear as orphans for adoption.
 Run `npm run hooks:update` after pulling hook changes so existing Codex/Claude/Pi installs get the latest event coverage and resume metadata.
 
+## Agent channel MCP
+
+MuxMap includes a local stdio MCP server for bounded agent-to-agent channel messages. Configure MCP clients to run the Node entry directly so stdout contains only MCP JSON-RPC messages:
+
+```bash
+node --experimental-strip-types server/mcp-adapter.ts
+```
+
+For a manual smoke test, use `npm run --silent mcp`. Do not use bare `npm run mcp` as an MCP client command because npm writes its own banner to stdout.
+
+Configure the MCP client with:
+
+- `MUXMAP_URL`, default `http://127.0.0.1:4782`
+- `MUXMAP_TOKEN` when MuxMap runs with Basic Auth
+- `MUXMAP_NODE_ID` so sends can default to the current node
+- `MUXMAP_WORKSPACE_ID`, default `default`
+
+The adapter exposes tools to list channels, read messages, send concise messages, and check hourly quota usage. It only works through channels you created in the map.
+
 ## Access modes
 
 MuxMap starts in local mode and binds only `127.0.0.1`. Use `npm run doctor` before exposing it to another device.
