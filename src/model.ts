@@ -69,6 +69,7 @@ export type TerminalSession = {
   agentEvents?: AgentEventLogEntry[]
   runtimeExists?: boolean
   canRecoverCodex?: boolean
+  canRecoverAgent?: boolean
 }
 
 export type Workspace = {

@@ -28,8 +28,15 @@ The hook sends the current terminal locator to MuxMap:
 - Zellij: `ZELLIJ_SESSION_NAME` and optional `ZELLIJ_PANE_ID`;
 - Codex: direct `session_id` when supplied by the event;
 - Claude Code: lifecycle, permission, `PreToolUse`, notification, task-created/completed, and subagent-start/stop fields when supplied.
+- Pi: lifecycle events plus optional session id/path fields when the extension API supplies them.
 
 MuxMap resolves the locator to a live runtime name. Only runtime names starting with `muxmap` are accepted for management.
+
+If a tracked tmux runtime disappears, MuxMap can recreate it from saved agent metadata:
+
+- Codex: `codex resume <session-id>`;
+- Claude Code: `claude --resume <session-id>`;
+- Pi: `pi --session <session-path-or-id>`.
 
 Claude Code notes:
 

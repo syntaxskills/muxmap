@@ -993,8 +993,9 @@ test('Codex recovery recreates a missing tracked tmux session with codex resume'
     assert.equal(stoppedSession?.agent?.state, 'working')
     assert.equal(stoppedSession?.runtimeExists, false)
     assert.equal(stoppedSession?.canRecoverCodex, true)
+    assert.equal(stoppedSession?.canRecoverAgent, true)
 
-    const recovered = await fetch(`${base}/api/sessions/${attached.session.id}/recover-codex`, {
+    const recovered = await fetch(`${base}/api/sessions/${attached.session.id}/recover-agent`, {
       method: 'POST',
       headers,
       body: '{}',

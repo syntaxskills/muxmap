@@ -1,4 +1,5 @@
 import type { WorkNode } from './model.ts'
+import { agentNames } from './agentStatus.ts'
 
 export type ReorderPosition = 'before' | 'after'
 
@@ -120,14 +121,28 @@ export function liveSessionIdForNode(sessions: Array<{ id: string; nodeId: strin
   return sessions.find((session) => session.nodeId === nodeId && session.status !== 'stopped' && session.runtimeExists !== false)?.id ?? null
 }
 
-export function canRecoverCodexSession(session: {
+type RecoverableSession = {
   backend: string
   status: string
   runtimeExists?: boolean
-  agent?: { kind: string; externalSessionId?: string }
-}) {
+  agent?: { kind: string; externalSessionId?: string; externalSessionPath?: string }
+}
+
+export function canRecoverAgentSession(session: RecoverableSession) {
   const runtimeMissing = session.runtimeExists === false || session.status === 'stopped'
-  return session.backend === 'tmux' && runtimeMissing && session.agent?.kind === 'codex' && Boolean(session.agent.externalSessionId)
+  if (session.backend !== 'tmux' || !runtimeMissing || !session.agent) return false
+  if (session.agent.kind === 'codex' || session.agent.kind === 'claude') return Boolean(session.agent.externalSessionId)
+  if (session.agent.kind === 'pi') return Boolean(session.agent.externalSessionPath || session.agent.externalSessionId)
+  return false
+}
+
+export function canRecoverCodexSession(session: RecoverableSession) {
+  return session.agent?.kind === 'codex' && canRecoverAgentSession(session)
+}
+
+export function recoverableAgentLabel(session: RecoverableSession) {
+  const kind = session.agent?.kind
+  return kind && kind in agentNames ? agentNames[kind as keyof typeof agentNames] : 'Agent'
 }
 
 export function visibleAgentForSession<T extends { status: string; runtimeExists?: boolean; agent?: unknown }>(session: T | undefined): T['agent'] | undefined {

@@ -12,7 +12,7 @@ import {
 } from 'react'
 import './App.css'
 import { api } from './api.ts'
-import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, recoverableAgentLabel, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
 import { centerPan, dragPan, gridBackground, isCanvasBlankTarget, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
 import type { NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
@@ -21,7 +21,7 @@ import { readViewState, writeViewState } from './viewState.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { IN_PAGE_NOTIFICATION_LIFETIME_MS, mergeAgentNotifications, routeAgentNotifications, scanAgentNotifications, type AgentNotification } from './agentNotifications.ts'
 import { dragIntent, dropPositionAt, pointerReleaseIntent } from './nodeReorderInteraction.ts'
-import { contextMenuConfirmationText, contextMenuPosition, contextMenuStopSessionConfirmationText, duplicateNodeInput, type ContextMenuConfirmation } from './nodeContextMenu.ts'
+import { contextMenuConfirmationText, contextMenuPosition, duplicateNodeInput, type ContextMenuConfirmation } from './nodeContextMenu.ts'
 import { AgentIcon } from './AgentIcon.tsx'
 import { SettingsPanel } from './SettingsPanel.tsx'
 import { ArchivePanel } from './ArchivePanel.tsx'
@@ -783,15 +783,15 @@ function App() {
     }
   }
 
-  async function recoverCodexSession(sessionId: string) {
+  async function recoverAgentSession(sessionId: string) {
     setBusy(true)
     setError('')
     try {
-      const response = await api<{ session: TerminalSession }>(`/api/sessions/${sessionId}/recover-codex`, { method: 'POST', body: '{}' })
+      const response = await api<{ session: TerminalSession }>(`/api/sessions/${sessionId}/recover-agent`, { method: 'POST', body: '{}' })
       await loadWorkspace()
       openTerminal(response.session.id)
     } catch (recoverError) {
-      setError(recoverError instanceof Error ? recoverError.message : 'Unable to recover Codex session')
+      setError(recoverError instanceof Error ? recoverError.message : 'Unable to recover agent session')
     } finally {
       setBusy(false)
     }
@@ -1168,8 +1168,7 @@ function App() {
                   </div>
                 </div>}
                 {node.parentId && <button className={confirmingArchive ? 'is-danger is-confirming' : ''} type="button" role="menuitem" aria-label={confirmingArchive ? `Confirm archive ${node.title}` : `Archive ${node.title}`} onClick={() => confirmingArchive ? void archiveNode(node.id) : setContextMenu((current) => current?.nodeId === node.id ? { ...current, confirm: 'archive' } : current)}><ArchiveIcon />{confirmingArchive ? contextMenuConfirmationText('archive', branchHasSession) : 'Archive'}</button>}
-                {node.parentId && <button className={`is-danger ${confirmingDelete ? 'is-confirming' : ''}`} type="button" role="menuitem" aria-label={confirmingDelete ? `Confirm delete ${node.title}` : `Delete ${node.title}`} onClick={() => confirmingDelete ? void deleteNode(node.id, false) : setContextMenu((current) => current?.nodeId === node.id ? { ...current, confirm: 'delete' } : current)}><TrashIcon />{confirmingDelete ? contextMenuConfirmationText('delete', branchHasSession) : 'Delete'}</button>}
-                {node.parentId && confirmingDelete && branchHasSession && <button className="is-danger is-confirming is-secondary-confirm" type="button" role="menuitem" onClick={() => void deleteNode(node.id, true)}><TrashIcon />{contextMenuStopSessionConfirmationText(branchHasSession)}</button>}
+                {node.parentId && <button className={`is-danger ${confirmingDelete ? 'is-confirming' : ''}`} type="button" role="menuitem" aria-label={confirmingDelete ? `Confirm delete ${node.title}${branchHasSession ? ' and stop session' : ''}` : `Delete ${node.title}`} onClick={() => confirmingDelete ? void deleteNode(node.id, branchHasSession) : setContextMenu((current) => current?.nodeId === node.id ? { ...current, confirm: 'delete' } : current)}><TrashIcon />{confirmingDelete ? contextMenuConfirmationText('delete', branchHasSession) : 'Delete'}</button>}
               </div>
             )
           })()}
@@ -1241,10 +1240,10 @@ function App() {
                 <span className="terminal-preview-screen"><code>$ {session.backend} attach</code><code>{session.runtimeName}</code><i /></span>
                 <span className="terminal-preview-footer"><strong>{selected.title}</strong><small>Click to expand ↗</small></span>
               </button>
-            ) : session && canRecoverCodexSession(session) ? (
+            ) : session && canRecoverAgentSession(session) ? (
               <div className="recover-codex-card">
                 <div className="recover-codex-actions">
-                  <button className="attach-button recover-codex-button" type="button" onClick={() => void recoverCodexSession(session.id)} disabled={busy}>Resume Codex</button>
+                  <button className="attach-button recover-codex-button" type="button" onClick={() => void recoverAgentSession(session.id)} disabled={busy}>Resume {recoverableAgentLabel(session)}</button>
                   <button className="attach-button" type="button" onClick={() => void attachTerminal(true)} disabled={busy}>Start new terminal</button>
                 </div>
                 <small>{agentSessionSummary(session)} · {session.agent?.externalCwd ?? session.cwd}</small>
@@ -1284,13 +1283,13 @@ function App() {
                 const isArchived = archivedIds.has(item.nodeId)
                 const visibleAgent = visibleAgentForSession(item)
                 const statusText = item.runtimeExists === false
-                  ? canRecoverCodexSession(item) ? 'tmux missing · Codex resume available' : 'tmux missing'
+                  ? canRecoverAgentSession(item) ? `tmux missing · ${recoverableAgentLabel(item)} resume available` : 'tmux missing'
                   : visibleAgent ? agentStatusText(visibleAgent) : item.status
                 return (
                   <article className={`session-row ${terminalSessionId === item.id || selected?.id === item.nodeId ? 'is-current' : ''}`} key={item.id}>
                     <div><strong>{node?.title ?? item.name}</strong><code>{item.runtimeName}</code><small className={visibleAgent ? `is-${visibleAgent.state}` : undefined}>{visibleAgent && <AgentIcon kind={visibleAgent.kind} />}{statusText}</small></div>
                     <div className="session-row-actions">
-                      {isArchived ? <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))}>Archived</button> : item.status !== 'stopped' && item.runtimeExists !== false ? <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button> : canRecoverCodexSession(item) ? <button type="button" onClick={() => { setSelectedId(item.nodeId); void recoverCodexSession(item.id) }} disabled={busy}>Resume Codex</button> : null}
+                      {isArchived ? <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))}>Archived</button> : item.status !== 'stopped' && item.runtimeExists !== false ? <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button> : canRecoverAgentSession(item) ? <button type="button" onClick={() => { setSelectedId(item.nodeId); void recoverAgentSession(item.id) }} disabled={busy}>Resume {recoverableAgentLabel(item)}</button> : null}
                       {item.status !== 'stopped' && item.runtimeExists !== false && (confirmStopSession === `${item.backend}:${item.runtimeName}` ? (
                         <><button className="danger-button" type="button" onClick={() => void stopSession(item.id)} disabled={busy}>Confirm stop</button><button type="button" onClick={() => setConfirmStopSession(null)}>Cancel</button></>
                       ) : <button type="button" onClick={() => setConfirmStopSession(`${item.backend}:${item.runtimeName}`)}>Stop</button>)}

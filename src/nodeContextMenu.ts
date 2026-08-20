@@ -28,9 +28,5 @@ export function duplicateNodeInput(node: WorkNode) {
 
 export function contextMenuConfirmationText(action: ContextMenuConfirmation, hasLiveSession: boolean) {
   if (action === 'archive') return 'Confirm archive?'
-  return hasLiveSession ? 'Confirm delete?' : 'Confirm delete?'
-}
-
-export function contextMenuStopSessionConfirmationText(hasLiveSession: boolean) {
-  return hasLiveSession ? 'Stop sessions too?' : ''
+  return hasLiveSession ? 'Confirm delete and stop session' : 'Confirm delete?'
 }

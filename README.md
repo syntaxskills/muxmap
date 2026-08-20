@@ -67,7 +67,7 @@ npm run hooks:update
 ```
 
 Hooks are safe outside MuxMap sessions: plain terminals no-op, ordinary tmux sessions are ignored, and live `muxmap*` sessions can appear as orphans for adoption.
-Run `npm run hooks:update` after pulling hook changes so existing Codex/Claude/Pi installs get the latest event coverage.
+Run `npm run hooks:update` after pulling hook changes so existing Codex/Claude/Pi installs get the latest event coverage and resume metadata.
 
 ## Access modes
 

@@ -112,6 +112,10 @@ test('Codex lifecycle metadata extracts resumable session ids', () => {
 test('Pi extension events map to working and completed states', () => {
   assert.equal(agentActivityFromEvent('pi', { type: 'agent_start' }, '2026-08-07T10:00:00.000Z')!.state, 'working')
   assert.equal(agentActivityFromEvent('pi', { type: 'agent_end' }, '2026-08-07T10:01:00.000Z')!.state, 'completed')
+  const withSession = agentActivityFromEvent('pi', { type: 'agent_end', session_id: 'pi-session', session_path: '/home/user/.pi/agent/sessions/pi.jsonl', cwd: '/home/user/project' }, '2026-08-07T10:01:00.000Z')
+  assert.equal(withSession?.externalSessionId, 'pi-session')
+  assert.equal(withSession?.externalSessionPath, '/home/user/.pi/agent/sessions/pi.jsonl')
+  assert.equal(withSession?.externalCwd, '/home/user/project')
 })
 
 test('hook installation preserves existing handlers and is idempotent', () => {
@@ -150,4 +154,11 @@ test('Claude hook installer includes the lightweight PreToolUse transition hook'
   const installer = readFileSync(new URL('../scripts/install-agent-hooks.ts', import.meta.url), 'utf8')
   assert.match(installer, /'PermissionRequest', 'PreToolUse', 'Notification'/)
   assert.doesNotMatch(installer, /PostToolUse/)
+})
+
+test('Pi extension forwards optional session metadata for resume', () => {
+  const extension = readFileSync(new URL('../integrations/pi-status.ts', import.meta.url), 'utf8')
+  assert.match(extension, /session_id: sessionId/)
+  assert.match(extension, /session_path: sessionPath/)
+  assert.match(extension, /process\.cwd\(\)/)
 })

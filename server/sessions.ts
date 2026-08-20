@@ -179,6 +179,15 @@ function sessionNames(backend: TerminalBackend, workspaceId: string, label: stri
   }
 }
 
+export function agentResumeCommand(activity: AgentActivity) {
+  if (activity.kind === 'codex' && activity.externalSessionId) return ['codex', 'resume', activity.externalSessionId]
+  if (activity.kind === 'claude' && activity.externalSessionId) return ['claude', '--resume', activity.externalSessionId]
+  if (activity.kind === 'pi') {
+    const session = activity.externalSessionPath ?? activity.externalSessionId
+    if (session) return ['pi', '--session', session]
+  }
+}
+
 function nodeSuffix(nodeId: string) {
   return safeSessionLabel(nodeId).replace(/-/g, '').slice(0, 8) || 'node'
 }
@@ -236,8 +245,8 @@ export function createSessionManager(
       || runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped'
   }
 
-  function canRecoverCodex(session: TerminalSession, agent: AgentActivity | undefined, exists: boolean) {
-    return session.backend === 'tmux' && !exists && agent?.kind === 'codex' && Boolean(agent.externalSessionId)
+  function canRecoverAgent(session: TerminalSession, agent: AgentActivity | undefined, exists: boolean) {
+    return session.backend === 'tmux' && !exists && Boolean(agent && agent.kind !== 'ssh' && agentResumeCommand(agent))
   }
 
   function availableSessionNames(backend: TerminalBackend, workspaceId: string, label: string, nodeId: string, adapter: MultiplexerAdapter, forbiddenRuntimeNames = new Set<string>()) {
@@ -343,13 +352,20 @@ export function createSessionManager(
     },
 
     recoverCodex(id: string) {
+      return this.recoverAgent(id, 'codex')
+    },
+
+    recoverAgent(id: string, requestedKind?: Exclude<AgentKind, 'ssh'>) {
       const session = store.getSession(id)
       if (!session) throw new Error('Session not found')
       const activity = store.getAgentActivity(session.runtimeName)
-      if (activity?.kind !== 'codex' || !activity.externalSessionId) throw new Error('Codex session id is not available')
-      if (session.backend !== 'tmux') throw new Error('Codex recovery currently requires a tmux-backed session')
+      if (!activity || activity.kind === 'ssh') throw new Error('Agent session metadata is not available')
+      if (requestedKind && activity.kind !== requestedKind) throw new Error(`${requestedKind} session metadata is not available`)
+      const command = agentResumeCommand(activity)
+      if (!command) throw new Error(`${activity.kind} session id is not available`)
+      if (session.backend !== 'tmux') throw new Error('Agent recovery currently requires a tmux-backed session')
       const adapter = adapterFor(session.backend)
-      if (!adapter.exists(session.runtimeName)) adapter.create(session.runtimeName, session.cwd, ['codex', 'resume', activity.externalSessionId])
+      if (!adapter.exists(session.runtimeName)) adapter.create(session.runtimeName, session.cwd, command)
       return store.upsertSession({
         ...session,
         status: 'running',
@@ -372,7 +388,7 @@ export function createSessionManager(
         const agent = agentFor(session.runtimeName, inventory)
         const exists = runtimeExistsInSnapshot(session, live)
         const agentEvents = store.listAgentEvents(session.runtimeName)
-        return { ...session, ...(agent ? { agent } : {}), ...(agentEvents.length > 0 ? { agentEvents } : {}), runtimeExists: exists, canRecoverCodex: canRecoverCodex(session, agent, exists) }
+        return { ...session, ...(agent ? { agent } : {}), ...(agentEvents.length > 0 ? { agentEvents } : {}), runtimeExists: exists, canRecoverCodex: agent?.kind === 'codex' && canRecoverAgent(session, agent, exists), canRecoverAgent: canRecoverAgent(session, agent, exists) }
       })
     },
 

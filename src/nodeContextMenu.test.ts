@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { contextMenuConfirmationText, contextMenuPosition, contextMenuStopSessionConfirmationText, duplicateNodeInput } from './nodeContextMenu.ts'
+import { contextMenuConfirmationText, contextMenuPosition, duplicateNodeInput } from './nodeContextMenu.ts'
 import type { WorkNode } from './model.ts'
 
 const node: WorkNode = {
@@ -41,7 +42,12 @@ test('context menus stay inside the viewport margin', () => {
 test('context menu destructive actions confirm in place', () => {
   assert.equal(contextMenuConfirmationText('archive', false), 'Confirm archive?')
   assert.equal(contextMenuConfirmationText('delete', false), 'Confirm delete?')
-  assert.equal(contextMenuConfirmationText('delete', true), 'Confirm delete?')
-  assert.equal(contextMenuStopSessionConfirmationText(false), '')
-  assert.equal(contextMenuStopSessionConfirmationText(true), 'Stop sessions too?')
+  assert.equal(contextMenuConfirmationText('delete', true), 'Confirm delete and stop session')
+})
+
+test('context menu delete confirmation is one action when sessions are present', () => {
+  const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
+  assert.doesNotMatch(app, /is-secondary-confirm/)
+  assert.doesNotMatch(app, /Stop sessions too/)
+  assert.match(app, /deleteNode\(node\.id, branchHasSession\)/)
 })

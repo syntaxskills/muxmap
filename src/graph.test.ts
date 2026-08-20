@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, reorderSiblings, visibleAgentForSession, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, recoverableAgentLabel, reorderSiblings, visibleAgentForSession, visibleNodes } from './graph.ts'
 import type { WorkNode } from './model.ts'
 
 const base = {
@@ -72,6 +72,27 @@ test('Codex recovery is based on missing runtime and a saved Codex session id', 
     runtimeExists: true,
     agent: { kind: 'codex', state: 'working' },
   }), { kind: 'codex', state: 'working' })
+})
+
+test('agent recovery supports Claude and Pi metadata on missing tmux runtimes', () => {
+  assert.equal(canRecoverAgentSession({
+    backend: 'tmux',
+    status: 'stopped',
+    agent: { kind: 'claude', externalSessionId: 'claude-session' },
+  }), true)
+  assert.equal(canRecoverAgentSession({
+    backend: 'tmux',
+    status: 'running',
+    runtimeExists: false,
+    agent: { kind: 'pi', externalSessionPath: '/home/me/.pi/agent/sessions/task.jsonl' },
+  }), true)
+  assert.equal(canRecoverAgentSession({
+    backend: 'tmux',
+    status: 'stopped',
+    agent: { kind: 'pi' },
+  }), false)
+  assert.equal(recoverableAgentLabel({ backend: 'tmux', status: 'stopped', agent: { kind: 'claude' } }), 'Claude Code')
+  assert.equal(recoverableAgentLabel({ backend: 'tmux', status: 'stopped', agent: { kind: 'pi' } }), 'Pi')
 })
 
 test('reordering moves nodes only within their existing sibling group', () => {

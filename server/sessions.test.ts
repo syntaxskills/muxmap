@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import test from 'node:test'
-import { createSessionManager, defaultTerminalBackend, parseZellijSessions, tmuxExecutable, type MultiplexerAdapter, type TmuxAdapter } from './sessions.ts'
+import { agentResumeCommand, createSessionManager, defaultTerminalBackend, parseZellijSessions, tmuxExecutable, type MultiplexerAdapter, type TmuxAdapter } from './sessions.ts'
 import { createStore } from './store.ts'
 
 function fakeTmux(): TmuxAdapter & { created: string[]; createCommands: Array<string[] | undefined>; stopped: string[]; live: Set<string> } {
@@ -122,6 +122,41 @@ test('stopped node sessions can start a fresh terminal instead of reusing the ol
     assert.deepEqual(adapter.created, [oldSession.runtimeName, fresh.runtimeName])
     assert.equal(store.getSessionByRuntimeName(oldSession.runtimeName), undefined)
     assert.equal(store.getAgentActivity(oldSession.runtimeName)?.externalSessionId, 'codex-session')
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('stopped Claude and Pi sessions can resume with their agent session metadata', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-agent-recover-')))
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  const manager = createSessionManager(store, adapter, [directory])
+
+  try {
+    const claudeNode = store.createNode('default', { parentId: 'workspace', title: 'Claude recover', type: 'terminal', repoPath: directory })
+    const claudeSession = manager.attach(claudeNode.id)
+    manager.stop(claudeSession.id)
+    store.upsertAgentActivity(claudeSession.runtimeName, { kind: 'claude', state: 'completed', since: '2026-08-07T10:00:00.000Z', externalSessionId: 'claude-session' })
+
+    const piNode = store.createNode('default', { parentId: 'workspace', title: 'Pi recover', type: 'terminal', repoPath: directory })
+    const piSession = manager.attach(piNode.id)
+    manager.stop(piSession.id)
+    store.upsertAgentActivity(piSession.runtimeName, { kind: 'pi', state: 'completed', since: '2026-08-07T10:01:00.000Z', externalSessionPath: '/home/me/.pi/agent/sessions/pi.jsonl' })
+
+    assert.deepEqual(agentResumeCommand(store.getAgentActivity(claudeSession.runtimeName)!), ['claude', '--resume', 'claude-session'])
+    assert.deepEqual(agentResumeCommand(store.getAgentActivity(piSession.runtimeName)!), ['pi', '--session', '/home/me/.pi/agent/sessions/pi.jsonl'])
+    assert.equal(manager.decorate([store.getSession(claudeSession.id)!])[0].canRecoverAgent, true)
+    assert.equal(manager.decorate([store.getSession(piSession.id)!])[0].canRecoverAgent, true)
+
+    manager.recoverAgent(claudeSession.id)
+    manager.recoverAgent(piSession.id)
+
+    assert.deepEqual(adapter.createCommands.slice(-2), [
+      ['claude', '--resume', 'claude-session'],
+      ['pi', '--session', '/home/me/.pi/agent/sessions/pi.jsonl'],
+    ])
   } finally {
     store.close()
     rmSync(directory, { recursive: true, force: true })
