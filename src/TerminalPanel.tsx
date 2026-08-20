@@ -315,11 +315,11 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       <div className="terminal-screen"><div className="terminal-mount" ref={container} /></div>
       <form className="terminal-command-box" onSubmit={(event) => { event.preventDefault(); void submitCommandInput() }}>
         <label>
-          <span className="terminal-command-label"><span>Command input</span><small>Shift+Enter adds a line</small></span>
           <textarea
             value={commandInput}
             rows={1}
             placeholder="Type or paste… Enter to send"
+            title="Shift+Enter adds a line"
             onChange={(event) => { setCommandInput(event.target.value); setHistoryIndex(-1) }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {

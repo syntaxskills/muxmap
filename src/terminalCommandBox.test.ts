@@ -7,7 +7,7 @@ test('terminal panel includes a command box with persisted history', () => {
   const css = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
 
   assert.match(panel, /terminal-command-box/)
-  assert.match(panel, /Command input/)
+  assert.doesNotMatch(panel, /Command input/)
   assert.doesNotMatch(panel, /Voice input/)
   assert.match(panel, /Type or paste… Enter to send/)
   assert.match(panel, /input-history/)

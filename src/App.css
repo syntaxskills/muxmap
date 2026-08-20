@@ -3321,26 +3321,6 @@ kbd {
 
 .terminal-command-box label {
   min-width: 0;
-  display: grid;
-  gap: 5px;
-  color: var(--terminal-muted);
-  font: 10px/1 var(--mono);
-}
-
-.terminal-command-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-}
-
-.terminal-command-label small {
-  color: color-mix(in srgb, var(--terminal-muted) 68%, transparent);
-  font: 9px/1 var(--mono);
-  letter-spacing: 0;
-  text-transform: none;
 }
 
 .terminal-command-box textarea {
