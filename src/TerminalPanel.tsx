@@ -317,7 +317,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
         <label>
           <textarea
             value={commandInput}
-            rows={1}
+            rows={3}
             placeholder="Type or paste… Enter to send"
             title="Shift+Enter adds a line"
             onChange={(event) => { setCommandInput(event.target.value); setHistoryIndex(-1) }}

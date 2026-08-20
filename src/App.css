@@ -3313,43 +3313,60 @@ kbd {
 .terminal-command-box {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  padding: 0 8px 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.045);
-  background: rgba(255, 255, 255, 0.018);
+  align-items: stretch;
+  gap: 10px;
+  padding: 9px 10px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0.012)),
+    rgba(0, 0, 0, 0.16);
 }
 
 .terminal-command-box label {
   min-width: 0;
+  display: flex;
 }
 
 .terminal-command-box textarea {
   min-width: 0;
+  width: 100%;
   resize: none;
-  max-height: 140px;
-  min-height: 32px;
+  max-height: 180px;
+  min-height: 76px;
   field-sizing: content;
   border: 1px solid var(--terminal-line);
-  border-radius: 10px;
-  padding: 7px 10px;
-  background: rgba(0, 0, 0, 0.22);
+  border-radius: 11px;
+  padding: 10px 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0.006)),
+    rgba(0, 0, 0, 0.28);
   color: var(--terminal-text);
-  font: 12px/1.35 var(--mono);
+  font: 12px/1.45 var(--mono);
   outline: none;
 }
 
 .terminal-command-box textarea:focus {
   border-color: color-mix(in srgb, var(--accent) 70%, var(--terminal-line));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.034), rgba(255, 255, 255, 0.01)),
+    rgba(0, 0, 0, 0.32);
+}
+
+.terminal-command-box textarea::placeholder {
+  color: color-mix(in srgb, var(--terminal-muted) 72%, transparent);
 }
 
 .terminal-command-actions {
-  display: flex;
-  align-items: end;
-  gap: 5px;
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: repeat(2, 28px);
+  grid-auto-rows: 28px;
+  align-content: stretch;
+  gap: 6px;
 }
 
 .terminal-command-actions button {
-  min-height: 34px;
+  min-height: 0;
   border: 1px solid transparent;
   border-radius: 9px;
   padding: 0 10px;
@@ -3370,9 +3387,17 @@ kbd {
 }
 
 .terminal-command-actions .is-send {
+  grid-column: 1 / -1;
+  min-width: 68px;
+  min-height: 42px;
   background: var(--accent-soft);
   border-color: color-mix(in srgb, var(--accent) 36%, transparent);
   color: var(--terminal-text);
+}
+
+.terminal-command-actions .is-send:only-child {
+  grid-row: 1 / span 3;
+  min-height: 76px;
 }
 
 .terminal-command-actions .is-send:not(:disabled):hover {
