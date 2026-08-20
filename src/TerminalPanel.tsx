@@ -2,7 +2,8 @@ import { type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type Po
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import type { NodeType, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
+import { api } from './api.ts'
+import type { NodeType, TerminalInputHistoryItem, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
@@ -59,6 +60,18 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
   const [isFullscreen, setFullscreen] = useState(false)
   const [showNodeEditor, setShowNodeEditor] = useState(false)
   const [stopConfirming, setStopConfirming] = useState(false)
+  const [commandInput, setCommandInput] = useState('')
+  const [inputHistory, setInputHistory] = useState<TerminalInputHistoryItem[]>([])
+  const [historyIndex, setHistoryIndex] = useState(-1)
+  const socketRef = useRef<WebSocket | null>(null)
+
+  useEffect(() => {
+    let disposed = false
+    void api<{ history: TerminalInputHistoryItem[] }>(`/api/sessions/${session.id}/input-history`)
+      .then((response) => { if (!disposed) setInputHistory(response.history) })
+      .catch(() => { if (!disposed) setInputHistory([]) })
+    return () => { disposed = true }
+  }, [session.id])
 
   useEffect(() => {
     if (!container.current) return
@@ -81,6 +94,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     fit.fit()
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(`${protocol}//${window.location.host}/api/sessions/${session.id}/attach?cols=${terminal.cols}&rows=${terminal.rows}`)
+    socketRef.current = socket
     let recentInput: RecentTerminalInput | undefined
     const outputQueue: string[] = []
     let outputFrame: number | undefined
@@ -189,6 +203,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       if (scrollTimer !== undefined) window.clearTimeout(scrollTimer)
       if (outputFrame !== undefined) window.cancelAnimationFrame(outputFrame)
       socket.close()
+      if (socketRef.current === socket) socketRef.current = null
       terminal.dispose()
     }
   }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, onStatus, precisionScrollMultiplier, scrollback, session.cwd, session.id, wheelMode])
@@ -230,6 +245,35 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     }
   }
 
+  function terminalInputData(value: string) {
+    return `${value.replace(/\r?\n/g, '\r')}\r`
+  }
+
+  async function submitCommandInput() {
+    const value = commandInput.trim()
+    if (!value) return
+    const socket = socketRef.current
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data: terminalInputData(value) }))
+    setCommandInput('')
+    setHistoryIndex(-1)
+    try {
+      const response = await api<{ item: TerminalInputHistoryItem }>(`/api/sessions/${session.id}/input-history`, {
+        method: 'POST',
+        body: JSON.stringify({ value }),
+      })
+      setInputHistory((current) => [response.item, ...current.filter((item) => item.value !== response.item.value)].slice(0, 30))
+    } catch {
+      // The command has already been sent to the terminal; history persistence is best-effort.
+    }
+  }
+
+  function navigateCommandHistory(direction: 1 | -1) {
+    if (inputHistory.length === 0) return
+    const nextIndex = Math.max(-1, Math.min(inputHistory.length - 1, historyIndex + direction))
+    setHistoryIndex(nextIndex)
+    setCommandInput(nextIndex === -1 ? '' : inputHistory[nextIndex].value)
+  }
+
   const style = {
     '--terminal-drag-x': `${offset.x}px`,
     '--terminal-drag-y': `${offset.y}px`,
@@ -269,6 +313,36 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
         </div>}
       </div>
       <div className="terminal-screen"><div className="terminal-mount" ref={container} /></div>
+      <form className="terminal-command-box" onSubmit={(event) => { event.preventDefault(); void submitCommandInput() }}>
+        <label>
+          <span>Voice input</span>
+          <textarea
+            value={commandInput}
+            rows={2}
+            placeholder="Dictate or edit here, then Enter to send. Shift+Enter adds a line."
+            onChange={(event) => { setCommandInput(event.target.value); setHistoryIndex(-1) }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                void submitCommandInput()
+              }
+              if (event.key === 'ArrowUp' && !event.shiftKey && !event.metaKey && !event.altKey) {
+                event.preventDefault()
+                navigateCommandHistory(1)
+              }
+              if (event.key === 'ArrowDown' && !event.shiftKey && !event.metaKey && !event.altKey) {
+                event.preventDefault()
+                navigateCommandHistory(-1)
+              }
+            }}
+          />
+        </label>
+        <div className="terminal-command-actions">
+          <button type="button" onClick={() => navigateCommandHistory(1)} disabled={inputHistory.length === 0} title="Previous input">↑</button>
+          <button type="button" onClick={() => navigateCommandHistory(-1)} disabled={historyIndex < 0} title="Next input">↓</button>
+          <button type="submit" disabled={!commandInput.trim() || disabled}>Send</button>
+        </div>
+      </form>
     </section>
   )
 }

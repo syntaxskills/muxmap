@@ -175,6 +175,67 @@ test('LAN mode requires persistent basic auth before issuing its session cookie'
   }
 })
 
+test('agent channel and terminal input history APIs persist collaboration state', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-channel-api-')))
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    tmux: fakeTmux(),
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const auth = await fetch(`${base}/api/auth`)
+    const cookie = auth.headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const createNode = async (title: string) => (await fetch(`${base}/api/workspaces/default/nodes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ parentId: 'workspace', title, type: 'terminal', repoPath: root }),
+    })).json() as Promise<{ id: string }>
+    const first = await createNode('Claude implementation agent')
+    const second = await createNode('Codex review agent')
+    const firstSession = await fetch(`${base}/api/nodes/${first.id}/session`, { method: 'POST', headers, body: JSON.stringify({ backend: 'tmux', cwd: root }) }).then((response) => response.json()) as { session: TerminalSession }
+    await fetch(`${base}/api/nodes/${second.id}/session`, { method: 'POST', headers, body: JSON.stringify({ backend: 'tmux', cwd: root }) })
+
+    const channelResponse = await fetch(`${base}/api/workspaces/default/agent-channels`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ sourceNodeId: first.id, targetNodeId: second.id }),
+    })
+    assert.equal(channelResponse.status, 201)
+    const { channel } = await channelResponse.json() as { channel: { id: string; mcpUri: string } }
+    assert.match(channel.mcpUri, /^muxmap:\/\/agent-channels\//)
+
+    const message = await fetch(`${base}/api/agent-channels/${channel.id}/messages`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ authorNodeId: first.id, body: 'Please compare the failing test output.' }),
+    })
+    assert.equal(message.status, 201)
+    const messages = await fetch(`${base}/api/agent-channels/${channel.id}/messages`, { headers: { cookie } }).then((response) => response.json()) as { messages: Array<{ body: string }> }
+    assert.deepEqual(messages.messages.map((item) => item.body), ['Please compare the failing test output.'])
+
+    await fetch(`${base}/api/sessions/${firstSession.session.id}/input-history`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ value: 'bun run test' }),
+    })
+    const history = await fetch(`${base}/api/sessions/${firstSession.session.id}/input-history`, { headers: { cookie } }).then((response) => response.json()) as { history: Array<{ value: string }> }
+    assert.deepEqual(history.history.map((item) => item.value), ['bun run test'])
+
+    const graph = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { channels: unknown[] }
+    assert.equal(graph.channels.length, 1)
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('file preview API opens files inside allowed roots and rejects outside paths', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-files-')))
   const outside = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-files-outside-')))

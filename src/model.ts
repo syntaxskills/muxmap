@@ -72,6 +72,34 @@ export type TerminalSession = {
   canRecoverAgent?: boolean
 }
 
+export type AgentChannel = {
+  id: string
+  workspaceId: string
+  sourceNodeId: string
+  targetNodeId: string
+  title: string
+  mcpUri: string
+  status: 'open' | 'archived'
+  createdAt: string
+  updatedAt: string
+}
+
+export type AgentChannelMessage = {
+  id: string
+  channelId: string
+  authorNodeId: string
+  body: string
+  createdAt: string
+}
+
+export type TerminalInputHistoryItem = {
+  id: string
+  sessionId: string
+  runtimeName: string
+  value: string
+  createdAt: string
+}
+
 export type Workspace = {
   id: string
   name: string
@@ -84,6 +112,7 @@ export type WorkspaceGraph = {
   workspace: Workspace
   nodes: WorkNode[]
   sessions: TerminalSession[]
+  channels?: AgentChannel[]
   orphans?: Array<{ backend: TerminalBackend; runtimeName: string; agent?: AgentActivity }>
   runtime?: { platform: string; terminalBackends: TerminalBackend[] }
 }

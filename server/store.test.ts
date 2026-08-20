@@ -168,6 +168,48 @@ test('terminal activity persists and legacy sessions fall back to their last att
   }
 })
 
+test('agent channels connect two terminal-backed nodes and persist MCP metadata', () => {
+  const store = createStore(':memory:')
+  const first = store.createNode('default', { parentId: 'workspace', title: 'Agent A', type: 'terminal' })
+  const second = store.createNode('default', { parentId: 'workspace', title: 'Agent B', type: 'terminal' })
+  const plain = store.createNode('default', { parentId: 'workspace', title: 'Plain note', type: 'note' })
+  store.upsertSession({ id: 'sess-a', workspaceId: 'default', nodeId: first.id, name: 'tmux:a', runtimeName: 'muxmap-a', backend: 'tmux', cwd: process.cwd(), status: 'running' })
+  store.upsertSession({ id: 'sess-b', workspaceId: 'default', nodeId: second.id, name: 'tmux:b', runtimeName: 'muxmap-b', backend: 'tmux', cwd: process.cwd(), status: 'running' })
+
+  assert.throws(() => store.createAgentChannel('default', { sourceNodeId: first.id, targetNodeId: plain.id }), /terminal sessions/)
+
+  const channel = store.createAgentChannel('default', { sourceNodeId: first.id, targetNodeId: second.id })
+  assert.equal(channel.title, `${first.title} ↔ ${second.title}`)
+  assert.match(channel.mcpUri, /^muxmap:\/\/agent-channels\//)
+  assert.equal(store.createAgentChannel('default', { sourceNodeId: second.id, targetNodeId: first.id }).id, channel.id)
+  assert.equal(store.getWorkspace('default').channels?.length, 1)
+
+  const message = store.createAgentChannelMessage(channel.id, { authorNodeId: first.id, body: 'Please inspect the failing test.' })
+  assert.equal(message.body, 'Please inspect the failing test.')
+  assert.equal(store.listAgentChannelMessages(channel.id)[0]?.authorNodeId, first.id)
+  assert.throws(() => store.createAgentChannelMessage(channel.id, { authorNodeId: plain.id, body: 'intrude' }), /author/)
+
+  store.deleteAgentChannel(channel.id)
+  assert.equal(store.getWorkspace('default').channels?.length, 0)
+  store.close()
+})
+
+test('terminal input history is stored per session without duplicate consecutive entries', () => {
+  const store = createStore(':memory:')
+  const node = store.createNode('default', { parentId: 'workspace', title: 'Voice terminal', type: 'terminal' })
+  store.upsertSession({ id: 'sess-voice', workspaceId: 'default', nodeId: node.id, name: 'tmux:voice', runtimeName: 'muxmap-voice', backend: 'tmux', cwd: process.cwd(), status: 'running' })
+
+  const first = store.recordTerminalInput('sess-voice', 'bun run test')
+  const duplicate = store.recordTerminalInput('sess-voice', 'bun run test')
+  const second = store.recordTerminalInput('sess-voice', 'git status')
+
+  assert.equal(duplicate.id, first.id)
+  assert.deepEqual(store.listTerminalInputHistory('sess-voice').map((item) => item.value), ['git status', 'bun run test'])
+  assert.equal(store.listTerminalInputHistory('sess-voice')[0]?.runtimeName, 'muxmap-voice')
+  assert.ok(Date.parse(second.createdAt))
+  store.close()
+})
+
 test('node creation validates hierarchy and input', () => {
   const store = createStore(':memory:')
   assert.throws(() => store.createNode('default', {

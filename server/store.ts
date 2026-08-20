@@ -4,8 +4,11 @@ import {
   seedNodes,
   type NodeType,
   type AgentActivity,
+  type AgentChannel,
+  type AgentChannelMessage,
   type AgentEventLogEntry,
   type TerminalBackend,
+  type TerminalInputHistoryItem,
   type TerminalSession,
   type TerminalStatus,
   type WorkNode,
@@ -29,6 +32,8 @@ type CreateNodeInput = {
 type UpdateNodeInput = Partial<Pick<WorkNode, 'title' | 'type' | 'project' | 'color' | 'repoPath' | 'jiraKey' | 'note'>> & { doneAt?: string | null }
 
 type SessionInput = Omit<TerminalSession, 'createdAt' | 'updatedAt'>
+type CreateAgentChannelInput = { sourceNodeId: string; targetNodeId: string; title?: string }
+type CreateAgentChannelMessageInput = { authorNodeId: string; body: string }
 
 const nodeTypes: NodeType[] = ['workspace', 'repo', 'feature', 'ticket', 'note', 'todo', 'terminal']
 const agentKinds: AgentEventLogEntry['kind'][] = ['codex', 'claude', 'pi']
@@ -176,6 +181,34 @@ export function createStore(path: string) {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS agent_events_runtime_created ON agent_events(tmux_name, created_at DESC);
+    CREATE TABLE IF NOT EXISTS agent_channels (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      source_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+      target_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      mcp_uri TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS agent_channels_workspace ON agent_channels(workspace_id, created_at);
+    CREATE TABLE IF NOT EXISTS agent_channel_messages (
+      id TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL REFERENCES agent_channels(id) ON DELETE CASCADE,
+      author_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS agent_channel_messages_channel_created ON agent_channel_messages(channel_id, created_at);
+    CREATE TABLE IF NOT EXISTS terminal_input_history (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      runtime_name TEXT NOT NULL,
+      value TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS terminal_input_history_session_created ON terminal_input_history(session_id, created_at DESC);
   `)
 
   const nodeColumns = database.prepare('PRAGMA table_info(nodes)').all() as Array<{ name: string }>
@@ -303,13 +336,106 @@ export function createStore(path: string) {
     }
   }
 
+  function mapAgentChannel(row: Record<string, unknown>): AgentChannel {
+    return {
+      id: String(row.id),
+      workspaceId: String(row.workspace_id),
+      sourceNodeId: String(row.source_node_id),
+      targetNodeId: String(row.target_node_id),
+      title: String(row.title),
+      mcpUri: String(row.mcp_uri),
+      status: String(row.status) as AgentChannel['status'],
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    }
+  }
+
+  function mapAgentChannelMessage(row: Record<string, unknown>): AgentChannelMessage {
+    return {
+      id: String(row.id),
+      channelId: String(row.channel_id),
+      authorNodeId: String(row.author_node_id),
+      body: String(row.body),
+      createdAt: String(row.created_at),
+    }
+  }
+
+  function mapTerminalInputHistory(row: Record<string, unknown>): TerminalInputHistoryItem {
+    return {
+      id: String(row.id),
+      sessionId: String(row.session_id),
+      runtimeName: String(row.runtime_name),
+      value: String(row.value),
+      createdAt: String(row.created_at),
+    }
+  }
+
   return {
     getWorkspace(id: string): WorkspaceGraph {
       const row = database.prepare('SELECT * FROM workspaces WHERE id = ?').get(id) as Record<string, unknown> | undefined
       if (!row) throw new Error('Workspace not found')
       const nodes = database.prepare('SELECT * FROM nodes WHERE workspace_id = ? ORDER BY sort_order, created_at').all(id) as Record<string, unknown>[]
       const sessions = database.prepare('SELECT * FROM sessions WHERE workspace_id = ? ORDER BY created_at').all(id) as Record<string, unknown>[]
-      return { workspace: mapWorkspace(row), nodes: nodes.map(mapNode), sessions: sessions.map(mapSession) }
+      const channels = database.prepare('SELECT * FROM agent_channels WHERE workspace_id = ? AND status = ? ORDER BY created_at').all(id, 'open') as Record<string, unknown>[]
+      return { workspace: mapWorkspace(row), nodes: nodes.map(mapNode), sessions: sessions.map(mapSession), channels: channels.map(mapAgentChannel) }
+    },
+
+    createAgentChannel(workspaceId: string, input: CreateAgentChannelInput) {
+      if (input.sourceNodeId === input.targetNodeId) throw new Error('Agent channel requires two distinct nodes')
+      const source = this.getNode(input.sourceNodeId)
+      const target = this.getNode(input.targetNodeId)
+      if (!source || !target || source.workspaceId !== workspaceId || target.workspaceId !== workspaceId) throw new Error('Channel nodes must belong to the workspace')
+      if (!this.getSessionByNode(source.id) || !this.getSessionByNode(target.id)) throw new Error('Both channel nodes need terminal sessions')
+      const existing = database.prepare(`
+        SELECT * FROM agent_channels
+        WHERE workspace_id = ? AND status = 'open'
+          AND ((source_node_id = ? AND target_node_id = ?) OR (source_node_id = ? AND target_node_id = ?))
+      `).get(workspaceId, source.id, target.id, target.id, source.id) as Record<string, unknown> | undefined
+      if (existing) return mapAgentChannel(existing)
+      const now = new Date().toISOString()
+      const id = randomUUID()
+      const title = input.title?.trim() || `${source.title} ↔ ${target.title}`
+      const mcpUri = `muxmap://agent-channels/${id}`
+      database.prepare(`
+        INSERT INTO agent_channels (
+          id, workspace_id, source_node_id, target_node_id, title, mcp_uri, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, workspaceId, source.id, target.id, title, mcpUri, 'open', now, now)
+      database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, workspaceId)
+      return this.getAgentChannel(id)!
+    },
+
+    getAgentChannel(id: string) {
+      const row = database.prepare('SELECT * FROM agent_channels WHERE id = ?').get(id) as Record<string, unknown> | undefined
+      return row ? mapAgentChannel(row) : undefined
+    },
+
+    deleteAgentChannel(id: string) {
+      const channel = this.getAgentChannel(id)
+      if (!channel) throw new Error('Agent channel not found')
+      const now = new Date().toISOString()
+      database.prepare('UPDATE agent_channels SET status = ?, updated_at = ? WHERE id = ?').run('archived', now, id)
+      database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, channel.workspaceId)
+      return this.getAgentChannel(id)!
+    },
+
+    listAgentChannelMessages(channelId: string, limit = 80) {
+      if (!this.getAgentChannel(channelId)) throw new Error('Agent channel not found')
+      const rows = database.prepare('SELECT * FROM agent_channel_messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT ?').all(channelId, limit) as Record<string, unknown>[]
+      return rows.map(mapAgentChannelMessage).reverse()
+    },
+
+    createAgentChannelMessage(channelId: string, input: CreateAgentChannelMessageInput) {
+      const channel = this.getAgentChannel(channelId)
+      if (!channel || channel.status !== 'open') throw new Error('Agent channel not found')
+      const body = input.body.trim()
+      if (!body) throw new Error('Message body is required')
+      if (![channel.sourceNodeId, channel.targetNodeId].includes(input.authorNodeId)) throw new Error('Message author must be part of the channel')
+      const now = new Date().toISOString()
+      const id = randomUUID()
+      database.prepare('INSERT INTO agent_channel_messages (id, channel_id, author_node_id, body, created_at) VALUES (?, ?, ?, ?, ?)').run(id, channelId, input.authorNodeId, body.slice(0, 4000), now)
+      database.prepare('UPDATE agent_channels SET updated_at = ? WHERE id = ?').run(now, channelId)
+      return mapAgentChannelMessage(database.prepare('SELECT * FROM agent_channel_messages WHERE id = ?').get(id) as Record<string, unknown>)
     },
 
     getNode(id: string) {
@@ -561,6 +687,38 @@ export function createStore(path: string) {
         WHERE tmux_name = ? AND (last_activity_at IS NULL OR last_activity_at <= ?)
       `).run(timestamp, runtimeName, timestamp)
       return this.getSessionByRuntimeName(runtimeName)
+    },
+
+    listTerminalInputHistory(sessionId: string, limit = 30) {
+      const session = this.getSession(sessionId)
+      if (!session) throw new Error('Session not found')
+      const rows = database.prepare(`
+        SELECT * FROM terminal_input_history
+        WHERE session_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).all(sessionId, limit) as Record<string, unknown>[]
+      return rows.map(mapTerminalInputHistory)
+    },
+
+    recordTerminalInput(sessionId: string, value: string) {
+      const session = this.getSession(sessionId)
+      if (!session) throw new Error('Session not found')
+      const trimmed = value.trim()
+      if (!trimmed) throw new Error('Input history value is required')
+      const recent = this.listTerminalInputHistory(sessionId, 1)[0]
+      if (recent?.value === trimmed) return recent
+      const now = new Date().toISOString()
+      const id = randomUUID()
+      database.prepare('INSERT INTO terminal_input_history (id, session_id, runtime_name, value, created_at) VALUES (?, ?, ?, ?, ?)').run(id, sessionId, session.runtimeName, trimmed.slice(0, 4000), now)
+      database.prepare(`
+        DELETE FROM terminal_input_history
+        WHERE session_id = ? AND id NOT IN (
+          SELECT id FROM terminal_input_history WHERE session_id = ? ORDER BY created_at DESC LIMIT 100
+        )
+      `).run(sessionId, sessionId)
+      this.updateSessionActivity(sessionId, now)
+      return mapTerminalInputHistory(database.prepare('SELECT * FROM terminal_input_history WHERE id = ?').get(id) as Record<string, unknown>)
     },
 
     close() {

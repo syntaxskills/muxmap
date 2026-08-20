@@ -36,7 +36,7 @@ import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { AgentEventList } from './AgentEventList.tsx'
 import { demoWorkspaceGraph } from './demoGraph.ts'
-import { ArchiveIcon, BoxIcon, CheckboxIcon, CheckCircledIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, EyeOpenIcon, GearIcon, Pencil2Icon, PlayIcon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
+import { ArchiveIcon, BoxIcon, CheckboxIcon, CheckCircledIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, EyeOpenIcon, GearIcon, Link2Icon, Pencil2Icon, PlayIcon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import {
   closeTerminal,
   floatTerminal,
@@ -95,6 +95,7 @@ function App() {
   const [renameTitle, setRenameTitle] = useState('')
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number; confirm?: ContextMenuConfirmation } | null>(null)
+  const [pendingChannelNodeId, setPendingChannelNodeId] = useState<string | null>(null)
   const [draggedId, setDraggedId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<{ id: string; position: ReorderPosition } | null>(null)
   const [surface, setSurface] = useState<WorkspaceSurface>(() => ({
@@ -321,6 +322,9 @@ function App() {
   const activeTerminal = graph?.sessions.find((item) => item.id === terminalSessionId)
   const activeTerminalNode = activeGraphNodes.find((node) => node.id === activeTerminal?.nodeId)
   const orphans = graph?.orphans ?? []
+  const channels = useMemo(() => graph?.channels ?? [], [graph?.channels])
+  const channelNodeIds = useMemo(() => new Set(channels.flatMap((channel) => [channel.sourceNodeId, channel.targetNodeId])), [channels])
+  const selectedChannels = useMemo(() => channels.filter((channel) => selectedId && (channel.sourceNodeId === selectedId || channel.targetNodeId === selectedId)), [channels, selectedId])
   const agentCount = [...(graph?.sessions ?? []).filter((item) => visibleAgentForSession(item)), ...orphans.filter((item) => item.agent)].length
   const workingAgentNodeKey = nodes
     .map((node) => visibleAgentForSession(sessionsByNode.get(node.id))?.state === 'working' ? node.id : '')
@@ -531,6 +535,43 @@ function App() {
     } catch (statusError) {
       setError(statusError instanceof Error ? statusError.message : 'Unable to update agent status')
       await loadWorkspace()
+    }
+  }
+
+  async function createAgentChannel(sourceNodeId: string, targetNodeId: string) {
+    if (!graph || sourceNodeId === targetNodeId) return
+    setBusy(true)
+    setError('')
+    try {
+      const response = await api<{ channel: NonNullable<WorkspaceGraph['channels']>[number] }>(`/api/workspaces/${graph.workspace.id}/agent-channels`, {
+        method: 'POST',
+        body: JSON.stringify({ sourceNodeId, targetNodeId }),
+      })
+      setGraph((current) => current ? {
+        ...current,
+        channels: [...(current.channels ?? []).filter((channel) => channel.id !== response.channel.id), response.channel],
+      } : current)
+      setPendingChannelNodeId(null)
+      setContextMenu(null)
+    } catch (channelError) {
+      setError(channelError instanceof Error ? channelError.message : 'Unable to create agent channel')
+      await loadWorkspace()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteAgentChannel(channelId: string) {
+    setBusy(true)
+    setError('')
+    try {
+      await api(`/api/agent-channels/${channelId}`, { method: 'DELETE', body: '{}' })
+      setGraph((current) => current ? { ...current, channels: (current.channels ?? []).filter((channel) => channel.id !== channelId) } : current)
+    } catch (channelError) {
+      setError(channelError instanceof Error ? channelError.message : 'Unable to remove agent channel')
+      await loadWorkspace()
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -987,6 +1028,7 @@ function App() {
           {demoMode && <span className="demo-badge">Demo data</span>}
           <span>{activeGraphNodes.length} nodes</span>
           {agentCount > 0 && <span>{agentCount} agents</span>}
+          {channels.length > 0 && <span>{channels.length} channels</span>}
           <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))} aria-expanded={rightPanel === 'archive'} aria-label={`${archivedCount} archived nodes`} title="Archive"><ArchiveIcon /><span>{archivedCount} archived</span></button>
           <button type="button" onClick={toggleSessionManager} aria-expanded={rightPanel === 'sessions'} aria-label="Terminal sessions" title="Terminal sessions">
             <DesktopIcon /><span>{graph.sessions.filter((item) => item.status !== 'stopped' && item.runtimeExists !== false).length + orphans.length} sessions{orphans.length > 0 ? ` · ${orphans.length} orphan` : ''}</span>
@@ -1049,6 +1091,19 @@ function App() {
                     const bend = (x1 + x2) / 2
                     return <path key={node.id} d={`M ${x1} ${y1} C ${bend} ${y1}, ${bend} ${y2}, ${x2} ${y2}`} />
                   })}
+                  {channels.map((channel) => {
+                    const source = positions.get(channel.sourceNodeId)
+                    const target = positions.get(channel.targetNodeId)
+                    if (!source || !target) return null
+                    const sourceHeight = nodeHeights.get(channel.sourceNodeId) ?? NODE_HEIGHT
+                    const targetHeight = nodeHeights.get(channel.targetNodeId) ?? NODE_HEIGHT
+                    const x1 = source.x + NODE_WIDTH / 2 + 48
+                    const y1 = source.y + sourceHeight / 2 + 48
+                    const x2 = target.x + NODE_WIDTH / 2 + 48
+                    const y2 = target.y + targetHeight / 2 + 48
+                    const bend = (x1 + x2) / 2
+                    return <path className="agent-channel-edge" key={channel.id} d={`M ${x1} ${y1} C ${bend} ${y1 - 40}, ${bend} ${y2 + 40}, ${x2} ${y2}`} />
+                  })}
                 </svg>
 
                 {nodes.map((node) => {
@@ -1078,7 +1133,7 @@ function App() {
                   } as CSSProperties
                   return (
                     <article
-                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${isTodoNode ? 'is-todo' : ''} ${hasOpenTodo ? 'is-todo-open' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${agentState ? `is-agent-${agentState}` : ''} ${activityFade !== 'fresh' ? `is-activity-${activityFade}` : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
+                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${isTodoNode ? 'is-todo' : ''} ${hasOpenTodo ? 'is-todo-open' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${agentState ? `is-agent-${agentState}` : ''} ${channelNodeIds.has(node.id) ? 'is-channel-linked' : ''} ${pendingChannelNodeId === node.id ? 'is-channel-pending' : ''} ${activityFade !== 'fresh' ? `is-activity-${activityFade}` : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
                       key={node.id}
                       style={style}
                       data-node-id={node.id}
@@ -1131,6 +1186,7 @@ function App() {
                         {nodeSession && <span className="node-runtime" title={`Last activity ${new Date(activityTimestamp!).toLocaleString()}`}><time className="node-last-activity" dateTime={activityTimestamp}>{activityAge}</time><span className={`terminal-badge is-${nodeSession.status} ${visibleAgent ? `is-${visibleAgent.state}` : ''}`} title={visibleAgent ? agentStatusText(visibleAgent) : nodeSession.runtimeExists === false ? 'Terminal runtime missing' : `Terminal ${nodeSession.status}`}>{visibleAgent ? <AgentIcon kind={visibleAgent.kind} /> : '>_'}</span></span>}
                       </button>
                       {hasOpenTodo && <span className="node-todo-marker" aria-label="Todo open" title="Todo" />}
+                      {channelNodeIds.has(node.id) && <span className="node-channel-marker" aria-label="Agent channel linked" title="Agent channel linked"><Link2Icon /></span>}
                       {agentState === 'needs_input' && <span className="agent-needs-input-marker" role="img" aria-label={`Agent needs input for ${node.title}`} title="Agent needs input">?</span>}
                       <button className="node-add-action" type="button" onClick={() => void addChild(node)} aria-label={`Add child to ${node.title}`}>+</button>
                     </article>
@@ -1145,6 +1201,7 @@ function App() {
             if (!node) return null
             const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
             const branchHasSession = branchHasLiveSession(activeGraphNodes, graph.sessions, node.id)
+            const nodeSession = graph.sessions.find((item) => item.nodeId === node.id)
             const agentSession = graph.sessions.find((item) => item.nodeId === node.id && item.agent && item.agent.kind !== 'ssh')
             const submenuSide = contextMenu.x > window.innerWidth - 420 ? 'is-submenu-left' : 'is-submenu-right'
             const confirmingArchive = contextMenu.confirm === 'archive'
@@ -1156,6 +1213,9 @@ function App() {
                 <button type="button" role="menuitem" onClick={() => { setContextMenu(null); startRename(node) }}><Pencil2Icon />Rename</button>
                 {node.parentId && <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void duplicateNode(node) }}><CopyIcon />Duplicate</button>}
                 {childCount > 0 && <button type="button" role="menuitem" onClick={() => { toggleNodeCollapsed(node.id); setContextMenu(null) }}>{collapsed.has(node.id) ? <ChevronDownIcon /> : <ChevronUpIcon />}{collapsed.has(node.id) ? 'Expand branch' : 'Collapse branch'}</button>}
+                {nodeSession && !pendingChannelNodeId && <button type="button" role="menuitem" onClick={() => { setPendingChannelNodeId(node.id); setContextMenu(null) }}><Link2Icon />Start chat channel</button>}
+                {nodeSession && pendingChannelNodeId === node.id && <button type="button" role="menuitem" onClick={() => { setPendingChannelNodeId(null); setContextMenu(null) }}><Cross2Icon />Cancel chat channel</button>}
+                {nodeSession && pendingChannelNodeId && pendingChannelNodeId !== node.id && <button type="button" role="menuitem" onClick={() => void createAgentChannel(pendingChannelNodeId, node.id)}><Link2Icon />Connect chat channel</button>}
                 {node.parentId && (node.type !== 'todo' || node.doneAt) && <button type="button" role="menuitem" onClick={() => void markNodeTodo(node)}><BoxIcon />Mark todo</button>}
                 {node.parentId && node.type === 'todo' && !node.doneAt && <button type="button" role="menuitem" onClick={() => void markNodeDone(node)}><CheckboxIcon />Mark done</button>}
                 {agentSession && <div className={`node-context-submenu ${submenuSide}`}>
@@ -1216,6 +1276,22 @@ function App() {
               <SessionBindingCard session={session} />
               <AgentEventList events={session.agentEvents} />
             </>
+          )}
+
+          {selectedChannels.length > 0 && (
+            <section className="agent-channel-list" aria-label={`Agent channels for ${selected.title}`}>
+              <header><span>Agent channels</span><small>{selectedChannels.length}</small></header>
+              {selectedChannels.map((channel) => {
+                const peerId = channel.sourceNodeId === selected.id ? channel.targetNodeId : channel.sourceNodeId
+                const peer = graph.nodes.find((node) => node.id === peerId)
+                return (
+                  <article key={channel.id}>
+                    <div><strong>{peer?.title ?? channel.title}</strong><code>{channel.mcpUri}</code></div>
+                    <button type="button" onClick={() => void deleteAgentChannel(channel.id)} disabled={busy}>Disconnect</button>
+                  </article>
+                )
+              })}
+            </section>
           )}
 
           {selectedArchivedChildren.length > 0 && (

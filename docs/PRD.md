@@ -310,6 +310,23 @@ Required:
 * Show last activity age on linked nodes using compact labels such as `1M`, `55M`, `2H`, `36H`, and `3d`.
 * Route attention through in-page notifications, system notifications, or both based on settings.
 
+### Agent Channels
+
+Required:
+
+* A human can manually connect two terminal-backed nodes into an agent channel.
+* Channels are shown on the main mindmap without changing the tree hierarchy.
+* Channel records persist in SQLite with a stable `muxmap://agent-channels/<id>` URI.
+* Channel message APIs exist for MCP/local-tool adapters, but agents do not auto-chat unless the user creates the channel.
+
+### Voice-Friendly Terminal Input
+
+Required:
+
+* A custom input box is available next to the browser terminal for dictated or edited commands.
+* Submitting the box sends text to the current terminal session.
+* Input history is stored by MuxMap per session and can be recalled without writing into shell history.
+
 ---
 
 ## 7. Non-MVP

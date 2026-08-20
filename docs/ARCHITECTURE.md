@@ -25,7 +25,7 @@ Execution layer
 
 ## Storage
 
-Workspace state is persisted in SQLite under the configured data directory. The database stores workspaces, nodes, sessions, archive state, last activity timestamps, and Agent activity.
+Workspace state is persisted in SQLite under the configured data directory. The database stores workspaces, nodes, sessions, archive state, last activity timestamps, Agent activity, human-created agent channels, channel messages, and terminal command-box history.
 
 The terminal process itself is not stored in SQLite. tmux or Zellij owns the live shell. On startup MuxMap reconciles the database with live sessions and marks missing sessions stopped.
 
@@ -47,6 +47,30 @@ Live `muxmap*` sessions that are not linked to a node are shown as orphans. They
 - stopped explicitly.
 
 Deleting or archiving nodes does not silently kill terminal sessions. Stop choices are explicit.
+
+## Agent channels
+
+Agent channels are manual relationships between two terminal-backed nodes. They are intentionally inactive until a human connects two nodes from the map context menu. A channel stores a stable `muxmap://agent-channels/<id>` URI plus optional message history so an MCP adapter or local tool can route collaboration through that specific relationship later.
+
+The map renders channels as lightweight dashed edges. Channels are separate from the tree hierarchy; deleting a node deletes its channels through SQLite foreign keys.
+
+Channel API:
+
+- `POST /api/workspaces/:workspaceId/agent-channels`
+- `GET /api/agent-channels/:channelId/messages`
+- `POST /api/agent-channels/:channelId/messages`
+- `DELETE /api/agent-channels/:channelId`
+
+## Terminal command box
+
+The browser terminal still owns normal keyboard input. The command box below it is a separate input path optimized for dictated or edited text. Submissions are sent to the active WebSocket as terminal input and also stored in MuxMap's `terminal_input_history` table per session.
+
+MuxMap does not write these entries into zsh or shell history. That avoids polluting shell state with prose or multi-line dictated text while keeping the history available across refreshes.
+
+History API:
+
+- `GET /api/sessions/:sessionId/input-history`
+- `POST /api/sessions/:sessionId/input-history`
 
 ## Network model
 

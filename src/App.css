@@ -345,6 +345,14 @@ kbd {
   stroke-width: 1.5;
 }
 
+.edges path.agent-channel-edge {
+  stroke: color-mix(in srgb, #8db7ff 68%, var(--edge));
+  stroke-width: 1.4;
+  stroke-dasharray: 5 5;
+  opacity: .82;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, #8db7ff 24%, transparent));
+}
+
 .map-node {
   position: absolute;
   width: 184px;
@@ -443,6 +451,15 @@ kbd {
 
 .map-node.is-selected .node-select {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--node-color) 28%, transparent), 0 12px 28px var(--shadow);
+}
+
+.map-node.is-channel-linked .node-select {
+  border-style: solid;
+}
+
+.map-node.is-channel-pending .node-select {
+  border-color: #8db7ff;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #8db7ff 35%, transparent), 0 10px 28px color-mix(in srgb, #8db7ff 18%, transparent);
 }
 
 .node-select:focus-visible {
@@ -572,6 +589,28 @@ kbd {
   background: #d6534f;
   box-shadow: 0 0 0 1px color-mix(in srgb, #d6534f 72%, transparent), 0 5px 14px color-mix(in srgb, #d6534f 32%, transparent);
   pointer-events: none;
+}
+
+.node-channel-marker {
+  position: absolute;
+  z-index: 4;
+  right: 3px;
+  bottom: 3px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, #8db7ff 60%, var(--line-strong));
+  border-radius: 999px;
+  background: var(--surface-elevated);
+  color: #8db7ff;
+  box-shadow: 0 5px 13px color-mix(in srgb, #8db7ff 18%, transparent);
+  pointer-events: none;
+}
+
+.node-channel-marker svg {
+  width: 11px;
+  height: 11px;
 }
 
 .node-color {
@@ -2391,6 +2430,67 @@ kbd {
   cursor: not-allowed;
 }
 
+.agent-channel-list {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, #8db7ff 22%, var(--line));
+  border-radius: 14px;
+  background: color-mix(in srgb, #8db7ff 5%, var(--surface-subtle));
+}
+
+.agent-channel-list header,
+.agent-channel-list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.agent-channel-list header span {
+  color: var(--text-strong);
+  font: 700 11px/1 var(--mono);
+}
+
+.agent-channel-list header small,
+.agent-channel-list code {
+  color: var(--text-muted);
+  font: 10px/1.2 var(--mono);
+}
+
+.agent-channel-list article {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.agent-channel-list article > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.agent-channel-list strong,
+.agent-channel-list code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-channel-list button {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: transparent;
+  color: var(--text-muted);
+  font: 10px/1 var(--mono);
+}
+
+.agent-channel-list button:hover {
+  border-color: #8db7ff;
+  color: #8db7ff;
+}
+
 .node-more-actions {
   margin-top: 20px;
   border-top: 1px solid var(--line);
@@ -2708,7 +2808,7 @@ kbd {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: 48px minmax(0, 1fr);
+  grid-template-rows: 48px minmax(0, 1fr) auto;
   overflow: hidden;
   resize: none;
   box-shadow: inset 1px 0 0 rgba(212, 154, 77, 0.16);
@@ -3202,6 +3302,68 @@ kbd {
 
 .terminal-mount .xterm-viewport {
   scrollbar-color: var(--terminal-line) var(--terminal);
+}
+
+.terminal-command-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 0 8px 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.045);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.terminal-command-box label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: var(--terminal-muted);
+  font: 10px/1 var(--mono);
+}
+
+.terminal-command-box textarea {
+  min-width: 0;
+  resize: vertical;
+  max-height: 140px;
+  min-height: 42px;
+  border: 1px solid var(--terminal-line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--terminal-text);
+  font: 12px/1.35 var(--mono);
+  outline: none;
+}
+
+.terminal-command-box textarea:focus {
+  border-color: rgba(212, 154, 77, 0.48);
+  box-shadow: 0 0 0 2px rgba(212, 154, 77, 0.12);
+}
+
+.terminal-command-actions {
+  display: flex;
+  align-items: end;
+  gap: 5px;
+}
+
+.terminal-command-actions button {
+  min-height: 38px;
+  border: 1px solid var(--terminal-line);
+  border-radius: 9px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--terminal-text);
+  font: 11px/1 var(--mono);
+}
+
+.terminal-command-actions button[type='submit'] {
+  color: #f1d0a0;
+  border-color: rgba(212, 154, 77, 0.36);
+}
+
+.terminal-command-actions button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
 }
 
 @keyframes terminal-expand-from-preview {

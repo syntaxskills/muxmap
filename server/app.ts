@@ -441,6 +441,32 @@ export function createMuxMapServer(options: ServerOptions) {
           return sendJson(response, 201, session ? { node, session } : node)
         }
 
+        const channelMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/agent-channels$/)
+        if (request.method === 'POST' && channelMatch) {
+          const body = await readJson(request)
+          if (typeof body.sourceNodeId !== 'string' || typeof body.targetNodeId !== 'string') throw new Error('sourceNodeId and targetNodeId are required')
+          return sendJson(response, 201, { channel: store.createAgentChannel(channelMatch[1], {
+            sourceNodeId: body.sourceNodeId,
+            targetNodeId: body.targetNodeId,
+            title: typeof body.title === 'string' ? body.title : undefined,
+          }) })
+        }
+
+        const agentChannelMatch = url.pathname.match(/^\/api\/agent-channels\/([^/]+)$/)
+        if (request.method === 'DELETE' && agentChannelMatch) {
+          return sendJson(response, 200, { channel: store.deleteAgentChannel(agentChannelMatch[1]) })
+        }
+
+        const agentChannelMessagesMatch = url.pathname.match(/^\/api\/agent-channels\/([^/]+)\/messages$/)
+        if (request.method === 'GET' && agentChannelMessagesMatch) {
+          return sendJson(response, 200, { messages: store.listAgentChannelMessages(agentChannelMessagesMatch[1]) })
+        }
+        if (request.method === 'POST' && agentChannelMessagesMatch) {
+          const body = await readJson(request)
+          if (typeof body.authorNodeId !== 'string' || typeof body.body !== 'string') throw new Error('authorNodeId and body are required')
+          return sendJson(response, 201, { message: store.createAgentChannelMessage(agentChannelMessagesMatch[1], { authorNodeId: body.authorNodeId, body: body.body }) })
+        }
+
         const attachMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/session$/)
         if (request.method === 'POST' && attachMatch) {
           const body = await readJson(request)
@@ -540,6 +566,16 @@ export function createMuxMapServer(options: ServerOptions) {
           for (const pty of ptys.get(stopMatch[1]) ?? []) pty.kill()
           ptys.delete(stopMatch[1])
           return sendJson(response, 200, { session: sessions.stop(stopMatch[1]) })
+        }
+
+        const inputHistoryMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/input-history$/)
+        if (request.method === 'GET' && inputHistoryMatch) {
+          return sendJson(response, 200, { history: store.listTerminalInputHistory(inputHistoryMatch[1]) })
+        }
+        if (request.method === 'POST' && inputHistoryMatch) {
+          const body = await readJson(request)
+          if (typeof body.value !== 'string') throw new Error('value is required')
+          return sendJson(response, 201, { item: store.recordTerminalInput(inputHistoryMatch[1], body.value) })
         }
 
         const recoverCodexMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/recover-codex$/)
