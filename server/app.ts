@@ -464,7 +464,17 @@ export function createMuxMapServer(options: ServerOptions) {
         if (request.method === 'POST' && agentChannelMessagesMatch) {
           const body = await readJson(request)
           if (typeof body.authorNodeId !== 'string' || typeof body.body !== 'string') throw new Error('authorNodeId and body are required')
-          return sendJson(response, 201, { message: store.createAgentChannelMessage(agentChannelMessagesMatch[1], { authorNodeId: body.authorNodeId, body: body.body }) })
+          const message = store.createAgentChannelMessage(agentChannelMessagesMatch[1], {
+            authorNodeId: body.authorNodeId,
+            body: body.body,
+            tokenCount: typeof body.tokenCount === 'number' ? body.tokenCount : undefined,
+          })
+          return sendJson(response, 201, { message, usage: store.getAgentChannelUsage(agentChannelMessagesMatch[1]) })
+        }
+
+        const agentChannelUsageMatch = url.pathname.match(/^\/api\/agent-channels\/([^/]+)\/usage$/)
+        if (request.method === 'GET' && agentChannelUsageMatch) {
+          return sendJson(response, 200, { usage: store.getAgentChannelUsage(agentChannelUsageMatch[1]) })
         }
 
         const attachMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/session$/)

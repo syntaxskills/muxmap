@@ -50,7 +50,11 @@ Deleting or archiving nodes does not silently kill terminal sessions. Stop choic
 
 ## Agent channels
 
-Agent channels are manual relationships between two terminal-backed nodes. They are intentionally inactive until a human connects two nodes from the map context menu. A channel stores a stable `muxmap://agent-channels/<id>` URI plus optional message history so an MCP adapter or local tool can route collaboration through that specific relationship later.
+Agent channels are manual relationships between two terminal-backed nodes. They are intentionally inactive until a human connects two nodes from the map context menu. A channel stores a stable `muxmap://agent-channels/<id>` URI, per-node route metadata, and optional message history so an MCP adapter or local tool can route collaboration through that specific relationship later.
+
+MuxMap's default transport remains `muxmap-local`, so channels work even when vendor-specific messaging is unavailable. Claude Code cross-session sockets are treated as readiness metadata when hooks expose `CLAUDE_CODE_MESSAGING_SOCKET`; MuxMap does not persist `CLAUDE_CODE_MESSAGING_TOKEN`. A2A is treated as an interoperable design reference for future peer endpoints, not a hard dependency.
+
+Channel messaging is intentionally bounded. The MCP contract should send concise text, write long artifacts to files, and pass file paths or summaries through the channel. The default sliding-window quota is 50 messages per hour, warning at 250k estimated tokens per hour, and hard-closing the channel before it exceeds 500k estimated tokens per hour. The quota is per hour, not lifetime, so multi-day collaboration can continue after the window rolls over.
 
 The map renders channels as lightweight dashed edges. Channels are separate from the tree hierarchy; deleting a node deletes its channels through SQLite foreign keys.
 
@@ -59,6 +63,7 @@ Channel API:
 - `POST /api/workspaces/:workspaceId/agent-channels`
 - `GET /api/agent-channels/:channelId/messages`
 - `POST /api/agent-channels/:channelId/messages`
+- `GET /api/agent-channels/:channelId/usage`
 - `DELETE /api/agent-channels/:channelId`
 
 ## Terminal command box

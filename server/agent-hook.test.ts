@@ -10,7 +10,8 @@ import test from 'node:test'
 
 const hookPath = fileURLToPath(new URL('./agent-hook.mjs', import.meta.url))
 type CodexSessionInfo = (event: Record<string, unknown>, options?: Record<string, unknown>) => Record<string, unknown>
-const { codexSessionInfo } = await import(new URL('./agent-hook.mjs', import.meta.url).href) as { codexSessionInfo: CodexSessionInfo }
+type MuxMapHookInfo = (event: Record<string, unknown>, kind: string, options?: Record<string, unknown>) => Record<string, unknown>
+const { codexSessionInfo, muxMapHookInfo } = await import(new URL('./agent-hook.mjs', import.meta.url).href) as { codexSessionInfo: CodexSessionInfo; muxMapHookInfo: MuxMapHookInfo }
 
 function runHook({ input = '{}', env = {}, kind = 'codex', stdio = 'ignore' }: {
   input?: string
@@ -148,6 +149,21 @@ test('direct Codex session_id is used without fallback scan', () => {
 
   assert.equal(scanned, false)
   assert.deepEqual(info, { session_id: 'direct-session', session_path: undefined, cwd: '/repo' })
+})
+
+test('Claude hook metadata includes the cross-session socket but never the messaging token', () => {
+  const info = muxMapHookInfo(
+    { hook_event_name: 'SessionStart', cwd: '/repo' },
+    'claude',
+    { cwd: '/fallback', env: { CLAUDE_CODE_MESSAGING_SOCKET: 'uds:/tmp/claude-peer.sock', CLAUDE_CODE_MESSAGING_TOKEN: 'secret-token' } },
+  )
+
+  assert.deepEqual(info, {
+    cwd: '/repo',
+    messaging_protocol: 'claude-cross-session',
+    messaging_socket: 'uds:/tmp/claude-peer.sock',
+  })
+  assert.equal(JSON.stringify(info).includes('secret-token'), false)
 })
 
 test('agent hook exits 0 when MuxMap API times out', { timeout: 5000 }, async () => {

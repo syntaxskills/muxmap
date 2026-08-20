@@ -36,6 +36,8 @@ export type AgentActivity = {
   externalSessionId?: string
   externalSessionPath?: string
   externalCwd?: string
+  messagingProtocol?: 'claude-cross-session'
+  messagingSocket?: string
 }
 
 export type AgentEventLogEntry = {
@@ -79,9 +81,28 @@ export type AgentChannel = {
   targetNodeId: string
   title: string
   mcpUri: string
-  status: 'open' | 'archived'
+  transport: 'muxmap-local' | 'claude-cross-session-ready' | 'a2a-ready'
+  deliveryPolicy: 'human-gated'
+  messageLimit: number
+  sourceRoute: AgentChannelRoute
+  targetRoute: AgentChannelRoute
+  tokenWarningPerHour: number
+  tokenHardStopPerHour: number
+  status: 'open' | 'archived' | 'closed'
+  closedReason?: string
   createdAt: string
   updatedAt: string
+}
+
+export type AgentChannelRoute = {
+  nodeId: string
+  sessionId?: string
+  runtimeName?: string
+  kind?: AgentKind
+  protocol: 'muxmap-local' | 'claude-cross-session' | 'a2a'
+  address?: string
+  externalSessionId?: string
+  cwd?: string
 }
 
 export type AgentChannelMessage = {
@@ -89,6 +110,7 @@ export type AgentChannelMessage = {
   channelId: string
   authorNodeId: string
   body: string
+  tokenCount: number
   createdAt: string
 }
 

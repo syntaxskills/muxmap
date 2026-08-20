@@ -69,6 +69,7 @@
 - [x] SSH is labeled without remote installation or inspection
 - [x] Human-created agent channels connect two terminal-backed nodes and render on the map
 - [x] Agent channels persist with MCP-ready URIs and message API storage
+- [x] Agent channels expose routing metadata and enforce sliding hourly message/token quotas
 - [x] Terminal links open browser URLs and local dev URLs in a new tab
 - [x] Terminal command box sends dictated/edited input to the active session
 - [x] Terminal command-box history persists per session without writing shell history

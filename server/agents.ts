@@ -77,10 +77,15 @@ export function agentSessionInfoFromEvent(input: Record<string, unknown>) {
     ?? stringField(input, ['session_path', 'sessionPath', 'transcript_path', 'agent_transcript_path'])
   const externalCwd = (muxmap ? stringField(muxmap, ['cwd', 'externalCwd']) : undefined)
     ?? stringField(input, ['cwd'])
+  const messagingSocket = (muxmap ? stringField(muxmap, ['messaging_socket', 'messagingSocket']) : undefined)
+    ?? stringField(input, ['messaging_socket', 'messagingSocket'])
+  const messagingProtocol = messagingSocket ? 'claude-cross-session' as const : undefined
   return {
     ...(externalSessionId ? { externalSessionId } : {}),
     ...(externalSessionPath ? { externalSessionPath } : {}),
     ...(externalCwd ? { externalCwd } : {}),
+    ...(messagingProtocol ? { messagingProtocol } : {}),
+    ...(messagingSocket ? { messagingSocket } : {}),
   }
 }
 

@@ -194,6 +194,55 @@ test('agent channels connect two terminal-backed nodes and persist MCP metadata'
   store.close()
 })
 
+test('agent channels expose Claude cross-session routing without storing messaging tokens', () => {
+  const store = createStore(':memory:')
+  const first = store.createNode('default', { parentId: 'workspace', title: 'Claude A', type: 'terminal' })
+  const second = store.createNode('default', { parentId: 'workspace', title: 'Claude B', type: 'terminal' })
+  store.upsertSession({ id: 'sess-a', workspaceId: 'default', nodeId: first.id, name: 'tmux:a', runtimeName: 'muxmap-a', backend: 'tmux', cwd: '/repo/a', status: 'running' })
+  store.upsertSession({ id: 'sess-b', workspaceId: 'default', nodeId: second.id, name: 'tmux:b', runtimeName: 'muxmap-b', backend: 'tmux', cwd: '/repo/b', status: 'running' })
+  store.upsertAgentActivity('muxmap-a', { kind: 'claude', state: 'working', since: '2026-08-07T10:00:00.000Z', externalSessionId: 'claude-a', messagingProtocol: 'claude-cross-session', messagingSocket: 'uds:/tmp/claude-a.sock' })
+  store.upsertAgentActivity('muxmap-b', { kind: 'claude', state: 'read', since: '2026-08-07T10:00:00.000Z', externalSessionId: 'claude-b', messagingProtocol: 'claude-cross-session', messagingSocket: 'uds:/tmp/claude-b.sock' })
+
+  const channel = store.createAgentChannel('default', { sourceNodeId: first.id, targetNodeId: second.id })
+
+  assert.equal(channel.transport, 'claude-cross-session-ready')
+  assert.equal(channel.deliveryPolicy, 'human-gated')
+  assert.equal(channel.messageLimit, 50)
+  assert.equal(channel.tokenWarningPerHour, 250000)
+  assert.equal(channel.tokenHardStopPerHour, 500000)
+  assert.equal(channel.sourceRoute.protocol, 'claude-cross-session')
+  assert.equal(channel.sourceRoute.address, 'uds:/tmp/claude-a.sock')
+  assert.equal(channel.sourceRoute.externalSessionId, 'claude-a')
+  assert.equal(JSON.stringify(channel).includes('token'), true)
+  assert.equal(JSON.stringify(channel).includes('secret'), false)
+  store.close()
+})
+
+test('agent channel messages enforce a one-hour sliding quota before closing noisy channels', () => {
+  const store = createStore(':memory:')
+  const first = store.createNode('default', { parentId: 'workspace', title: 'Agent A', type: 'terminal' })
+  const second = store.createNode('default', { parentId: 'workspace', title: 'Agent B', type: 'terminal' })
+  store.upsertSession({ id: 'sess-a', workspaceId: 'default', nodeId: first.id, name: 'tmux:a', runtimeName: 'muxmap-a', backend: 'tmux', cwd: process.cwd(), status: 'running' })
+  store.upsertSession({ id: 'sess-b', workspaceId: 'default', nodeId: second.id, name: 'tmux:b', runtimeName: 'muxmap-b', backend: 'tmux', cwd: process.cwd(), status: 'running' })
+  const channel = store.createAgentChannel('default', { sourceNodeId: first.id, targetNodeId: second.id })
+  const big = 'x'.repeat(4000)
+
+  for (let index = 0; index < 49; index += 1) {
+    store.createAgentChannelMessage(channel.id, { authorNodeId: first.id, body: `message-${index}`, createdAt: '2026-08-07T10:00:00.000Z' })
+  }
+  assert.equal(store.getAgentChannelUsage(channel.id, '2026-08-07T10:30:00.000Z').messageCount, 49)
+  store.createAgentChannelMessage(channel.id, { authorNodeId: second.id, body: 'last allowed', createdAt: '2026-08-07T10:31:00.000Z' })
+  assert.throws(() => store.createAgentChannelMessage(channel.id, { authorNodeId: first.id, body: 'one too many', createdAt: '2026-08-07T10:32:00.000Z' }), /hourly message limit/)
+
+  const reopened = store.createAgentChannel('default', { sourceNodeId: first.id, targetNodeId: second.id, title: 'Quota after window' })
+  assert.notEqual(reopened.id, channel.id)
+  store.createAgentChannelMessage(reopened.id, { authorNodeId: first.id, body: big, tokenCount: 250001, createdAt: '2026-08-07T12:00:00.000Z' })
+  assert.equal(store.getAgentChannelUsage(reopened.id, '2026-08-07T12:30:00.000Z').warning, true)
+  assert.throws(() => store.createAgentChannelMessage(reopened.id, { authorNodeId: second.id, body: big, tokenCount: 250000, createdAt: '2026-08-07T12:31:00.000Z' }), /hourly token limit/)
+  assert.equal(store.getAgentChannel(reopened.id)?.status, 'closed')
+  store.close()
+})
+
 test('terminal input history is stored per session without duplicate consecutive entries', () => {
   const store = createStore(':memory:')
   const node = store.createNode('default', { parentId: 'workspace', title: 'Voice terminal', type: 'terminal' })

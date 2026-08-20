@@ -208,17 +208,24 @@ test('agent channel and terminal input history APIs persist collaboration state'
       body: JSON.stringify({ sourceNodeId: first.id, targetNodeId: second.id }),
     })
     assert.equal(channelResponse.status, 201)
-    const { channel } = await channelResponse.json() as { channel: { id: string; mcpUri: string } }
+    const { channel } = await channelResponse.json() as { channel: { id: string; mcpUri: string; deliveryPolicy: string; tokenHardStopPerHour: number } }
     assert.match(channel.mcpUri, /^muxmap:\/\/agent-channels\//)
+    assert.equal(channel.deliveryPolicy, 'human-gated')
+    assert.equal(channel.tokenHardStopPerHour, 500000)
 
     const message = await fetch(`${base}/api/agent-channels/${channel.id}/messages`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ authorNodeId: first.id, body: 'Please compare the failing test output.' }),
+      body: JSON.stringify({ authorNodeId: first.id, body: 'Please compare the failing test output.', tokenCount: 12 }),
     })
     assert.equal(message.status, 201)
+    const posted = await message.json() as { usage: { tokenCount: number; warning: boolean } }
+    assert.equal(posted.usage.tokenCount, 12)
+    assert.equal(posted.usage.warning, false)
     const messages = await fetch(`${base}/api/agent-channels/${channel.id}/messages`, { headers: { cookie } }).then((response) => response.json()) as { messages: Array<{ body: string }> }
     assert.deepEqual(messages.messages.map((item) => item.body), ['Please compare the failing test output.'])
+    const usage = await fetch(`${base}/api/agent-channels/${channel.id}/usage`, { headers: { cookie } }).then((response) => response.json()) as { usage: { tokenCount: number } }
+    assert.equal(usage.usage.tokenCount, 12)
 
     await fetch(`${base}/api/sessions/${firstSession.session.id}/input-history`, {
       method: 'POST',

@@ -1286,7 +1286,11 @@ function App() {
                 const peer = graph.nodes.find((node) => node.id === peerId)
                 return (
                   <article key={channel.id}>
-                    <div><strong>{peer?.title ?? channel.title}</strong><code>{channel.mcpUri}</code></div>
+                    <div>
+                      <strong>{peer?.title ?? channel.title}</strong>
+                      <code>{channel.mcpUri}</code>
+                      <small>{channel.transport} · {channel.deliveryPolicy} · {channel.messageLimit} msgs/h · warn {Math.round(channel.tokenWarningPerHour / 1000)}k/h · stop {Math.round(channel.tokenHardStopPerHour / 1000)}k/h</small>
+                    </div>
                     <button type="button" onClick={() => void deleteAgentChannel(channel.id)} disabled={busy}>Disconnect</button>
                   </article>
                 )

@@ -318,6 +318,9 @@ Required:
 * Channels are shown on the main mindmap without changing the tree hierarchy.
 * Channel records persist in SQLite with a stable `muxmap://agent-channels/<id>` URI.
 * Channel message APIs exist for MCP/local-tool adapters, but agents do not auto-chat unless the user creates the channel.
+* Channel messages are bounded by a sliding quota: default 50 messages/hour, warning at 250k estimated tokens/hour, and hard close before 500k estimated tokens/hour.
+* MCP adapters should keep channel messages concise and use files for large context, sending only summaries or paths through the channel.
+* Claude Code cross-session and A2A concepts can inform routing metadata, but MuxMap channels must still work through the local MuxMap channel when those transports are unavailable.
 
 ### Voice-Friendly Terminal Input
 

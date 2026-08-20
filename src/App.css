@@ -2457,7 +2457,8 @@ kbd {
 }
 
 .agent-channel-list header small,
-.agent-channel-list code {
+.agent-channel-list code,
+.agent-channel-list article small {
   color: var(--text-muted);
   font: 10px/1.2 var(--mono);
 }
@@ -2474,7 +2475,8 @@ kbd {
 }
 
 .agent-channel-list strong,
-.agent-channel-list code {
+.agent-channel-list code,
+.agent-channel-list article small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

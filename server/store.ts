@@ -5,6 +5,7 @@ import {
   type NodeType,
   type AgentActivity,
   type AgentChannel,
+  type AgentChannelRoute,
   type AgentChannelMessage,
   type AgentEventLogEntry,
   type TerminalBackend,
@@ -33,7 +34,7 @@ type UpdateNodeInput = Partial<Pick<WorkNode, 'title' | 'type' | 'project' | 'co
 
 type SessionInput = Omit<TerminalSession, 'createdAt' | 'updatedAt'>
 type CreateAgentChannelInput = { sourceNodeId: string; targetNodeId: string; title?: string }
-type CreateAgentChannelMessageInput = { authorNodeId: string; body: string }
+type CreateAgentChannelMessageInput = { authorNodeId: string; body: string; createdAt?: string; tokenCount?: number }
 
 const nodeTypes: NodeType[] = ['workspace', 'repo', 'feature', 'ticket', 'note', 'todo', 'terminal']
 const agentKinds: AgentEventLogEntry['kind'][] = ['codex', 'claude', 'pi']
@@ -99,22 +100,39 @@ function rebuildAgentActivityFromEvents(database: DatabaseSync) {
   if (latest.size === 0) return
   const upsert = database.prepare(`
     INSERT INTO agent_activity (
-      tmux_name, kind, state, since, external_session_id, external_session_path, external_cwd
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      tmux_name, kind, state, since, external_session_id, external_session_path, external_cwd, messaging_protocol, messaging_socket
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(tmux_name) DO UPDATE SET
       kind = excluded.kind,
       state = excluded.state,
       since = excluded.since,
       external_session_id = COALESCE(excluded.external_session_id, agent_activity.external_session_id),
       external_session_path = COALESCE(excluded.external_session_path, agent_activity.external_session_path),
-      external_cwd = COALESCE(excluded.external_cwd, agent_activity.external_cwd)
+      external_cwd = COALESCE(excluded.external_cwd, agent_activity.external_cwd),
+      messaging_protocol = COALESCE(excluded.messaging_protocol, agent_activity.messaging_protocol),
+      messaging_socket = COALESCE(excluded.messaging_socket, agent_activity.messaging_socket)
   `)
   for (const [runtimeName, activity] of latest) {
     upsert.run(
       runtimeName, activity.kind, activity.state, activity.since ?? new Date().toISOString(),
       activity.externalSessionId ?? null, activity.externalSessionPath ?? null, activity.externalCwd ?? null,
+      activity.messagingProtocol ?? null, activity.messagingSocket ?? null,
     )
   }
+}
+
+function parseJsonRecord(value: unknown) {
+  try {
+    const parsed = JSON.parse(String(value))
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, unknown>
+  } catch {
+    // Historical rows can contain empty defaults.
+  }
+  return {}
+}
+
+function estimateMessageTokens(text: string) {
+  return Math.max(1, Math.ceil(text.length / 4))
 }
 
 export function createStore(path: string) {
@@ -165,7 +183,9 @@ export function createStore(path: string) {
       since TEXT NOT NULL,
       external_session_id TEXT,
       external_session_path TEXT,
-      external_cwd TEXT
+      external_cwd TEXT,
+      messaging_protocol TEXT,
+      messaging_socket TEXT
     );
     CREATE TABLE IF NOT EXISTS agent_events (
       id TEXT PRIMARY KEY,
@@ -188,7 +208,15 @@ export function createStore(path: string) {
       target_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       mcp_uri TEXT NOT NULL,
+      transport TEXT NOT NULL DEFAULT 'muxmap-local',
+      delivery_policy TEXT NOT NULL DEFAULT 'human-gated',
+      message_limit INTEGER NOT NULL DEFAULT 50,
+      token_warning_per_hour INTEGER NOT NULL DEFAULT 250000,
+      token_hard_stop_per_hour INTEGER NOT NULL DEFAULT 500000,
+      source_route_json TEXT NOT NULL DEFAULT '{}',
+      target_route_json TEXT NOT NULL DEFAULT '{}',
       status TEXT NOT NULL,
+      closed_reason TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -198,6 +226,7 @@ export function createStore(path: string) {
       channel_id TEXT NOT NULL REFERENCES agent_channels(id) ON DELETE CASCADE,
       author_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
       body TEXT NOT NULL,
+      token_count INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS agent_channel_messages_channel_created ON agent_channel_messages(channel_id, created_at);
@@ -228,8 +257,27 @@ export function createStore(path: string) {
   database.prepare("UPDATE agent_activity SET state = 'read' WHERE state = 'idle'").run()
 
   const agentColumns = database.prepare('PRAGMA table_info(agent_activity)').all() as Array<{ name: string }>
-  for (const [column, type] of [['external_session_id', 'TEXT'], ['external_session_path', 'TEXT'], ['external_cwd', 'TEXT']] as const) {
+  for (const [column, type] of [['external_session_id', 'TEXT'], ['external_session_path', 'TEXT'], ['external_cwd', 'TEXT'], ['messaging_protocol', 'TEXT'], ['messaging_socket', 'TEXT']] as const) {
     if (!agentColumns.some((item) => item.name === column)) database.exec(`ALTER TABLE agent_activity ADD COLUMN ${column} ${type}`)
+  }
+
+  const channelColumns = database.prepare('PRAGMA table_info(agent_channels)').all() as Array<{ name: string }>
+  for (const [column, type] of [
+    ['transport', "TEXT NOT NULL DEFAULT 'muxmap-local'"],
+    ['delivery_policy', "TEXT NOT NULL DEFAULT 'human-gated'"],
+    ['message_limit', 'INTEGER NOT NULL DEFAULT 50'],
+    ['token_warning_per_hour', 'INTEGER NOT NULL DEFAULT 250000'],
+    ['token_hard_stop_per_hour', 'INTEGER NOT NULL DEFAULT 500000'],
+    ['source_route_json', "TEXT NOT NULL DEFAULT '{}'"],
+    ['target_route_json', "TEXT NOT NULL DEFAULT '{}'"],
+    ['closed_reason', 'TEXT'],
+  ] as const) {
+    if (!channelColumns.some((item) => item.name === column)) database.exec(`ALTER TABLE agent_channels ADD COLUMN ${column} ${type}`)
+  }
+
+  const channelMessageColumns = database.prepare('PRAGMA table_info(agent_channel_messages)').all() as Array<{ name: string }>
+  if (!channelMessageColumns.some((column) => column.name === 'token_count')) {
+    database.exec('ALTER TABLE agent_channel_messages ADD COLUMN token_count INTEGER NOT NULL DEFAULT 0')
   }
   rebuildAgentActivityFromEvents(database)
 
@@ -310,6 +358,8 @@ export function createStore(path: string) {
       externalSessionId: row.external_session_id ? String(row.external_session_id) : undefined,
       externalSessionPath: row.external_session_path ? String(row.external_session_path) : undefined,
       externalCwd: row.external_cwd ? String(row.external_cwd) : undefined,
+      messagingProtocol: row.messaging_protocol === 'claude-cross-session' ? 'claude-cross-session' : undefined,
+      messagingSocket: row.messaging_socket ? String(row.messaging_socket) : undefined,
     }
   }
 
@@ -336,7 +386,40 @@ export function createStore(path: string) {
     }
   }
 
+  function buildAgentChannelRoute(nodeId: string): AgentChannelRoute {
+    const sessionRow = database.prepare('SELECT * FROM sessions WHERE node_id = ?').get(nodeId) as Record<string, unknown> | undefined
+    const session = sessionRow ? mapSession(sessionRow) : undefined
+    const activityRow = session ? database.prepare('SELECT * FROM agent_activity WHERE tmux_name = ?').get(session.runtimeName) as Record<string, unknown> | undefined : undefined
+    const activity = activityRow ? mapAgentActivity(activityRow) : undefined
+    const protocol = activity?.kind === 'claude' && activity.messagingProtocol === 'claude-cross-session' && activity.messagingSocket ? 'claude-cross-session' : 'muxmap-local'
+    return {
+      nodeId,
+      ...(session ? { sessionId: session.id, runtimeName: session.runtimeName } : {}),
+      ...(activity?.kind ? { kind: activity.kind } : {}),
+      protocol,
+      ...(protocol === 'claude-cross-session' ? { address: activity?.messagingSocket } : {}),
+      ...(activity?.externalSessionId ? { externalSessionId: activity.externalSessionId } : {}),
+      ...(activity?.externalCwd ?? session?.cwd ? { cwd: activity?.externalCwd ?? session?.cwd } : {}),
+    }
+  }
+
+  function channelTransport(sourceRoute: AgentChannelRoute, targetRoute: AgentChannelRoute): AgentChannel['transport'] {
+    if (sourceRoute.protocol === 'claude-cross-session' && targetRoute.protocol === 'claude-cross-session') return 'claude-cross-session-ready'
+    return 'muxmap-local'
+  }
+
+  function mergeAgentChannelRoute(stored: Record<string, unknown>, live: AgentChannelRoute): AgentChannelRoute {
+    const route = { ...stored, ...live } as AgentChannelRoute
+    if (route.protocol !== 'claude-cross-session') delete route.address
+    return route
+  }
+
   function mapAgentChannel(row: Record<string, unknown>): AgentChannel {
+    const sourceRoute = buildAgentChannelRoute(String(row.source_node_id))
+    const targetRoute = buildAgentChannelRoute(String(row.target_node_id))
+    const transport = channelTransport(sourceRoute, targetRoute)
+    const storedSourceRoute = parseJsonRecord(row.source_route_json)
+    const storedTargetRoute = parseJsonRecord(row.target_route_json)
     return {
       id: String(row.id),
       workspaceId: String(row.workspace_id),
@@ -344,7 +427,15 @@ export function createStore(path: string) {
       targetNodeId: String(row.target_node_id),
       title: String(row.title),
       mcpUri: String(row.mcp_uri),
+      transport,
+      deliveryPolicy: 'human-gated',
+      messageLimit: Number(row.message_limit ?? 50),
+      sourceRoute: mergeAgentChannelRoute(storedSourceRoute, sourceRoute),
+      targetRoute: mergeAgentChannelRoute(storedTargetRoute, targetRoute),
+      tokenWarningPerHour: Number(row.token_warning_per_hour ?? 250000),
+      tokenHardStopPerHour: Number(row.token_hard_stop_per_hour ?? 500000),
       status: String(row.status) as AgentChannel['status'],
+      closedReason: row.closed_reason ? String(row.closed_reason) : undefined,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
     }
@@ -356,6 +447,7 @@ export function createStore(path: string) {
       channelId: String(row.channel_id),
       authorNodeId: String(row.author_node_id),
       body: String(row.body),
+      tokenCount: Number(row.token_count ?? estimateMessageTokens(String(row.body))),
       createdAt: String(row.created_at),
     }
   }
@@ -396,11 +488,20 @@ export function createStore(path: string) {
       const id = randomUUID()
       const title = input.title?.trim() || `${source.title} ↔ ${target.title}`
       const mcpUri = `muxmap://agent-channels/${id}`
+      const sourceRoute = buildAgentChannelRoute(source.id)
+      const targetRoute = buildAgentChannelRoute(target.id)
+      const transport = channelTransport(sourceRoute, targetRoute)
       database.prepare(`
         INSERT INTO agent_channels (
-          id, workspace_id, source_node_id, target_node_id, title, mcp_uri, status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, workspaceId, source.id, target.id, title, mcpUri, 'open', now, now)
+          id, workspace_id, source_node_id, target_node_id, title, mcp_uri, transport, delivery_policy,
+          message_limit, token_warning_per_hour, token_hard_stop_per_hour, source_route_json, target_route_json,
+          status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id, workspaceId, source.id, target.id, title, mcpUri, transport, 'human-gated',
+        50, 250000, 500000, JSON.stringify(sourceRoute), JSON.stringify(targetRoute),
+        'open', now, now,
+      )
       database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, workspaceId)
       return this.getAgentChannel(id)!
     },
@@ -425,15 +526,46 @@ export function createStore(path: string) {
       return rows.map(mapAgentChannelMessage).reverse()
     },
 
+    getAgentChannelUsage(channelId: string, timestamp = new Date().toISOString()) {
+      const channel = this.getAgentChannel(channelId)
+      if (!channel) throw new Error('Agent channel not found')
+      const windowStart = new Date(new Date(timestamp).getTime() - 60 * 60 * 1000).toISOString()
+      const row = database.prepare(`
+        SELECT COUNT(*) AS message_count, COALESCE(SUM(token_count), 0) AS token_count
+        FROM agent_channel_messages
+        WHERE channel_id = ? AND created_at >= ?
+      `).get(channelId, windowStart) as { message_count: number; token_count: number }
+      return {
+        windowSeconds: 3600,
+        messageCount: Number(row.message_count),
+        tokenCount: Number(row.token_count),
+        messageLimit: channel.messageLimit,
+        tokenWarningPerHour: channel.tokenWarningPerHour,
+        tokenHardStopPerHour: channel.tokenHardStopPerHour,
+        warning: Number(row.token_count) >= channel.tokenWarningPerHour,
+        closed: channel.status === 'closed' || Number(row.token_count) >= channel.tokenHardStopPerHour || Number(row.message_count) >= channel.messageLimit,
+      }
+    },
+
     createAgentChannelMessage(channelId: string, input: CreateAgentChannelMessageInput) {
       const channel = this.getAgentChannel(channelId)
       if (!channel || channel.status !== 'open') throw new Error('Agent channel not found')
-      const body = input.body.trim()
+      const body = input.body.trim().slice(0, 4000)
       if (!body) throw new Error('Message body is required')
       if (![channel.sourceNodeId, channel.targetNodeId].includes(input.authorNodeId)) throw new Error('Message author must be part of the channel')
-      const now = new Date().toISOString()
+      const now = input.createdAt ?? new Date().toISOString()
+      const tokenCount = Number.isFinite(input.tokenCount) && input.tokenCount && input.tokenCount > 0
+        ? Math.ceil(input.tokenCount)
+        : estimateMessageTokens(body)
+      const usage = this.getAgentChannelUsage(channelId, now)
+      const close = (reason: string) => {
+        database.prepare('UPDATE agent_channels SET status = ?, closed_reason = ?, updated_at = ? WHERE id = ?').run('closed', reason, now, channelId)
+        throw new Error(reason)
+      }
+      if (usage.messageCount >= channel.messageLimit) close('Agent channel hourly message limit reached')
+      if (usage.tokenCount + tokenCount > channel.tokenHardStopPerHour) close('Agent channel hourly token limit reached')
       const id = randomUUID()
-      database.prepare('INSERT INTO agent_channel_messages (id, channel_id, author_node_id, body, created_at) VALUES (?, ?, ?, ?, ?)').run(id, channelId, input.authorNodeId, body.slice(0, 4000), now)
+      database.prepare('INSERT INTO agent_channel_messages (id, channel_id, author_node_id, body, token_count, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, channelId, input.authorNodeId, body, tokenCount, now)
       database.prepare('UPDATE agent_channels SET updated_at = ? WHERE id = ?').run(now, channelId)
       return mapAgentChannelMessage(database.prepare('SELECT * FROM agent_channel_messages WHERE id = ?').get(id) as Record<string, unknown>)
     },
@@ -599,18 +731,22 @@ export function createStore(path: string) {
     upsertAgentActivity(runtimeName: string, activity: AgentActivity) {
       database.prepare(`
         INSERT INTO agent_activity (
-          tmux_name, kind, state, since, external_session_id, external_session_path, external_cwd
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          tmux_name, kind, state, since, external_session_id, external_session_path,
+          external_cwd, messaging_protocol, messaging_socket
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(tmux_name) DO UPDATE SET
           kind = excluded.kind,
           state = excluded.state,
           since = excluded.since,
           external_session_id = COALESCE(excluded.external_session_id, agent_activity.external_session_id),
           external_session_path = COALESCE(excluded.external_session_path, agent_activity.external_session_path),
-          external_cwd = COALESCE(excluded.external_cwd, agent_activity.external_cwd)
+          external_cwd = COALESCE(excluded.external_cwd, agent_activity.external_cwd),
+          messaging_protocol = COALESCE(excluded.messaging_protocol, agent_activity.messaging_protocol),
+          messaging_socket = COALESCE(excluded.messaging_socket, agent_activity.messaging_socket)
       `).run(
         runtimeName, activity.kind, activity.state, activity.since ?? new Date().toISOString(),
         activity.externalSessionId ?? null, activity.externalSessionPath ?? null, activity.externalCwd ?? null,
+        activity.messagingProtocol ?? null, activity.messagingSocket ?? null,
       )
       return this.getAgentActivity(runtimeName)!
     },

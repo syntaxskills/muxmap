@@ -109,6 +109,21 @@ test('Codex lifecycle metadata extracts resumable session ids', () => {
   assert.equal(agentSessionInfoFromEvent({ payload: { session_id: 'abc' } }).externalSessionId, 'abc')
 })
 
+test('Claude lifecycle metadata extracts cross-session routing addresses', () => {
+  const activity = agentActivityFromEvent('claude', {
+    hook_event_name: 'SessionStart',
+    muxmap: {
+      cwd: '/home/user/project',
+      messaging_protocol: 'claude-cross-session',
+      messaging_socket: 'uds:/tmp/claude-peer.sock',
+    },
+  })
+
+  assert.equal(activity?.messagingProtocol, 'claude-cross-session')
+  assert.equal(activity?.messagingSocket, 'uds:/tmp/claude-peer.sock')
+  assert.equal(activity?.externalCwd, '/home/user/project')
+})
+
 test('Pi extension events map to working and completed states', () => {
   assert.equal(agentActivityFromEvent('pi', { type: 'agent_start' }, '2026-08-07T10:00:00.000Z')!.state, 'working')
   assert.equal(agentActivityFromEvent('pi', { type: 'agent_end' }, '2026-08-07T10:01:00.000Z')!.state, 'completed')

@@ -94,6 +94,15 @@ export function codexSessionInfo(event, { cwd = process.cwd(), env = process.env
   return { ...fallbackCodexSession({ cwd: direct.cwd, env, now, fs }), cwd: direct.cwd }
 }
 
+export function muxMapHookInfo(event, kind, { cwd = process.cwd(), env = process.env, now = Date.now(), fs = defaultFs } = {}) {
+  const base = kind === 'codex' ? codexSessionInfo(event, { cwd, env, now, fs }) : { cwd: stringField(event, ['cwd']) ?? cwd }
+  const messagingSocket = kind === 'claude' ? stringField(env, ['CLAUDE_CODE_MESSAGING_SOCKET']) : undefined
+  return {
+    ...base,
+    ...(messagingSocket ? { messaging_protocol: 'claude-cross-session', messaging_socket: messagingSocket } : {}),
+  }
+}
+
 async function readStdin() {
   let input = ''
   for await (const chunk of process.stdin) input += chunk
@@ -117,7 +126,7 @@ export async function main() {
     await fetch(`${process.env.MUXMAP_URL ?? 'http://127.0.0.1:4782'}/api/agent-events`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ kind, locator, event: kind === 'codex' ? { ...event, muxmap: codexSessionInfo(event) } : event }),
+      body: JSON.stringify({ kind, locator, event: { ...event, muxmap: muxMapHookInfo(event, kind) } }),
       signal: AbortSignal.timeout(1500),
     })
   } catch {
