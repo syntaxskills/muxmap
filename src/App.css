@@ -1,7 +1,7 @@
 .app-shell {
   --agent-working-color: #e2ad58;
   --agent-delegated-color: #8aa18f;
-  --agent-completed-color: #79bd94;
+  --agent-completed-color: #f4efe3;
   height: 100dvh;
   min-height: 100dvh;
   display: grid;
@@ -171,6 +171,10 @@ kbd {
 
 .agent-alert.is-needs_input {
   border-color: color-mix(in srgb, #e2ad58 64%, var(--line-strong));
+}
+
+.agent-alert.is-completed {
+  border-color: color-mix(in srgb, var(--agent-completed-color) 62%, var(--line-strong));
 }
 
 .agent-alert-open,
@@ -1847,7 +1851,7 @@ kbd {
 }
 
 .agent-event-list li.is-completed {
-  border-left-color: #67a76d;
+  border-left-color: var(--agent-completed-color);
 }
 
 .agent-event-list time,

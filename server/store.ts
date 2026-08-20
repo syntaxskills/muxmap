@@ -695,7 +695,7 @@ export function createStore(path: string) {
       const rows = database.prepare(`
         SELECT * FROM terminal_input_history
         WHERE session_id = ?
-        ORDER BY created_at DESC
+        ORDER BY created_at DESC, rowid DESC
         LIMIT ?
       `).all(sessionId, limit) as Record<string, unknown>[]
       return rows.map(mapTerminalInputHistory)
@@ -714,7 +714,7 @@ export function createStore(path: string) {
       database.prepare(`
         DELETE FROM terminal_input_history
         WHERE session_id = ? AND id NOT IN (
-          SELECT id FROM terminal_input_history WHERE session_id = ? ORDER BY created_at DESC LIMIT 100
+          SELECT id FROM terminal_input_history WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 100
         )
       `).run(sessionId, sessionId)
       this.updateSessionActivity(sessionId, now)
