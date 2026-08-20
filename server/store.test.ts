@@ -245,16 +245,16 @@ test('agent channel messages enforce a one-hour sliding quota before closing noi
 
 test('terminal input history is stored per session without duplicate consecutive entries', () => {
   const store = createStore(':memory:')
-  const node = store.createNode('default', { parentId: 'workspace', title: 'Voice terminal', type: 'terminal' })
-  store.upsertSession({ id: 'sess-voice', workspaceId: 'default', nodeId: node.id, name: 'tmux:voice', runtimeName: 'muxmap-voice', backend: 'tmux', cwd: process.cwd(), status: 'running' })
+  const node = store.createNode('default', { parentId: 'workspace', title: 'Command terminal', type: 'terminal' })
+  store.upsertSession({ id: 'sess-command', workspaceId: 'default', nodeId: node.id, name: 'tmux:command', runtimeName: 'muxmap-command', backend: 'tmux', cwd: process.cwd(), status: 'running' })
 
-  const first = store.recordTerminalInput('sess-voice', 'bun run test')
-  const duplicate = store.recordTerminalInput('sess-voice', 'bun run test')
-  const second = store.recordTerminalInput('sess-voice', 'git status')
+  const first = store.recordTerminalInput('sess-command', 'bun run test')
+  const duplicate = store.recordTerminalInput('sess-command', 'bun run test')
+  const second = store.recordTerminalInput('sess-command', 'git status')
 
   assert.equal(duplicate.id, first.id)
-  assert.deepEqual(store.listTerminalInputHistory('sess-voice').map((item) => item.value), ['git status', 'bun run test'])
-  assert.equal(store.listTerminalInputHistory('sess-voice')[0]?.runtimeName, 'muxmap-voice')
+  assert.deepEqual(store.listTerminalInputHistory('sess-command').map((item) => item.value), ['git status', 'bun run test'])
+  assert.equal(store.listTerminalInputHistory('sess-command')[0]?.runtimeName, 'muxmap-command')
   assert.ok(Date.parse(second.createdAt))
   store.close()
 })

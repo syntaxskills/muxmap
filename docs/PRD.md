@@ -322,11 +322,11 @@ Required:
 * MCP adapters should keep channel messages concise and use files for large context, sending only summaries or paths through the channel.
 * Claude Code cross-session and A2A concepts can inform routing metadata, but MuxMap channels must still work through the local MuxMap channel when those transports are unavailable.
 
-### Voice-Friendly Terminal Input
+### Terminal Command Input
 
 Required:
 
-* A custom input box is available next to the browser terminal for dictated or edited commands.
+* A custom input box is available next to the browser terminal for edited or pasted commands.
 * Submitting the box sends text to the current terminal session.
 * Input history is stored by MuxMap per session and can be recalled without writing into shell history.
 

@@ -3327,14 +3327,31 @@ kbd {
   font: 10px/1 var(--mono);
 }
 
+.terminal-command-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.terminal-command-label small {
+  color: color-mix(in srgb, var(--terminal-muted) 68%, transparent);
+  font: 9px/1 var(--mono);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .terminal-command-box textarea {
   min-width: 0;
-  resize: vertical;
+  resize: none;
   max-height: 140px;
-  min-height: 42px;
+  min-height: 32px;
+  field-sizing: content;
   border: 1px solid var(--terminal-line);
   border-radius: 10px;
-  padding: 8px 10px;
+  padding: 7px 10px;
   background: rgba(0, 0, 0, 0.22);
   color: var(--terminal-text);
   font: 12px/1.35 var(--mono);
@@ -3342,8 +3359,7 @@ kbd {
 }
 
 .terminal-command-box textarea:focus {
-  border-color: rgba(212, 154, 77, 0.48);
-  box-shadow: 0 0 0 2px rgba(212, 154, 77, 0.12);
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--terminal-line));
 }
 
 .terminal-command-actions {
@@ -3353,22 +3369,41 @@ kbd {
 }
 
 .terminal-command-actions button {
-  min-height: 38px;
-  border: 1px solid var(--terminal-line);
+  min-height: 34px;
+  border: 1px solid transparent;
   border-radius: 9px;
   padding: 0 10px;
-  background: rgba(255, 255, 255, 0.045);
+  background: transparent;
   color: var(--terminal-text);
   font: 11px/1 var(--mono);
 }
 
-.terminal-command-actions button[type='submit'] {
-  color: #f1d0a0;
-  border-color: rgba(212, 154, 77, 0.36);
+.terminal-command-actions .is-history {
+  min-width: 28px;
+  padding: 0;
+  color: var(--terminal-muted);
+}
+
+.terminal-command-actions .is-history:hover {
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--terminal-text);
+}
+
+.terminal-command-actions .is-send {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 36%, transparent);
+  color: var(--terminal-text);
+}
+
+.terminal-command-actions .is-send:not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--accent));
 }
 
 .terminal-command-actions button:disabled {
-  opacity: 0.38;
+  background: rgba(255, 255, 255, 0.025);
+  border-color: transparent;
+  color: var(--terminal-muted);
+  opacity: 0.5;
   cursor: not-allowed;
 }
 

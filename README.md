@@ -19,7 +19,7 @@ Most terminal-heavy workflows eventually become a pile of anonymous panes. MuxMa
 - Manage orphan `muxmap*` sessions instead of leaving hidden tmux/Zellij clutter.
 - Track Codex, Claude Code, Pi, and SSH activity with optional system or in-page notifications.
 - Manually connect two terminal-backed nodes into a bounded agent chat channel and see that relationship on the map.
-- Use the terminal command box for voice-friendly input with MuxMap-managed history.
+- Use the terminal command box for edited input with MuxMap-managed history.
 - Tune the workspace through a VS Code-style settings UI or JSON editor.
 
 ## Quick start

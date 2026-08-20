@@ -68,9 +68,9 @@ Channel API:
 
 ## Terminal command box
 
-The browser terminal still owns normal keyboard input. The command box below it is a separate input path optimized for dictated or edited text. Submissions are sent to the active WebSocket as terminal input and also stored in MuxMap's `terminal_input_history` table per session.
+The browser terminal still owns normal keyboard input. The command box below it is a separate input path optimized for edited or pasted text. Submissions are sent to the active WebSocket as terminal input and also stored in MuxMap's `terminal_input_history` table per session.
 
-MuxMap does not write these entries into zsh or shell history. That avoids polluting shell state with prose or multi-line dictated text while keeping the history available across refreshes.
+MuxMap does not write these entries into zsh or shell history. That avoids polluting shell state with prose or multi-line edited text while keeping the history available across refreshes.
 
 History API:
 

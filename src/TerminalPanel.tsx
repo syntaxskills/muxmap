@@ -315,11 +315,11 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       <div className="terminal-screen"><div className="terminal-mount" ref={container} /></div>
       <form className="terminal-command-box" onSubmit={(event) => { event.preventDefault(); void submitCommandInput() }}>
         <label>
-          <span>Voice input</span>
+          <span className="terminal-command-label"><span>Command input</span><small>Shift+Enter adds a line</small></span>
           <textarea
             value={commandInput}
-            rows={2}
-            placeholder="Dictate or edit here, then Enter to send. Shift+Enter adds a line."
+            rows={1}
+            placeholder="Type or paste… Enter to send"
             onChange={(event) => { setCommandInput(event.target.value); setHistoryIndex(-1) }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
@@ -338,9 +338,9 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
           />
         </label>
         <div className="terminal-command-actions">
-          <button type="button" onClick={() => navigateCommandHistory(1)} disabled={inputHistory.length === 0} title="Previous input">↑</button>
-          <button type="button" onClick={() => navigateCommandHistory(-1)} disabled={historyIndex < 0} title="Next input">↓</button>
-          <button type="submit" disabled={!commandInput.trim() || disabled}>Send</button>
+          {inputHistory.length > 0 && <button className="is-history" type="button" onClick={() => navigateCommandHistory(1)} title="Previous input">↑</button>}
+          {historyIndex >= 0 && <button className="is-history" type="button" onClick={() => navigateCommandHistory(-1)} title="Next input">↓</button>}
+          <button className="is-send" type="submit" disabled={!commandInput.trim() || disabled}>Send</button>
         </div>
       </form>
     </section>
