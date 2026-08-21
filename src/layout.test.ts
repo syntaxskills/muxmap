@@ -15,8 +15,8 @@ test('places parents midway between ordered children', () => {
     18,
   )
 
-  assert.deepEqual(positions.get('first'), { x: NODE_WIDTH, y: 0 })
-  assert.deepEqual(positions.get('second'), { x: NODE_WIDTH, y: 60 })
+  assert.deepEqual(positions.get('first'), { x: 200, y: 0 })
+  assert.deepEqual(positions.get('second'), { x: 200, y: 60 })
   assert.deepEqual(positions.get('root'), { x: 0, y: 30 })
 })
 
@@ -33,8 +33,8 @@ test('expanded node height reflows the tree without overlapping siblings', () =>
     new Map([['first', 120]]),
   )
 
-  assert.deepEqual(positions.get('first'), { x: NODE_WIDTH, y: 0 })
-  assert.deepEqual(positions.get('second'), { x: NODE_WIDTH, y: 138 })
+  assert.deepEqual(positions.get('first'), { x: 200, y: 0 })
+  assert.deepEqual(positions.get('second'), { x: 200, y: 138 })
   assert.deepEqual(positions.get('root'), { x: 0, y: 69 })
 })
 

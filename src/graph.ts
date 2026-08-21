@@ -89,7 +89,7 @@ function wrappedLineCount(value: unknown, charsPerLine: number) {
 }
 
 export function expandedNodeHeight(node: WorkNode, hasAgent: boolean, archivedChildCount = 0, hasActivity = false) {
-  const valueCharsPerLine = 28
+  const valueCharsPerLine = 18
   const rows = [
     node.project ? 2 : 0,
     node.jiraKey ? 1 : 0,

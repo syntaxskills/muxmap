@@ -1,2 +1,1 @@
-export const NODE_WIDTH = 252
-
+export const NODE_WIDTH = 184

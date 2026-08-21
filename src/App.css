@@ -359,7 +359,7 @@ kbd {
 
 .map-node {
   position: absolute;
-  width: 252px;
+  width: 184px;
   height: 42px;
   transition: top 220ms cubic-bezier(0.16, 1, 0.3, 1), width 220ms cubic-bezier(0.16, 1, 0.3, 1), height 220ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms ease, filter 150ms ease;
 }
@@ -627,7 +627,7 @@ kbd {
 
 .map-node.is-expanded .node-select {
   align-items: start;
-  min-width: 252px;
+  min-width: 184px;
   padding-top: 8px;
   padding-bottom: 8px;
 }
