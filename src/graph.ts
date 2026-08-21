@@ -121,6 +121,10 @@ export function liveSessionIdForNode(sessions: Array<{ id: string; nodeId: strin
   return sessions.find((session) => nodeHasLiveSession(session) && session.nodeId === nodeId)?.id ?? null
 }
 
+export function openableSessionIdForNode(sessions: Array<{ id: string; nodeId: string; status: string; runtimeExists?: boolean }>, nodeId: string) {
+  return sessions.find((session) => nodeCanOpenTerminal(session) && session.nodeId === nodeId)?.id ?? null
+}
+
 type RecoverableSession = {
   backend: string
   status: string
@@ -165,6 +169,10 @@ export function branchHasLiveSession(nodes: WorkNode[], sessions: Array<{ nodeId
 
 export function nodeHasLiveSession(session: { status: string; runtimeExists?: boolean }) {
   return session.status !== 'stopped' && session.status !== 'suspended' && session.runtimeExists !== false
+}
+
+export function nodeCanOpenTerminal(session: { status: string; runtimeExists?: boolean }) {
+  return nodeHasLiveSession(session) || session.status === 'suspended'
 }
 
 export function visibleNodes(nodes: WorkNode[], collapsed: Set<string>, query: string) {

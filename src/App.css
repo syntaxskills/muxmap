@@ -1099,6 +1099,13 @@ kbd {
   color: var(--text-muted);
 }
 
+.terminal-badge.is-suspended .agent-icon,
+.session-row small.is-suspended-agent .agent-icon,
+.runtime-state.is-suspended.has-agent .agent-icon {
+  opacity: 0.42;
+  filter: grayscale(0.25);
+}
+
 .child-count {
   min-width: 15px;
   color: var(--text-muted);
@@ -2924,6 +2931,15 @@ kbd {
   background: rgba(255, 255, 255, 0.045);
 }
 
+.terminal-title.is-static {
+  cursor: default;
+}
+
+.terminal-title.is-static:hover {
+  border-color: transparent;
+  background: transparent;
+}
+
 .terminal-title:active {
   transform: translateY(1px);
 }
@@ -3300,6 +3316,55 @@ kbd {
   min-height: 0;
   padding: 8px;
   overflow: hidden;
+}
+
+.terminal-suspended-body {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
+}
+
+.terminal-suspended-card {
+  width: min(380px, 100%);
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 28px;
+  border: 1px solid var(--terminal-line);
+  background: rgba(255, 255, 255, 0.035);
+  text-align: center;
+}
+
+.terminal-suspended-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  opacity: 0.62;
+}
+
+.terminal-suspended-icon .agent-icon,
+.terminal-suspended-icon svg {
+  width: 30px;
+  height: 30px;
+}
+
+.terminal-suspended-card h3 {
+  margin: 0;
+  color: var(--terminal-text);
+  font: 600 17px/1.2 var(--sans);
+}
+
+.terminal-suspended-card p {
+  max-width: 32em;
+  margin: 0;
+  color: var(--terminal-muted);
+  font-size: 12px;
 }
 
 .terminal-mount {

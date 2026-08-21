@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, nodeHasLiveSession, recoverableAgentLabel, reorderSiblings, visibleAgentForSession, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, visibleAgentForSession, visibleNodes } from './graph.ts'
 import type { WorkNode } from './model.ts'
 
 const base = {
@@ -36,8 +36,10 @@ test('node selection opens only its live terminal and otherwise minimizes the cu
   assert.equal(liveSessionIdForNode(sessions, 'missing'), null)
   assert.equal(liveSessionIdForNode(sessions, 'b'), null)
   assert.equal(liveSessionIdForNode(sessions, 'suspended'), null)
+  assert.equal(openableSessionIdForNode(sessions, 'suspended'), 'suspended')
   assert.equal(liveSessionIdForNode(sessions, 'c'), null)
   assert.equal(nodeHasLiveSession({ status: 'suspended' }), false)
+  assert.equal(nodeCanOpenTerminal({ status: 'suspended' }), true)
 })
 
 test('delete choices mention tmux only when the branch contains a live session', () => {

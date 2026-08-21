@@ -27,6 +27,19 @@ test('terminal sessions can be suspended manually and resumed without starting f
   assert.match(app, /attachTerminal\(Boolean\(session && session\.status !== 'suspended'\)\)/)
 })
 
+test('opening a suspended terminal shows a centered resume panel with a faded agent badge', () => {
+  const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
+
+  assert.match(app, /activeTerminal\.status === 'suspended'/)
+  assert.match(app, /className="terminal-suspended-body"/)
+  assert.match(app, /Resume terminal/)
+  assert.match(app, /activeTerminal\.agent \? <AgentIcon kind=\{activeTerminal\.agent\.kind\} \/> : <PauseIcon \/>/)
+  assert.match(app, /statusAgent = item\.status === 'suspended' \? item\.agent : visibleAgent/)
+  assert.match(css, /\.terminal-suspended-body\s*\{[^}]*place-items:\s*center/s)
+  assert.match(css, /\.terminal-badge\.is-suspended \.agent-icon[\s\S]*opacity:\s*0\.42/)
+})
+
 test('terminal auto suspend is driven by settings and keeps the current terminal', () => {
   const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
 
