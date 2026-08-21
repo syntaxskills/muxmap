@@ -95,6 +95,6 @@
 - [x] Allowed repository-root enforcement
 - [x] Request size, node input, terminal input, and resize validation
 
-## Explicitly excluded by the PRD
+## Explicitly excluded from the current local-first scope
 
 Jira sync, GitHub/GitLab integration, multiplayer, AI automation, manual layout persistence, cloud sandboxes, full tmux pane/window management, remote shells, and team permissions remain non-MVP.

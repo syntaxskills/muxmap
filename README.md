@@ -122,7 +122,6 @@ npm run doctor
 
 ## Docs
 
-- [Product and technical design](docs/PRD.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Agent hooks](docs/AGENT-HOOKS.md)
 - [Screenshots](docs/SCREENSHOTS.md)
