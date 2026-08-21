@@ -475,7 +475,7 @@ type TerminalSession = {
   backend: "tmux" | "zellij";
   cwd?: string;
 
-  status: "running" | "detached" | "stopped" | "error";
+  status: "running" | "detached" | "suspended" | "stopped" | "error";
 
   createdAt: string;
   updatedAt: string;

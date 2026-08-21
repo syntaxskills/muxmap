@@ -109,6 +109,8 @@ Open Settings from the top bar. Every setting is editable through the UI or the 
 - last activity is at least `mindmap.inactiveAfterHours` old, default `36`
 - the node belongs to the oldest `mindmap.inactiveOldestPercent` of visible terminal nodes, default `50`
 
+Terminal suspension is also configurable. `terminal.autoSuspend` can stop the oldest quiet live runtimes once `terminal.maxActiveSessions` is exceeded. This releases memory; it preserves MuxMap metadata, not arbitrary shell process state.
+
 ## Verify
 
 ```bash

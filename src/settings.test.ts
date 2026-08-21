@@ -12,8 +12,8 @@ import {
 } from './settings.ts'
 
 test('the settings schema exposes the compact adjustable settings', () => {
-  assert.equal(settingDefinitions.length, 28)
-  assert.equal(new Set(settingDefinitions.map((item) => item.key)).size, 28)
+  assert.equal(settingDefinitions.length, 30)
+  assert.equal(new Set(settingDefinitions.map((item) => item.key)).size, 30)
   assert.deepEqual([...new Set(settingDefinitions.map((item) => item.category))], [
     'Appearance',
     'Canvas',
@@ -34,7 +34,7 @@ test('notification delivery can target the system, the page, both, or neither', 
 
 test('settings JSON accepts partial overrides and round trips all effective values', () => {
   const parsed = parseSettingsJson(JSON.stringify({
-    terminal: { opacity: 82, wheelMode: 'application', precisionScrollMultiplier: 2.5, discreteScrollMultiplier: 5, dedupeRepeatedInput: false },
+    terminal: { opacity: 82, wheelMode: 'application', precisionScrollMultiplier: 2.5, discreteScrollMultiplier: 5, dedupeRepeatedInput: false, autoSuspend: true, maxActiveSessions: 8 },
     mindmap: { expandOnHover: false },
   }), 'linux')
 
@@ -44,6 +44,8 @@ test('settings JSON accepts partial overrides and round trips all effective valu
   assert.equal(parsed.settings?.['terminal.precisionScrollMultiplier'], 2.5)
   assert.equal(parsed.settings?.['terminal.discreteScrollMultiplier'], 5)
   assert.equal(parsed.settings?.['terminal.dedupeRepeatedInput'], false)
+  assert.equal(parsed.settings?.['terminal.autoSuspend'], true)
+  assert.equal(parsed.settings?.['terminal.maxActiveSessions'], 8)
   assert.equal(parsed.settings?.['mindmap.expandOnHover'], false)
   assert.equal(parsed.settings?.['canvas.showGrid'], true)
   assert.deepEqual(parseSettingsJson(settingsJson(parsed.settings!), 'linux').settings, parsed.settings)
@@ -54,6 +56,8 @@ test('settings JSON accepts partial overrides and round trips all effective valu
   assert.equal(exported.terminal.precisionScrollMultiplier, 2.5)
   assert.equal(exported.terminal.discreteScrollMultiplier, 5)
   assert.equal(exported.terminal.dedupeRepeatedInput, false)
+  assert.equal(exported.terminal.autoSuspend, true)
+  assert.equal(exported.terminal.maxActiveSessions, 8)
   assert.equal(exported.mindmap.expandOnHover, false)
   assert.equal((exported as Record<string, unknown>)['terminal.opacity'], undefined)
 })
@@ -129,6 +133,23 @@ test('inactive node dimming is configurable through UI and JSON settings', () =>
 
   assert.match(parseSettingsJson('{"mindmap":{"inactiveAfterHours":0}}', 'linux').errors.join('\n'), /inactiveAfterHours.*1.*720/)
   assert.match(parseSettingsJson('{"mindmap":{"inactiveOldestPercent":95}}', 'linux').errors.join('\n'), /inactiveOldestPercent.*10.*90/)
+})
+
+test('terminal auto suspend limit is configurable through UI and JSON settings', () => {
+  const defaults = defaultSettings('linux')
+  assert.equal(defaults['terminal.autoSuspend'], false)
+  assert.equal(defaults['terminal.maxActiveSessions'], 12)
+
+  const parsed = parseSettingsJson(JSON.stringify({
+    terminal: {
+      autoSuspend: true,
+      maxActiveSessions: 5,
+    },
+  }), 'linux')
+  assert.deepEqual(parsed.errors, [])
+  assert.equal(parsed.settings?.['terminal.autoSuspend'], true)
+  assert.equal(parsed.settings?.['terminal.maxActiveSessions'], 5)
+  assert.match(parseSettingsJson('{"terminal":{"maxActiveSessions":0}}', 'linux').errors.join('\n'), /maxActiveSessions.*1.*50/)
 })
 
 test('old flat persisted settings migrate to current nested JSON without losing valid values', () => {

@@ -301,6 +301,70 @@ test('startup reconciliation marks missing tmux sessions stopped', () => {
   }
 })
 
+test('suspended sessions release their runtime and can resume the same name', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-suspend-')))
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  const manager = createSessionManager(store, adapter, [directory])
+
+  try {
+    const node = store.createNode('default', {
+      parentId: 'workspace',
+      title: 'Suspend me',
+      type: 'terminal',
+      repoPath: directory,
+    })
+    const session = manager.attach(node.id)
+    assert.equal(adapter.live.has(session.runtimeName), true)
+
+    manager.suspend(session.id)
+    assert.equal(store.getSession(session.id)?.status, 'suspended')
+    assert.equal(adapter.live.has(session.runtimeName), false)
+    assert.deepEqual(adapter.stopped, [session.runtimeName])
+
+    manager.reconcile()
+    assert.equal(store.getSession(session.id)?.status, 'suspended')
+
+    const resumed = manager.attach(node.id)
+    assert.equal(resumed.runtimeName, session.runtimeName)
+    assert.equal(resumed.status, 'running')
+    assert.equal(adapter.live.has(session.runtimeName), true)
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('auto suspend releases the oldest quiet sessions above the active limit', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-auto-suspend-')))
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  const manager = createSessionManager(store, adapter, [directory])
+
+  try {
+    const sessions = ['Protected working', 'Old quiet', 'Newer quiet', 'Current terminal'].map((title, index) => {
+      const node = store.createNode('default', { parentId: 'workspace', title, type: 'terminal', repoPath: directory })
+      const session = manager.attach(node.id)
+      store.updateSessionActivity(session.id, `2026-08-07T10:0${index}:00.000Z`)
+      return session
+    })
+    store.upsertAgentActivity(sessions[0].runtimeName, { kind: 'codex', state: 'working', since: '2026-08-07T10:00:00.000Z' })
+
+    const suspended = manager.autoSuspend(2, sessions[3].id)
+
+    assert.deepEqual(suspended.map((session) => session.runtimeName), [sessions[1].runtimeName, sessions[2].runtimeName])
+    assert.equal(store.getSession(sessions[0].id)?.status, 'running')
+    assert.equal(store.getSession(sessions[1].id)?.status, 'suspended')
+    assert.equal(store.getSession(sessions[2].id)?.status, 'suspended')
+    assert.equal(store.getSession(sessions[3].id)?.status, 'running')
+    assert.equal(adapter.live.has(sessions[1].runtimeName), false)
+    assert.equal(adapter.live.has(sessions[2].runtimeName), false)
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('all live muxmap-prefixed tmux sessions are inventoried and orphans can be adopted', () => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-orphan-')))
   const store = createStore(':memory:')

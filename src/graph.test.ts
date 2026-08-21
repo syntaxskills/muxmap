@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, recoverableAgentLabel, reorderSiblings, visibleAgentForSession, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, nodeHasLiveSession, recoverableAgentLabel, reorderSiblings, visibleAgentForSession, visibleNodes } from './graph.ts'
 import type { WorkNode } from './model.ts'
 
 const base = {
@@ -30,17 +30,21 @@ test('node selection opens only its live terminal and otherwise minimizes the cu
     { id: 'running', nodeId: 'a', status: 'running' },
     { id: 'missing', nodeId: 'missing', status: 'running', runtimeExists: false },
     { id: 'stopped', nodeId: 'b', status: 'stopped' },
+    { id: 'suspended', nodeId: 'suspended', status: 'suspended' },
   ]
   assert.equal(liveSessionIdForNode(sessions, 'a'), 'running')
   assert.equal(liveSessionIdForNode(sessions, 'missing'), null)
   assert.equal(liveSessionIdForNode(sessions, 'b'), null)
+  assert.equal(liveSessionIdForNode(sessions, 'suspended'), null)
   assert.equal(liveSessionIdForNode(sessions, 'c'), null)
+  assert.equal(nodeHasLiveSession({ status: 'suspended' }), false)
 })
 
 test('delete choices mention tmux only when the branch contains a live session', () => {
   assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'ticket', status: 'running' }], 'repo'), true)
   assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'ticket', status: 'running', runtimeExists: false }], 'repo'), false)
   assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'ticket', status: 'stopped' }], 'repo'), false)
+  assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'ticket', status: 'suspended' }], 'repo'), false)
   assert.equal(branchHasLiveSession(nodes, [{ nodeId: 'other', status: 'running' }], 'repo'), false)
   const archived = nodes.map((node) => node.id === 'repo' ? { ...node, archivedAt: '2026-08-11T00:00:00.000Z' } : node)
   assert.equal(branchHasLiveSession(archived, [{ nodeId: 'ticket', status: 'detached' }], 'repo'), true)

@@ -30,6 +30,8 @@ export type AppSettings = {
   'terminal.precisionScrollMultiplier': number
   'terminal.discreteScrollMultiplier': number
   'terminal.dedupeRepeatedInput': boolean
+  'terminal.autoSuspend': boolean
+  'terminal.maxActiveSessions': number
   'notifications.delivery': 'both' | 'system' | 'in-page' | 'off'
   'notifications.completed': boolean
   'notifications.needsInput': boolean
@@ -78,6 +80,8 @@ export const settingDefinitions: SettingDefinition[] = [
   { key: 'terminal.precisionScrollMultiplier', category: 'Terminal', label: 'Trackpad scroll speed', description: 'Multiplier for precision pixel scrolling, similar to Ghostty precision scrolling.', control: 'number', min: 0.01, max: 20, step: 0.25, unit: '×' },
   { key: 'terminal.discreteScrollMultiplier', category: 'Terminal', label: 'Wheel scroll speed', description: 'Lines per discrete mouse-wheel tick, similar to Ghostty discrete scrolling.', control: 'number', min: 0.01, max: 20, step: 0.25, unit: '×' },
   { key: 'terminal.dedupeRepeatedInput', category: 'Terminal', label: 'Dedupe repeated input', description: 'Drops repeated long text bursts from dictation or IME glitches before they reach the terminal.', control: 'boolean' },
+  { key: 'terminal.autoSuspend', category: 'Terminal', label: 'Auto suspend idle sessions', description: 'Stops the oldest quiet terminal runtimes when active sessions exceed the configured limit.', control: 'boolean' },
+  { key: 'terminal.maxActiveSessions', category: 'Terminal', label: 'Max active sessions', description: 'Maximum live terminal runtimes to keep before auto suspend starts.', control: 'number', min: 1, max: 50, step: 1 },
   { key: 'notifications.delivery', category: 'Notifications', label: 'Delivery', description: 'Choose system notifications, in-page alerts, both, or neither.', control: 'select', options: [{ value: 'both', label: 'System + in-page' }, { value: 'system', label: 'System only' }, { value: 'in-page', label: 'In-page only' }, { value: 'off', label: 'Off' }] },
   { key: 'notifications.completed', category: 'Notifications', label: 'Task completed', description: 'Alerts when an agent finishes.', control: 'boolean' },
   { key: 'notifications.needsInput', category: 'Notifications', label: 'Needs input', description: 'Alerts when an agent asks for help.', control: 'boolean' },
@@ -121,6 +125,8 @@ export function defaultSettings(platform: RuntimePlatform): AppSettings {
     'terminal.precisionScrollMultiplier': 4,
     'terminal.discreteScrollMultiplier': 3,
     'terminal.dedupeRepeatedInput': true,
+    'terminal.autoSuspend': false,
+    'terminal.maxActiveSessions': 12,
     'notifications.delivery': 'both',
     'notifications.completed': true,
     'notifications.needsInput': true,

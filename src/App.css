@@ -1094,7 +1094,8 @@ kbd {
   gap: 6px;
 }
 
-.terminal-badge.is-stopped {
+.terminal-badge.is-stopped,
+.terminal-badge.is-suspended {
   color: var(--text-muted);
 }
 
@@ -3190,6 +3191,10 @@ kbd {
 .runtime-state.is-running,
 .runtime-state.is-detached {
   color: var(--accent);
+}
+
+.runtime-state.is-suspended {
+  color: var(--text-muted);
 }
 
 .terminal-action-divider {

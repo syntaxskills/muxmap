@@ -27,7 +27,7 @@ Execution layer
 
 Workspace state is persisted in SQLite under the configured data directory. The database stores workspaces, nodes, sessions, archive state, last activity timestamps, Agent activity, human-created agent channels, channel messages, and terminal command-box history.
 
-The terminal process itself is not stored in SQLite. tmux or Zellij owns the live shell. On startup MuxMap reconciles the database with live sessions and marks missing sessions stopped.
+The terminal process itself is not stored in SQLite. tmux or Zellij owns the live shell. On startup MuxMap reconciles the database with live sessions and marks missing sessions stopped. A suspended session is different from stopped: MuxMap intentionally releases the runtime to save memory while keeping the node/session metadata so the same runtime name, or saved Agent resume metadata when available, can be used later.
 
 ## Session naming
 

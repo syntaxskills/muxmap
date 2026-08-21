@@ -334,6 +334,11 @@ export function createMuxMapServer(options: ServerOptions) {
     store.updateSessionActivity(sessionId, new Date(now).toISOString())
   }
 
+  const killSessionPtys = (sessionId: string) => {
+    for (const pty of ptys.get(sessionId) ?? []) pty.kill()
+    ptys.delete(sessionId)
+  }
+
   sessions.reconcile()
 
   const http = createServer(async (request, response) => {
@@ -573,9 +578,24 @@ export function createMuxMapServer(options: ServerOptions) {
 
         const stopMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/stop$/)
         if (request.method === 'POST' && stopMatch) {
-          for (const pty of ptys.get(stopMatch[1]) ?? []) pty.kill()
-          ptys.delete(stopMatch[1])
+          killSessionPtys(stopMatch[1])
           return sendJson(response, 200, { session: sessions.stop(stopMatch[1]) })
+        }
+
+        const suspendMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/suspend$/)
+        if (request.method === 'POST' && suspendMatch) {
+          killSessionPtys(suspendMatch[1])
+          return sendJson(response, 200, { session: sessions.suspend(suspendMatch[1]) })
+        }
+
+        if (request.method === 'POST' && url.pathname === '/api/sessions/auto-suspend') {
+          const body = await readJson(request)
+          const maxActive = Number(body.maxActive)
+          if (!Number.isInteger(maxActive) || maxActive < 1 || maxActive > 50) throw new Error('maxActive must be an integer between 1 and 50')
+          if (body.keepSessionId !== undefined && typeof body.keepSessionId !== 'string') throw new Error('keepSessionId must be a string')
+          const suspended = sessions.autoSuspend(maxActive, body.keepSessionId)
+          for (const session of suspended) killSessionPtys(session.id)
+          return sendJson(response, 200, { sessions: suspended })
         }
 
         const inputHistoryMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/input-history$/)
@@ -638,7 +658,7 @@ export function createMuxMapServer(options: ServerOptions) {
     if (cookieValue(request, 'muxmap_token') !== token) return rejectUpgrade(socket, 401, 'Unauthorized')
     if (!isAllowedOrigin(request, allowedOrigins)) return rejectUpgrade(socket, 403, 'Forbidden')
     const session = store.getSession(match[1])
-    if (!session || session.status === 'stopped' || !sessions.exists(session)) {
+    if (!session || ['stopped', 'suspended'].includes(session.status) || !sessions.exists(session)) {
       return rejectUpgrade(socket, 409, 'Session Not Running')
     }
 
@@ -734,7 +754,7 @@ export function createMuxMapServer(options: ServerOptions) {
       const remaining = Math.max(0, (clients.get(session.id) ?? 1) - 1)
       if (remaining === 0) {
         clients.delete(session.id)
-        if (store.getSession(session.id)?.status !== 'stopped') sessions.detach(session.id)
+        if (!['stopped', 'suspended'].includes(store.getSession(session.id)?.status ?? '')) sessions.detach(session.id)
       } else {
         clients.set(session.id, remaining)
       }

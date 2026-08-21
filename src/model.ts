@@ -25,7 +25,7 @@ export type WorkNode = {
   updatedAt: string
 }
 
-export type TerminalStatus = 'running' | 'detached' | 'stopped' | 'error'
+export type TerminalStatus = 'running' | 'detached' | 'suspended' | 'stopped' | 'error'
 export type TerminalBackend = 'tmux' | 'zellij'
 
 export type AgentKind = 'codex' | 'claude' | 'pi' | 'ssh'

@@ -57,6 +57,8 @@
 - [x] Refresh and reconnect to existing sessions
 - [x] Browser disconnect detaches the PTY client without killing the runtime
 - [x] Explicit stop action kills the runtime
+- [x] Explicit suspend action releases the runtime but keeps the session resumable
+- [x] Optional auto suspend stops the oldest quiet live runtimes after the configured active-session limit
 - [x] Startup reconciliation marks missing sessions stopped
 - [x] React StrictMode cleanup cannot mark a replacement connection stopped
 - [x] Runtime inventory discovers every live `muxmap*` tmux/Zellij session

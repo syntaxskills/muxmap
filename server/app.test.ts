@@ -553,6 +553,69 @@ test('stopped node session API can start a new runtime instead of resuming the o
   }
 })
 
+test('session API can suspend runtimes and auto suspend oldest quiet sessions', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-api-suspend-')))
+  const tmux = fakeTmux()
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    tmux,
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const auth = await fetch(`${base}/api/auth`)
+    const cookie = auth.headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const createNode = async (title: string) => fetch(`${base}/api/workspaces/default/nodes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ parentId: 'workspace', title, type: 'terminal', repoPath: root }),
+    }).then((response) => response.json()) as Promise<{ id: string }>
+    const attach = async (nodeId: string) => fetch(`${base}/api/nodes/${nodeId}/session`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ backend: 'tmux', cwd: root }),
+    }).then((response) => response.json()) as Promise<{ session: TerminalSession }>
+
+    const firstNode = await createNode('Manual suspend')
+    const first = await attach(firstNode.id)
+    const suspended = await fetch(`${base}/api/sessions/${first.session.id}/suspend`, { method: 'POST', headers, body: '{}' }).then((response) => response.json()) as { session: TerminalSession }
+    assert.equal(suspended.session.status, 'suspended')
+    assert.equal(tmux.live.has(first.session.runtimeName), false)
+
+    const resumed = await attach(firstNode.id)
+    assert.equal(resumed.session.runtimeName, first.session.runtimeName)
+    assert.equal(resumed.session.status, 'running')
+
+    const secondNode = await createNode('Auto suspend oldest')
+    const thirdNode = await createNode('Auto keep current')
+    const second = await attach(secondNode.id)
+    const third = await attach(thirdNode.id)
+    server.store.updateSessionActivity(first.session.id, '2026-08-07T10:00:00.000Z')
+    server.store.updateSessionActivity(second.session.id, '2026-08-07T10:01:00.000Z')
+    server.store.updateSessionActivity(third.session.id, '2026-08-07T10:02:00.000Z')
+
+    const auto = await fetch(`${base}/api/sessions/auto-suspend`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ maxActive: 1, keepSessionId: third.session.id }),
+    }).then((response) => response.json()) as { sessions: TerminalSession[] }
+    assert.deepEqual(auto.sessions.map((session) => session.runtimeName), [first.session.runtimeName, second.session.runtimeName])
+    const graph = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
+    assert.equal(graph.sessions.find((session) => session.id === first.session.id)?.status, 'suspended')
+    assert.equal(graph.sessions.find((session) => session.id === second.session.id)?.status, 'suspended')
+    assert.equal(graph.sessions.find((session) => session.id === third.session.id)?.status, 'detached')
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('terminal input and output both advance persisted last activity', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-terminal-activity-')))
   const tmux = fakeTmux()

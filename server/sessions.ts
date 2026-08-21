@@ -242,7 +242,7 @@ export function createSessionManager(
 
   function runtimeExistsInSnapshot(session: TerminalSession, live: Map<TerminalBackend, Set<string>>) {
     return live.get(session.backend)?.has(session.runtimeName) === true
-      || runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped'
+      || runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped' && session.status !== 'suspended'
   }
 
   function canRecoverAgent(session: TerminalSession, agent: AgentActivity | undefined, exists: boolean) {
@@ -301,7 +301,7 @@ export function createSessionManager(
       const forbidden = existing ? new Set([existing.runtimeName]) : new Set<string>()
       const names = availableSessionNames(backend, node.workspaceId, label, node.id, adapter, forbidden)
 
-      const existingAdapter = existing && existing.status !== 'stopped' ? adapterFor(existing.backend) : undefined
+      const existingAdapter = existing && existing.status !== 'stopped' && existing.status !== 'suspended' ? adapterFor(existing.backend) : undefined
       if (existing && existing.status !== 'stopped' && existingAdapter?.exists(existing.runtimeName)) existingAdapter.stop(existing.runtimeName)
       if (!adapter.exists(names.runtimeName)) adapter.create(names.runtimeName, cwd)
 
@@ -319,7 +319,7 @@ export function createSessionManager(
 
     exists(session: TerminalSession) {
       return runtimeExists(session)
-        || runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped'
+        || runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped' && session.status !== 'suspended'
     },
 
     currentWorkingDirectory(id: string) {
@@ -349,6 +349,14 @@ export function createSessionManager(
       const adapter = adapterFor(session.backend)
       if (adapter.exists(session.runtimeName) || runtimePlatform === 'win32' && session.backend === 'zellij') adapter.stop(session.runtimeName)
       return store.updateSessionStatus(id, 'stopped')
+    },
+
+    suspend(id: string) {
+      const session = store.getSession(id)
+      if (!session) throw new Error('Session not found')
+      const adapter = adapterFor(session.backend)
+      if (adapter.exists(session.runtimeName) || runtimePlatform === 'win32' && session.backend === 'zellij') adapter.stop(session.runtimeName)
+      return store.updateSessionStatus(id, 'suspended')
     },
 
     recoverCodex(id: string) {
@@ -405,6 +413,30 @@ export function createSessionManager(
 
     inventory() {
       return agentInventory()
+    },
+
+    autoSuspend(maxActive: number, keepSessionId?: string) {
+      const limit = Math.max(1, Math.floor(maxActive))
+      const inventory = agentInventory()
+      const live = runtimeSnapshot()
+      const sessions = store.listSessions()
+      const liveSessions = sessions.filter((session) => (
+        session.status !== 'stopped'
+        && session.status !== 'suspended'
+        && runtimeExistsInSnapshot(session, live)
+      ))
+      const excess = liveSessions.length - limit
+      if (excess <= 0) return []
+      const protectedAgentStates = new Set<AgentActivity['state']>(['working', 'delegated', 'needs_input'])
+      const candidates = liveSessions
+        .filter((session) => session.id !== keepSessionId)
+        .filter((session) => !protectedAgentStates.has(agentFor(session.runtimeName, inventory)?.state ?? 'read'))
+        .sort((a, b) => (a.lastActivityAt ?? a.lastAttachedAt ?? a.updatedAt ?? a.createdAt).localeCompare(b.lastActivityAt ?? b.lastAttachedAt ?? b.updatedAt ?? b.createdAt))
+        .slice(0, excess)
+      return candidates.flatMap((session) => {
+        const suspended = this.suspend(session.id)
+        return suspended ? [suspended] : []
+      })
     },
 
     recordAgentEvent(locator: AgentLocator, kind: Exclude<AgentKind, 'ssh'>, event: Record<string, unknown>, now = new Date().toISOString()) {
@@ -478,7 +510,8 @@ export function createSessionManager(
         const running = live.get(session.backend)?.has(session.runtimeName)
         const status = running
           ? activeSessionIds.has(session.id) ? 'running' : 'detached'
-          : runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped' ? 'detached' : 'stopped'
+          : session.status === 'suspended' ? 'suspended'
+            : runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped' ? 'detached' : 'stopped'
         store.updateSessionStatus(session.id, status)
       }
       return live

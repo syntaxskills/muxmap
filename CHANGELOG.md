@@ -34,6 +34,7 @@ All notable changes to MuxMap are documented here.
 - Added open-file-limit diagnostics for `posix_spawnp failed` terminal startup failures.
 - Added selectable, one-click-copy session binding rows for Agent and terminal identifiers.
 - Added a stdio MCP adapter for human-created Agent channels, including list/read/send/usage tools and authenticated MuxMap API access.
+- Added manual and settings-driven terminal suspension to release idle tmux/Zellij runtimes while preserving MuxMap session metadata for later resume.
 - Changed settings JSON export to a nested structure while preserving legacy dotted-key import and persisted-setting migration.
 - Rewrote the README introduction around the core terminal-context pain point and added a dedicated screenshots guide.
 

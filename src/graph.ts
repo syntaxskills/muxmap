@@ -118,7 +118,7 @@ export function reorderSiblings(nodes: WorkNode[], movedId: string, targetId: st
 }
 
 export function liveSessionIdForNode(sessions: Array<{ id: string; nodeId: string; status: string; runtimeExists?: boolean }>, nodeId: string) {
-  return sessions.find((session) => session.nodeId === nodeId && session.status !== 'stopped' && session.runtimeExists !== false)?.id ?? null
+  return sessions.find((session) => nodeHasLiveSession(session) && session.nodeId === nodeId)?.id ?? null
 }
 
 type RecoverableSession = {
@@ -146,14 +146,14 @@ export function recoverableAgentLabel(session: RecoverableSession) {
 }
 
 export function visibleAgentForSession<T extends { status: string; runtimeExists?: boolean; agent?: unknown }>(session: T | undefined): T['agent'] | undefined {
-  if (!session || session.status === 'stopped' || session.runtimeExists === false) return undefined
+  if (!session || !nodeHasLiveSession(session)) return undefined
   return session.agent
 }
 
 export function branchHasLiveSession(nodes: WorkNode[], sessions: Array<{ nodeId: string; status: string; runtimeExists?: boolean }>, nodeId: string) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   return sessions.some((session) => {
-    if (session.status === 'stopped' || session.runtimeExists === false) return false
+    if (!nodeHasLiveSession(session)) return false
     let currentId: string | null = session.nodeId
     while (currentId) {
       if (currentId === nodeId) return true
@@ -161,6 +161,10 @@ export function branchHasLiveSession(nodes: WorkNode[], sessions: Array<{ nodeId
     }
     return false
   })
+}
+
+export function nodeHasLiveSession(session: { status: string; runtimeExists?: boolean }) {
+  return session.status !== 'stopped' && session.status !== 'suspended' && session.runtimeExists !== false
 }
 
 export function visibleNodes(nodes: WorkNode[], collapsed: Set<string>, query: string) {
