@@ -78,7 +78,7 @@ Channel API:
 - `GET /api/agent-channels/:channelId/messages`
 - `POST /api/agent-channels/:channelId/messages`
 - `GET /api/agent-channels/:channelId/usage`
-- `DELETE /api/agent-channels/:channelId`
+- `DELETE /api/agent-channels/:channelId` closes the channel and removes it from the visible map without deleting its message history
 
 ## Terminal command box
 

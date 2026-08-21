@@ -579,14 +579,14 @@ function App() {
     }
   }
 
-  async function deleteAgentChannel(channelId: string) {
+  async function closeAgentChannel(channelId: string) {
     setBusy(true)
     setError('')
     try {
       await api(`/api/agent-channels/${channelId}`, { method: 'DELETE', body: '{}' })
       setGraph((current) => current ? { ...current, channels: (current.channels ?? []).filter((channel) => channel.id !== channelId) } : current)
     } catch (channelError) {
-      setError(channelError instanceof Error ? channelError.message : 'Unable to remove agent channel')
+      setError(channelError instanceof Error ? channelError.message : 'Unable to close agent channel')
       await loadWorkspace()
     } finally {
       setBusy(false)
@@ -1392,7 +1392,7 @@ function App() {
                       <code>{channel.mcpUri}</code>
                       <small>{channel.transport} · {channel.deliveryPolicy} · {channel.messageLimit} msgs/h · warn {Math.round(channel.tokenWarningPerHour / 1000)}k/h · stop {Math.round(channel.tokenHardStopPerHour / 1000)}k/h</small>
                     </div>
-                    <button type="button" onClick={() => void deleteAgentChannel(channel.id)} disabled={busy}>Disconnect</button>
+                    <button type="button" onClick={() => void closeAgentChannel(channel.id)} disabled={busy}>Close channel</button>
                   </article>
                 )
               })}

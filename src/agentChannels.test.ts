@@ -8,6 +8,7 @@ test('mindmap exposes human-triggered agent channel creation and rendering', () 
 
   assert.match(app, /Start chat channel/)
   assert.match(app, /Connect chat channel/)
+  assert.match(app, /Close channel/)
   assert.match(app, /agent-channels/)
   assert.match(app, /className="agent-channel-edge"/)
   assert.match(app, /node-channel-marker/)

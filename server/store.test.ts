@@ -195,8 +195,13 @@ test('agent channels connect two terminal-backed nodes and persist MCP metadata'
   assert.equal(store.listAgentChannelMessages(channel.id)[0]?.authorNodeId, first.id)
   assert.throws(() => store.createAgentChannelMessage(channel.id, { authorNodeId: plain.id, body: 'intrude' }), /author/)
 
-  store.deleteAgentChannel(channel.id)
+  const closed = store.deleteAgentChannel(channel.id)
+  assert.equal(closed.status, 'closed')
+  assert.equal(closed.closedReason, 'Closed by user')
   assert.equal(store.getWorkspace('default').channels?.length, 0)
+  assert.throws(() => store.createAgentChannelMessage(channel.id, { authorNodeId: first.id, body: 'after close' }), /not found/)
+  const replacement = store.createAgentChannel('default', { sourceNodeId: first.id, targetNodeId: second.id })
+  assert.notEqual(replacement.id, channel.id)
   store.close()
 })
 

@@ -515,7 +515,7 @@ export function createStore(path: string) {
       const channel = this.getAgentChannel(id)
       if (!channel) throw new Error('Agent channel not found')
       const now = new Date().toISOString()
-      database.prepare('UPDATE agent_channels SET status = ?, updated_at = ? WHERE id = ?').run('archived', now, id)
+      database.prepare('UPDATE agent_channels SET status = ?, closed_reason = ?, updated_at = ? WHERE id = ?').run('closed', 'Closed by user', now, id)
       database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, channel.workspaceId)
       return this.getAgentChannel(id)!
     },

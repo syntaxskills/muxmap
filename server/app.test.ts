@@ -237,6 +237,16 @@ test('agent channel and terminal input history APIs persist collaboration state'
 
     const graph = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { channels: unknown[] }
     assert.equal(graph.channels.length, 1)
+    const closeResponse = await fetch(`${base}/api/agent-channels/${channel.id}`, {
+      method: 'DELETE',
+      headers,
+    })
+    assert.equal(closeResponse.status, 200)
+    const closed = await closeResponse.json() as { channel: { status: string; closedReason: string } }
+    assert.equal(closed.channel.status, 'closed')
+    assert.equal(closed.channel.closedReason, 'Closed by user')
+    const graphAfterClose = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { channels: unknown[] }
+    assert.equal(graphAfterClose.channels.length, 0)
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })
