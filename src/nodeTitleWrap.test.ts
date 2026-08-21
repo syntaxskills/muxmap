@@ -13,7 +13,9 @@ test('node titles show up to two lines before truncating', () => {
 
 test('expanded node metadata stays bounded while preserving readable labels', () => {
   assert.match(css, /\.node-expanded-content\s*\{[^}]*gap:\s*3px/s)
-  assert.match(css, /\.node-expanded-content > span\s*\{[^}]*grid-template-columns:\s*54px minmax\(0,\s*1fr\)/s)
+  assert.match(css, /\.map-node\s*\{[^}]*transition:[^;}]*width 220ms/s)
+  assert.match(css, /\.node-expanded-content > span\s*\{[^}]*grid-template-columns:\s*50px minmax\(0,\s*1fr\)/s)
+  assert.match(css, /\.node-expanded-content > span\.is-wide\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s)
   assert.match(css, /\.node-expanded-content b\s*\{[^}]*white-space:\s*nowrap/s)
   assert.match(css, /\.node-expanded-content code,[\s\S]*\.node-expanded-content > span > span\s*\{[^}]*text-overflow:\s*ellipsis/s)
   assert.match(css, /\.node-expanded-content \.is-note em\s*\{[^}]*-webkit-line-clamp:\s*2/s)

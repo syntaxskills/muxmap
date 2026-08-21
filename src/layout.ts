@@ -40,10 +40,13 @@ export function layoutTree(
   columnGap = 240,
   rowGap = 30,
   nodeHeights = new Map<string, number>(),
+  nodeWidths = new Map<string, number>(),
 ): Map<string, Point> {
   const positions = new Map<string, Point>()
   const children = new Map<string, TreeNode[]>()
   const defaultHeight = 42
+  const defaultWidth = 184
+  const horizontalGap = Math.max(0, columnGap - defaultWidth)
 
   for (const node of nodes) {
     if (!node.parentId) continue
@@ -66,16 +69,18 @@ export function layoutTree(
     return height
   }
 
-  function place(nodeId: string, depth: number, top: number) {
+  function place(nodeId: string, x: number, top: number) {
     const descendants = children.get(nodeId) ?? []
     const subtreeHeight = subtreeHeights.get(nodeId) ?? defaultHeight
     const nodeHeight = nodeHeights.get(nodeId) ?? defaultHeight
-    positions.set(nodeId, { x: depth * columnGap, y: top + (subtreeHeight - nodeHeight) / 2 })
+    const nodeWidth = nodeWidths.get(nodeId) ?? defaultWidth
+    positions.set(nodeId, { x, y: top + (subtreeHeight - nodeHeight) / 2 })
 
     const childrenHeight = descendants.reduce((total, child) => total + (subtreeHeights.get(child.id) ?? defaultHeight), 0) + Math.max(0, descendants.length - 1) * rowGap
     let childTop = top + (subtreeHeight - childrenHeight) / 2
+    const childX = x + Math.max(columnGap, nodeWidth + horizontalGap)
     for (const child of descendants) {
-      place(child.id, depth + 1, childTop)
+      place(child.id, childX, childTop)
       childTop += (subtreeHeights.get(child.id) ?? defaultHeight) + rowGap
     }
   }

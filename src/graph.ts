@@ -90,16 +90,21 @@ function wrappedLineCount(value: unknown, charsPerLine: number) {
 export function expandedNodeHeight(node: WorkNode, hasAgent: boolean, archivedChildCount = 0, hasActivity = false) {
   const valueCharsPerLine = 28
   const rows = [
-    node.project ? 1 : 0,
+    node.project ? 2 : 0,
     node.jiraKey ? 1 : 0,
-    node.repoPath ? 1 : 0,
-    Math.min(wrappedLineCount(node.note, valueCharsPerLine), 2),
-    hasAgent ? 1 : 0,
+    node.repoPath ? 2 : 0,
+    node.note ? 1 + Math.min(wrappedLineCount(node.note, valueCharsPerLine), 2) : 0,
+    hasAgent ? 2 : 0,
     archivedChildCount > 0 ? 1 : 0,
-    hasActivity ? 1 : 0,
-    1,
+    hasActivity && !hasAgent ? 1 : 0,
+    hasActivity || hasAgent ? 0 : 1,
   ].reduce((sum, row) => sum + row, 0)
   return Math.max(106, 64 + rows * 13)
+}
+
+export function expandedNodeWidth(node: WorkNode, hasAgent: boolean) {
+  const hasLongMetadata = Boolean(node.project || node.repoPath || node.note || hasAgent)
+  return hasLongMetadata ? 252 : 224
 }
 
 export function reorderSiblings(nodes: WorkNode[], movedId: string, targetId: string, position: ReorderPosition) {

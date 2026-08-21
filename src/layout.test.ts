@@ -37,6 +37,21 @@ test('expanded node height reflows the tree without overlapping siblings', () =>
   assert.deepEqual(positions.get('root'), { x: 0, y: 69 })
 })
 
+test('expanded node width pushes descendants without moving ordinary columns', () => {
+  const nodes = [
+    { id: 'root', parentId: null, sortOrder: 0 },
+    { id: 'child', parentId: 'root', sortOrder: 0 },
+    { id: 'leaf', parentId: 'child', sortOrder: 0 },
+  ]
+  const normal = layoutTree(nodes, 'root', 200, 18)
+  const expanded = layoutTree(nodes, 'root', 200, 18, new Map(), new Map([['child', 252]]))
+
+  assert.equal(normal.get('child')?.x, 200)
+  assert.equal(normal.get('leaf')?.x, 400)
+  assert.equal(expanded.get('child')?.x, 200)
+  assert.equal(expanded.get('leaf')?.x, 468)
+})
+
 test('lays out more than 40 nodes without overlapping leaves', () => {
   const nodes = [
     { id: 'root', parentId: null, sortOrder: 0 },

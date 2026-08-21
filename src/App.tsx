@@ -12,7 +12,7 @@ import {
 } from 'react'
 import './App.css'
 import { api } from './api.ts'
-import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, effectiveArchivedNodeIds, expandedNodeHeight, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, effectiveArchivedNodeIds, expandedNodeHeight, expandedNodeWidth, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
 import { centerPan, dragPan, gridBackground, isCanvasBlankTarget, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
 import type { NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
@@ -73,8 +73,8 @@ function compactPath(value: string) {
   const normalized = value.replace(/\\/g, '/')
   const parts = normalized.split('/').filter(Boolean)
   if (parts.length === 0) return middleEllipsis(value, 18)
-  const tail = parts.at(-1) ?? normalized
-  return tail.length > 20 ? `…${tail.slice(-19)}` : `…/${tail}`
+  const tail = parts.slice(-2).join('/')
+  return tail.length > 28 ? `…${tail.slice(-27)}` : `…/${tail}`
 }
 
 function App() {
@@ -330,9 +330,15 @@ function App() {
       const nodeSession = sessionsByNode.get(node.id)
       return [node.id, expandedNodeHeight(node, Boolean(visibleAgentForSession(nodeSession)), archivedChildCounts.get(node.id) ?? 0, Boolean(nodeSession))]
     })), [archivedChildCounts, hoveredId, nodes, selectedId, sessionsByNode])
+  const nodeWidths = useMemo(() => new Map(nodes
+    .filter((node) => node.id === selectedId || node.id === hoveredId)
+    .map((node) => {
+      const nodeSession = sessionsByNode.get(node.id)
+      return [node.id, expandedNodeWidth(node, Boolean(visibleAgentForSession(nodeSession)))]
+    })), [hoveredId, nodes, selectedId, sessionsByNode])
   const positions = useMemo(
-    () => layoutTree(nodes, graph?.workspace.rootNodeId ?? 'workspace', settings['mindmap.columnGap'], settings['mindmap.rowGap'], nodeHeights),
-    [graph?.workspace.rootNodeId, nodeHeights, nodes, settings],
+    () => layoutTree(nodes, graph?.workspace.rootNodeId ?? 'workspace', settings['mindmap.columnGap'], settings['mindmap.rowGap'], nodeHeights, nodeWidths),
+    [graph?.workspace.rootNodeId, nodeHeights, nodeWidths, nodes, settings],
   )
   const selected = selectedId ? activeGraphNodes.find((node) => node.id === selectedId) : undefined
   const selectedArchivedChildren = useMemo(() => archivedDirectChildren(graph?.nodes ?? [], selected?.id ?? ''), [graph?.nodes, selected?.id])
@@ -349,7 +355,8 @@ function App() {
     .filter(Boolean)
     .join('|')
   const activityNow = Date.now()
-  const width = Math.max(0, ...[...positions.values()].map(({ x }) => x)) + NODE_WIDTH + 96
+  const nodeWidth = useCallback((id: string) => nodeWidths.get(id) ?? NODE_WIDTH, [nodeWidths])
+  const width = Math.max(0, ...nodes.map((node) => (positions.get(node.id)?.x ?? 0) + nodeWidth(node.id))) + 96
   const height = Math.max(0, ...nodes.map((node) => (positions.get(node.id)?.y ?? 0) + (nodeHeights.get(node.id) ?? NODE_HEIGHT))) + 96
 
   const fitView = useCallback(() => {
@@ -374,11 +381,11 @@ function App() {
     const nodeHeight = nodeHeights.get(selected?.id ?? '') ?? NODE_HEIGHT
     setScale(nextScale)
     setPan({
-      x: viewport.clientWidth / 2 - (point.x + 48 + NODE_WIDTH / 2) * nextScale,
+      x: viewport.clientWidth / 2 - (point.x + 48 + nodeWidth(selected?.id ?? '') / 2) * nextScale,
       y: viewport.clientHeight / 2 - (point.y + 48 + nodeHeight / 2) * nextScale,
     })
     return true
-  }, [graph?.workspace.rootNodeId, nodeHeights, positions, selected?.id])
+  }, [graph?.workspace.rootNodeId, nodeHeights, nodeWidth, positions, selected?.id])
 
   useEffect(() => {
     if (!graph || centeredOnce.current || !settings['canvas.autoFitOnLoad']) return
@@ -399,7 +406,7 @@ function App() {
     const viewport = canvasRef.current
     if (!viewport || points.length === 0) return
     const minX = Math.min(...points.map((point) => point.x))
-    const maxX = Math.max(...points.map((point) => point.x)) + NODE_WIDTH
+    const maxX = Math.max(...projectNodes.map((node) => (positions.get(node.id)?.x ?? 0) + nodeWidth(node.id)))
     const minY = Math.min(...points.map((point) => point.y))
     const maxY = Math.max(...projectNodes.map((node) => (positions.get(node.id)?.y ?? 0) + (nodeHeights.get(node.id) ?? NODE_HEIGHT)))
     const nextScale = Math.max(0.55, Math.min(1.2, (viewport.clientWidth - 80) / (maxX - minX + 96), (viewport.clientHeight - 80) / (maxY - minY + 96)))
@@ -1183,7 +1190,7 @@ function App() {
                     const from = positions.get(node.parentId)
                     const to = positions.get(node.id)
                     if (!from || !to) return null
-                    const x1 = from.x + NODE_WIDTH + 48
+                    const x1 = from.x + nodeWidth(node.parentId) + 48
                     const y1 = from.y + (nodeHeights.get(node.parentId) ?? NODE_HEIGHT) / 2 + 48
                     const x2 = to.x + 48
                     const y2 = to.y + (nodeHeights.get(node.id) ?? NODE_HEIGHT) / 2 + 48
@@ -1196,9 +1203,9 @@ function App() {
                     if (!source || !target) return null
                     const sourceHeight = nodeHeights.get(channel.sourceNodeId) ?? NODE_HEIGHT
                     const targetHeight = nodeHeights.get(channel.targetNodeId) ?? NODE_HEIGHT
-                    const x1 = source.x + NODE_WIDTH / 2 + 48
+                    const x1 = source.x + nodeWidth(channel.sourceNodeId) / 2 + 48
                     const y1 = source.y + sourceHeight / 2 + 48
-                    const x2 = target.x + NODE_WIDTH / 2 + 48
+                    const x2 = target.x + nodeWidth(channel.targetNodeId) / 2 + 48
                     const y2 = target.y + targetHeight / 2 + 48
                     const bend = (x1 + x2) / 2
                     return <path className="agent-channel-edge" key={channel.id} d={`M ${x1} ${y1} C ${bend} ${y1 - 40}, ${bend} ${y2 + 40}, ${x2} ${y2}`} />
@@ -1227,6 +1234,7 @@ function App() {
                   const style = {
                     left: point.x + 48,
                     top: point.y + 48,
+                    width: nodeWidth(node.id),
                     height: nodeHeights.get(node.id) ?? NODE_HEIGHT,
                     '--node-color': node.color,
                     ...(agentState === 'working' ? { '--agent-working-sweep-delay': agentWorkingSweepDelay(performance.now()) } : {}),
@@ -1271,14 +1279,14 @@ function App() {
                           {settings['mindmap.showNodeType'] && <span className="node-type">{typeLabels[node.type]}</span>}
                           {expanded && (
                             <span className="node-expanded-content">
-                              {node.project && <span><b>Project</b><span title={node.project}>{node.project}</span></span>}
+                              {node.project && <span className="is-wide"><b>Project</b><span title={node.project}>{node.project}</span></span>}
                               {node.jiraKey && <span><b>Ticket</b><span title={node.jiraKey}>{node.jiraKey}</span></span>}
-                              {node.repoPath && <span className="is-path"><b>Path</b><code title={node.repoPath}>{compactPath(node.repoPath)}</code></span>}
-                              {node.note && <span className="is-note"><b>Note</b><em title={node.note}>{node.note}</em></span>}
-                              {visibleAgent && <span><b>Agent</b><span title={agentStatusText(visibleAgent)}>{agentStatusText(visibleAgent)}</span></span>}
-                              {nodeSession && <span><b>Activity</b><time dateTime={activityTimestamp}>{activityAge === 'NOW' ? activityAge : `${activityAge} ago`}</time></span>}
+                              {node.repoPath && <span className="is-wide is-path"><b>Path</b><code title={node.repoPath}>{compactPath(node.repoPath)}</code></span>}
+                              {node.note && <span className="is-wide is-note"><b>Note</b><em title={node.note}>{node.note}</em></span>}
+                              {visibleAgent && <span className="is-wide"><b>Agent</b><span title={agentStatusText(visibleAgent)}>{agentStatusText(visibleAgent)}{nodeSession && activityTimestamp ? ` · ${activityAge === 'NOW' ? activityAge : `${activityAge} ago`}` : ''}</span></span>}
+                              {nodeSession && !visibleAgent && <span><b>Activity</b><time dateTime={activityTimestamp}>{activityAge === 'NOW' ? activityAge : `${activityAge} ago`}</time></span>}
                               {archivedChildCount > 0 && <span><b>Archived</b><span>{archivedChildCount} {archivedChildCount === 1 ? 'child' : 'children'}</span></span>}
-                              <span><b>Terminal</b><span title={nodeSession ? `${nodeSession.status} · ${agentSessionSummary(nodeSession)}` : 'None'}>{nodeSession ? `${nodeSession.status} · ${agentSessionSummary(nodeSession)}` : 'None'}</span></span>
+                              {!nodeSession && <span><b>Terminal</b><span title="None">None</span></span>}
                             </span>
                           )}
                         </span>

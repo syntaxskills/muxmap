@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, liveSessionIdForNode, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, visibleAgentForSession, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, expandedNodeWidth, liveSessionIdForNode, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, visibleAgentForSession, visibleNodes } from './graph.ts'
 import type { WorkNode } from './model.ts'
 
 const base = {
@@ -117,10 +117,12 @@ test('reordering moves nodes only within their existing sibling group', () => {
 test('expanded nodes grow only as much as their visible metadata needs', () => {
   assert.equal(expandedNodeHeight(nodes[1], false), 106)
   assert.equal(expandedNodeHeight({ ...nodes[1], type: 'todo' }, false), 106)
-  assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, true), 142)
-  assert.equal(expandedNodeHeight({ ...nodes[3], type: 'todo', project: 'Identity', repoPath: '/repo', note: 'Context' }, true, 0, true), 155)
-  assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, false, 1), 142)
-  assert.equal(expandedNodeHeight({ ...nodes[3], repoPath: '/very/long/path/that/needs/to/wrap/because/it/would/overflow/the/expanded/node', note: 'Long notes should add height instead of spilling outside the node card.' }, false), 129)
+  assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, true), 181)
+  assert.equal(expandedNodeHeight({ ...nodes[3], type: 'todo', project: 'Identity', repoPath: '/repo', note: 'Context' }, true, 0, true), 181)
+  assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, false, 1), 181)
+  assert.equal(expandedNodeHeight({ ...nodes[3], repoPath: '/very/long/path/that/needs/to/wrap/because/it/would/overflow/the/expanded/node', note: 'Long notes should add height instead of spilling outside the node card.' }, false), 155)
+  assert.equal(expandedNodeWidth(nodes[1], false), 224)
+  assert.equal(expandedNodeWidth({ ...nodes[3], repoPath: '/repo/muxmap' }, false), 252)
 })
 
 test('an archived node remains discoverable directly inside its original parent', () => {
