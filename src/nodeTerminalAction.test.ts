@@ -9,3 +9,10 @@ test('a terminal-enabled node has no duplicate open-terminal button', () => {
   assert.doesNotMatch(app, /node-terminal-action/)
   assert.doesNotMatch(css, /node-terminal-action/)
 })
+
+test('opening a completed or delegated terminal acknowledges it as read', () => {
+  const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
+
+  assert.match(app, /\['completed', 'delegated'\]\.includes\(restored\.agent\.state\)/)
+  assert.match(app, /\/api\/sessions\/\$\{restored\.id\}\/agent\/read/)
+})

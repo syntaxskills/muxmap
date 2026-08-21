@@ -259,7 +259,7 @@ function App() {
     if (restored.nodeId !== selectedId) {
       setSelectedId(restored.nodeId)
     }
-    if (restored.agent?.state === 'completed') {
+    if (restored.agent && ['completed', 'delegated'].includes(restored.agent.state)) {
       setGraph((current) => current ? {
         ...current,
         sessions: current.sessions.map((item) => item.id === restored.id && item.agent ? { ...item, agent: { ...item.agent, state: 'read' } } : item),

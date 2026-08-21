@@ -122,6 +122,10 @@ test('agent activity rebuilds from event log on startup instead of trusting stal
 
     first.recordAgentEvent('muxmap-claude-delegated', 'claude', { hook_event_name: 'Stop', background_tasks: [{ id: 'task-1', description: 'Run mvn test' }] }, 'delegated', '2026-08-07T10:06:00.000Z')
     first.upsertAgentActivity('muxmap-claude-delegated', { kind: 'claude', state: 'working', since: '2026-08-07T10:06:00.000Z' })
+
+    first.recordAgentEvent('muxmap-claude-delegated-cleared', 'claude', { hook_event_name: 'Stop', background_tasks: [{ id: 'task-1' }] }, 'delegated', '2026-08-07T10:07:00.000Z')
+    first.recordAgentEvent('muxmap-claude-delegated-cleared', 'claude', { hook_event_name: 'Stop', background_tasks: [], session_crons: [] }, 'completed', '2026-08-07T10:08:00.000Z')
+    first.upsertAgentActivity('muxmap-claude-delegated-cleared', { kind: 'claude', state: 'delegated', since: '2026-08-07T10:07:00.000Z' })
     first.close()
 
     const rebuilt = createStore(database)
@@ -131,6 +135,8 @@ test('agent activity rebuilds from event log on startup instead of trusting stal
     assert.equal(rebuilt.getAgentActivity('muxmap-manual-working')?.state, 'completed')
     assert.equal(rebuilt.getAgentActivity('muxmap-claude-delegated')?.state, 'delegated')
     assert.equal(rebuilt.getAgentActivity('muxmap-claude-delegated')?.since, '2026-08-07T10:06:00.000Z')
+    assert.equal(rebuilt.getAgentActivity('muxmap-claude-delegated-cleared')?.state, 'completed')
+    assert.equal(rebuilt.getAgentActivity('muxmap-claude-delegated-cleared')?.since, '2026-08-07T10:08:00.000Z')
     rebuilt.close()
   } finally {
     rmSync(directory, { recursive: true, force: true })
