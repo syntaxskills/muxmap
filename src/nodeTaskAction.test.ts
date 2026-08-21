@@ -19,11 +19,27 @@ test('todo nodes use only a corner marker for open todo state', () => {
 })
 
 test('agent sessions expose a right-click status submenu', () => {
+  assert.match(app, /function AgentStatusSubmenu/)
+  assert.match(app, /useFloating\(\{[\s\S]*placement:\s*'right-start'[\s\S]*offset\(-2\)[\s\S]*flip\(\)/)
+  assert.match(app, /useHover\(context,\s*\{\s*handleClose:\s*safePolygon\(\)\s*\}\)/)
+  assert.match(app, /useFocus\(context\)/)
+  assert.match(app, /useDismiss\(context\)/)
   assert.match(app, /Set agent status/)
-  assert.match(app, /setAgentStatus\(agentSession\.id, 'working'\)/)
-  assert.match(app, /setAgentStatus\(agentSession\.id, 'delegated'\)/)
-  assert.match(app, /setAgentStatus\(agentSession\.id, 'completed'\)/)
-  assert.match(app, /setAgentStatus\(agentSession\.id, 'read'\)/)
+  assert.match(app, /onSetStatus\(sessionId, 'working'\)/)
+  assert.match(app, /onSetStatus\(sessionId, 'delegated'\)/)
+  assert.match(app, /onSetStatus\(sessionId, 'completed'\)/)
+  assert.match(app, /onSetStatus\(sessionId, 'read'\)/)
+  assert.match(app, /<AgentStatusSubmenu nodeTitle=\{node\.title\} sessionId=\{agentSession\.id\} onSetStatus=\{setAgentStatus\} \/>/)
   assert.match(css, /\.node-context-submenu-panel\s*\{[^}]*position:\s*absolute/s)
-  assert.match(css, /\.node-context-submenu:hover \.node-context-submenu-panel/s)
+  assert.match(css, /\.node-context-submenu-panel\.is-open\s*\{[^}]*pointer-events:\s*auto/s)
+  assert.doesNotMatch(css, /\.node-context-submenu:hover \.node-context-submenu-panel/s)
+  assert.doesNotMatch(css, /\.node-context-submenu:focus-within \.node-context-submenu-panel/s)
+})
+
+test('agent status submenu renders all manual status choices', () => {
+  const submenu = app.match(/function AgentStatusSubmenu[\s\S]*?\n}\n\nfunction App/)?.[0] ?? ''
+  assert.match(submenu, />Working<\/button>/)
+  assert.match(submenu, />Background<\/button>/)
+  assert.match(submenu, />Completed<\/button>/)
+  assert.match(submenu, />Read<\/button>/)
 })

@@ -37,6 +37,7 @@ import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { AgentEventList } from './AgentEventList.tsx'
 import { demoWorkspaceGraph } from './demoGraph.ts'
 import { ArchiveIcon, BoxIcon, CheckboxIcon, CheckCircledIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, DrawingPinIcon, EyeOpenIcon, GearIcon, Link2Icon, OpenInNewWindowIcon, PauseIcon, Pencil2Icon, PlayIcon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
+import { autoUpdate, flip, offset, safePolygon, useDismiss, useFloating, useFocus, useHover, useInteractions } from '@floating-ui/react'
 import {
   closeTerminal,
   floatTerminal,
@@ -50,6 +51,7 @@ import { NODE_WIDTH } from './nodeDimensions.ts'
 const NODE_HEIGHT = 42
 const WORKSPACE_POLL_MS = 5000
 type NodePatch = Partial<Omit<WorkNode, 'doneAt'>> & { doneAt?: string | null }
+type AgentStatusOverride = 'working' | 'delegated' | 'completed' | 'read'
 const TerminalPanel = lazy(() => import('./TerminalPanel.tsx'))
 
 const typeLabels: Record<NodeType, string> = {
@@ -75,6 +77,59 @@ function compactPath(value: string) {
   if (parts.length === 0) return middleEllipsis(value, 18)
   const tail = parts.slice(-2).join('/')
   return tail.length > 28 ? `…${tail.slice(-27)}` : `…/${tail}`
+}
+
+type AgentStatusSubmenuProps = {
+  nodeTitle: string
+  sessionId: string
+  onSetStatus: (sessionId: string, state: AgentStatusOverride) => void
+}
+
+function AgentStatusSubmenu({ nodeTitle, sessionId, onSetStatus }: AgentStatusSubmenuProps) {
+  const [open, setOpen] = useState(false)
+  const { context, floatingStyles, refs } = useFloating({
+    open,
+    onOpenChange: setOpen,
+    placement: 'right-start',
+    middleware: [offset(-2), flip()],
+    transform: false,
+    whileElementsMounted: autoUpdate,
+  })
+  const hover = useHover(context, { handleClose: safePolygon() })
+  const focus = useFocus(context)
+  const dismiss = useDismiss(context)
+  const { getFloatingProps, getReferenceProps } = useInteractions([hover, focus, dismiss])
+
+  return (
+    <div className={`node-context-submenu ${open ? 'is-submenu-open' : ''}`}>
+      <button
+        {...getReferenceProps({
+          className: 'node-context-submenu-trigger',
+          type: 'button',
+          role: 'menuitem',
+          'aria-haspopup': 'menu',
+          'aria-expanded': open,
+        })}
+        ref={refs.setReference}
+      >
+        <DesktopIcon />Set agent status<ChevronRightIcon />
+      </button>
+      <div
+        {...getFloatingProps({
+          className: `node-context-submenu-panel ${open ? 'is-open' : ''}`,
+          role: 'menu',
+          'aria-label': `Set agent status for ${nodeTitle}`,
+          style: floatingStyles,
+        })}
+        ref={refs.setFloating}
+      >
+        <button type="button" role="menuitem" onClick={() => void onSetStatus(sessionId, 'working')}><PlayIcon />Working</button>
+        <button type="button" role="menuitem" onClick={() => void onSetStatus(sessionId, 'delegated')}><GearIcon />Background</button>
+        <button type="button" role="menuitem" onClick={() => void onSetStatus(sessionId, 'completed')}><CheckCircledIcon />Completed</button>
+        <button type="button" role="menuitem" onClick={() => void onSetStatus(sessionId, 'read')}><EyeOpenIcon />Read</button>
+      </div>
+    </div>
+  )
 }
 
 function App() {
@@ -545,7 +600,7 @@ function App() {
     setContextMenu(null)
   }
 
-  async function setAgentStatus(sessionId: string, state: 'working' | 'delegated' | 'completed' | 'read') {
+  async function setAgentStatus(sessionId: string, state: AgentStatusOverride) {
     setError('')
     try {
       const response = await api<{ activity: NonNullable<TerminalSession['agent']> }>(`/api/sessions/${sessionId}/agent/status`, {
@@ -1311,7 +1366,6 @@ function App() {
             const branchHasSession = branchHasLiveSession(activeGraphNodes, graph.sessions, node.id)
             const nodeSession = graph.sessions.find((item) => item.nodeId === node.id)
             const agentSession = graph.sessions.find((item) => item.nodeId === node.id && item.agent && item.agent.kind !== 'ssh')
-            const submenuSide = contextMenu.x > window.innerWidth - 420 ? 'is-submenu-left' : 'is-submenu-right'
             const confirmingArchive = contextMenu.confirm === 'archive'
             const confirmingDelete = contextMenu.confirm === 'delete'
             return (
@@ -1327,15 +1381,7 @@ function App() {
                 {nodeSession && nodeHasLiveSession(nodeSession) && <button type="button" role="menuitem" onClick={() => void suspendSession(nodeSession.id)}><PauseIcon />Suspend terminal</button>}
                 {node.parentId && (node.type !== 'todo' || node.doneAt) && <button type="button" role="menuitem" onClick={() => void markNodeTodo(node)}><BoxIcon />Mark todo</button>}
                 {node.parentId && node.type === 'todo' && !node.doneAt && <button type="button" role="menuitem" onClick={() => void markNodeDone(node)}><CheckboxIcon />Mark done</button>}
-                {agentSession && <div className={`node-context-submenu ${submenuSide}`}>
-                  <button className="node-context-submenu-trigger" type="button" role="menuitem" aria-haspopup="menu"><DesktopIcon />Set agent status<ChevronRightIcon /></button>
-                  <div className="node-context-submenu-panel" role="menu" aria-label={`Set agent status for ${node.title}`}>
-                    <button type="button" role="menuitem" onClick={() => void setAgentStatus(agentSession.id, 'working')}><PlayIcon />Working</button>
-                    <button type="button" role="menuitem" onClick={() => void setAgentStatus(agentSession.id, 'delegated')}><GearIcon />Background</button>
-                    <button type="button" role="menuitem" onClick={() => void setAgentStatus(agentSession.id, 'completed')}><CheckCircledIcon />Completed</button>
-                    <button type="button" role="menuitem" onClick={() => void setAgentStatus(agentSession.id, 'read')}><EyeOpenIcon />Read</button>
-                  </div>
-                </div>}
+                {agentSession && <AgentStatusSubmenu nodeTitle={node.title} sessionId={agentSession.id} onSetStatus={setAgentStatus} />}
                 {node.parentId && <button className={confirmingArchive ? 'is-danger is-confirming' : ''} type="button" role="menuitem" aria-label={confirmingArchive ? `Confirm archive ${node.title}` : `Archive ${node.title}`} onClick={() => confirmingArchive ? void archiveNode(node.id) : setContextMenu((current) => current?.nodeId === node.id ? { ...current, confirm: 'archive' } : current)}><ArchiveIcon />{confirmingArchive ? contextMenuConfirmationText('archive', branchHasSession) : 'Archive'}</button>}
                 {node.parentId && <button className={`is-danger ${confirmingDelete ? 'is-confirming' : ''}`} type="button" role="menuitem" aria-label={confirmingDelete ? `Confirm delete ${node.title}${branchHasSession ? ' and stop session' : ''}` : `Delete ${node.title}`} onClick={() => confirmingDelete ? void deleteNode(node.id, branchHasSession) : setContextMenu((current) => current?.nodeId === node.id ? { ...current, confirm: 'delete' } : current)}><TrashIcon />{confirmingDelete ? contextMenuConfirmationText('delete', branchHasSession) : 'Delete'}</button>}
               </div>

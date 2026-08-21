@@ -804,16 +804,7 @@ kbd {
   transition: opacity 110ms ease, transform 110ms ease;
 }
 
-.node-context-submenu.is-submenu-right .node-context-submenu-panel {
-  left: calc(100% - 2px);
-}
-
-.node-context-submenu.is-submenu-left .node-context-submenu-panel {
-  right: calc(100% - 2px);
-}
-
-.node-context-submenu:hover .node-context-submenu-panel,
-.node-context-submenu:focus-within .node-context-submenu-panel {
+.node-context-submenu-panel.is-open {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0) scale(1);

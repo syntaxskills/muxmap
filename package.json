@@ -31,6 +31,7 @@
     "preview": "npm run build && npm start"
   },
   "dependencies": {
+    "@floating-ui/react": "^0.27.20",
     "@radix-ui/react-icons": "^1.3.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
