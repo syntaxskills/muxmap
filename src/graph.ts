@@ -1,5 +1,6 @@
 import type { WorkNode } from './model.ts'
 import { agentNames } from './agentStatus.ts'
+import { NODE_WIDTH } from './nodeDimensions.ts'
 
 export type ReorderPosition = 'before' | 'after'
 
@@ -102,9 +103,8 @@ export function expandedNodeHeight(node: WorkNode, hasAgent: boolean, archivedCh
   return Math.max(106, 64 + rows * 13)
 }
 
-export function expandedNodeWidth(node: WorkNode, hasAgent: boolean) {
-  const hasLongMetadata = Boolean(node.project || node.repoPath || node.note || hasAgent)
-  return hasLongMetadata ? 252 : 224
+export function expandedNodeWidth(_node: WorkNode, _hasAgent: boolean) {
+  return NODE_WIDTH
 }
 
 export function reorderSiblings(nodes: WorkNode[], movedId: string, targetId: string, position: ReorderPosition) {

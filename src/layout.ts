@@ -1,3 +1,5 @@
+import { NODE_WIDTH } from './nodeDimensions.ts'
+
 export type TreeNode = {
   id: string
   parentId: string | null
@@ -45,7 +47,7 @@ export function layoutTree(
   const positions = new Map<string, Point>()
   const children = new Map<string, TreeNode[]>()
   const defaultHeight = 42
-  const defaultWidth = 184
+  const defaultWidth = NODE_WIDTH
   const horizontalGap = Math.max(0, columnGap - defaultWidth)
 
   for (const node of nodes) {

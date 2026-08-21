@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { centerPan, dragPan, gridBackground, isCanvasBlankTarget, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
+import { NODE_WIDTH } from './nodeDimensions.ts'
 
 test('places parents midway between ordered children', () => {
   const positions = layoutTree(
@@ -14,8 +15,8 @@ test('places parents midway between ordered children', () => {
     18,
   )
 
-  assert.deepEqual(positions.get('first'), { x: 200, y: 0 })
-  assert.deepEqual(positions.get('second'), { x: 200, y: 60 })
+  assert.deepEqual(positions.get('first'), { x: NODE_WIDTH, y: 0 })
+  assert.deepEqual(positions.get('second'), { x: NODE_WIDTH, y: 60 })
   assert.deepEqual(positions.get('root'), { x: 0, y: 30 })
 })
 
@@ -32,24 +33,24 @@ test('expanded node height reflows the tree without overlapping siblings', () =>
     new Map([['first', 120]]),
   )
 
-  assert.deepEqual(positions.get('first'), { x: 200, y: 0 })
-  assert.deepEqual(positions.get('second'), { x: 200, y: 138 })
+  assert.deepEqual(positions.get('first'), { x: NODE_WIDTH, y: 0 })
+  assert.deepEqual(positions.get('second'), { x: NODE_WIDTH, y: 138 })
   assert.deepEqual(positions.get('root'), { x: 0, y: 69 })
 })
 
-test('expanded node width pushes descendants without moving ordinary columns', () => {
+test('expanded node width matches collapsed width and keeps descendants aligned', () => {
   const nodes = [
     { id: 'root', parentId: null, sortOrder: 0 },
     { id: 'child', parentId: 'root', sortOrder: 0 },
     { id: 'leaf', parentId: 'child', sortOrder: 0 },
   ]
-  const normal = layoutTree(nodes, 'root', 200, 18)
-  const expanded = layoutTree(nodes, 'root', 200, 18, new Map(), new Map([['child', 252]]))
+  const normal = layoutTree(nodes, 'root', 320, 18)
+  const expanded = layoutTree(nodes, 'root', 320, 18, new Map(), new Map([['child', NODE_WIDTH]]))
 
-  assert.equal(normal.get('child')?.x, 200)
-  assert.equal(normal.get('leaf')?.x, 400)
-  assert.equal(expanded.get('child')?.x, 200)
-  assert.equal(expanded.get('leaf')?.x, 468)
+  assert.equal(normal.get('child')?.x, 320)
+  assert.equal(normal.get('leaf')?.x, 640)
+  assert.equal(expanded.get('child')?.x, 320)
+  assert.equal(expanded.get('leaf')?.x, 640)
 })
 
 test('lays out more than 40 nodes without overlapping leaves', () => {

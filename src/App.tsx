@@ -45,8 +45,8 @@ import {
   selectNodeSurface,
   type WorkspaceSurface,
 } from './workspaceSurface.ts'
+import { NODE_WIDTH } from './nodeDimensions.ts'
 
-const NODE_WIDTH = 184
 const NODE_HEIGHT = 42
 const WORKSPACE_POLL_MS = 5000
 type NodePatch = Partial<Omit<WorkNode, 'doneAt'>> & { doneAt?: string | null }

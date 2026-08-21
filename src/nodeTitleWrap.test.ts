@@ -12,6 +12,8 @@ test('node titles show up to two lines before truncating', () => {
 })
 
 test('expanded node metadata stays bounded while preserving readable labels', () => {
+  assert.match(css, /\.map-node\s*\{[^}]*width:\s*252px/s)
+  assert.match(css, /\.map-node\.is-expanded \.node-select\s*\{[^}]*min-width:\s*252px/s)
   assert.match(css, /\.node-expanded-content\s*\{[^}]*gap:\s*3px/s)
   assert.match(css, /\.map-node\s*\{[^}]*transition:[^;}]*width 220ms/s)
   assert.match(css, /\.node-expanded-content > span\s*\{[^}]*grid-template-columns:\s*50px minmax\(0,\s*1fr\)/s)
