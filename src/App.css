@@ -3367,6 +3367,37 @@ kbd {
   font-size: 12px;
 }
 
+.terminal-demo-screen {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  padding: 18px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent),
+    var(--terminal);
+}
+
+.terminal-demo-screen code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--terminal-text);
+  font: 12px/1.45 var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-demo-screen code span {
+  display: inline-block;
+  width: 18px;
+  color: var(--accent);
+}
+
+.terminal-command-box.is-demo textarea {
+  color: var(--terminal-muted);
+}
+
 .terminal-mount {
   width: 100%;
   height: 100%;

@@ -703,10 +703,6 @@ function App() {
   function selectNode(node: WorkNode) {
     setContextMenu(null)
     setSelectedId(node.id)
-    if (demoMode) {
-      setSurface(selectNodeSurface(null))
-      return
-    }
     setSurface(selectNodeSurface(openableSessionIdForNode(graph?.sessions ?? [], node.id)))
   }
 
@@ -767,10 +763,6 @@ function App() {
   }
 
   function openTerminal(id: string) {
-    if (demoMode) {
-      setError('Demo mode uses terminal previews only. Start MuxMap normally to attach a real terminal.')
-      return
-    }
     setSurface((current) => settings['terminal.defaultPlacement'] === 'floating'
       ? { rightPanel: current.rightPanel ?? 'details', terminalSessionId: id, terminalFloating: true }
       : openTerminalSurface(current, id))
@@ -1041,7 +1033,33 @@ function App() {
   const branchHasSession = selected ? branchHasLiveSession(graph.nodes, graph.sessions, selected.id) : false
   const contextCount = selected ? [selected.project, selected.jiraKey, selected.repoPath, selected.note].filter(Boolean).length : 0
   const terminalPanel = activeTerminal && activeTerminalNode ? (
-    nodeHasLiveSession(activeTerminal) ? (
+    demoMode ? (
+      <section
+        className={`terminal terminal-window terminal-demo ${terminalFloating ? 'is-floating' : 'is-docked'}`}
+        role="dialog"
+        aria-label={`Demo terminal for ${activeTerminalNode.title}`}
+        style={{ '--accent': activeTerminalNode.color, '--accent-soft': `color-mix(in srgb, ${activeTerminalNode.color} 20%, transparent)`, opacity: settings['terminal.opacity'] / 100 } as CSSProperties}
+      >
+        <div className="terminal-header">
+          <div className="terminal-title is-static" title={activeTerminal.runtimeName}><span className="terminal-node-link"><Link2Icon /> linked</span><strong>{activeTerminalNode.title}</strong><span className="terminal-session-name">{activeTerminal.runtimeName}</span></div>
+          <div className="terminal-actions">
+            <span className={`runtime-state ${activeTerminal.agent ? `is-${activeTerminal.agent.state}` : 'is-running'}`} title="Demo terminal">{activeTerminal.agent && <AgentIcon kind={activeTerminal.agent.kind} />}{activeTerminal.agent ? agentStatusText(activeTerminal.agent) : 'Demo terminal'}</span>
+            <span className="terminal-action-divider" aria-hidden="true" />
+            <button className="terminal-icon-button terminal-float-action" type="button" onClick={() => setSurface(floatTerminal)} aria-label={terminalFloating ? 'Dock terminal' : 'Float terminal'} title={terminalFloating ? 'Dock terminal' : 'Float terminal'}>{terminalFloating ? <DrawingPinIcon /> : <OpenInNewWindowIcon />}</button>
+            <button className="terminal-icon-button" type="button" onClick={() => setSurface(closeTerminal)} aria-label="Close demo terminal" title="Close"><Cross2Icon /></button>
+          </div>
+        </div>
+        <div className="terminal-demo-screen" aria-label="Demo terminal output">
+          <code><span>$</span> muxmap agent status --node {activeTerminalNode.jiraKey ?? activeTerminalNode.title}</code>
+          <code><span>●</span> {activeTerminal.agent ? agentStatusText(activeTerminal.agent) : 'Terminal ready'} · {activeTerminal.backend} · {compactPath(activeTerminal.cwd)}</code>
+          <code><span>$</span> npm test -- --changed</code>
+          <code><span>✓</span> graph layout keeps 13 visible nodes readable</code>
+          <code><span>✓</span> terminal binding survives refresh and window close</code>
+          <code><span>→</span> waiting on the selected node context</code>
+        </div>
+        <div className="terminal-command-box is-demo"><label><textarea value="Demo mode uses synthetic data for screenshots." readOnly rows={3} /></label><div className="terminal-command-actions"><button className="is-send" type="button" disabled>Send</button></div></div>
+      </section>
+    ) : nodeHasLiveSession(activeTerminal) ? (
       <Suspense fallback={<section className={`terminal terminal-window terminal-loading ${terminalFloating ? 'is-floating' : 'is-docked'}`} aria-label="Loading terminal"><span /><span /></section>}>
         <TerminalPanel
           key={activeTerminal.id}

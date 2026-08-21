@@ -2,6 +2,8 @@
 
 These screenshots show the main MuxMap flows: organizing work in the map, opening the right terminal quickly, managing sessions, and using the mobile layout.
 
+They are captured from the built-in synthetic demo graph, with 13 visible nodes and 7 agent/session states. No real workspace, account, repo, ticket, or terminal history is shown.
+
 ## Main workflow: map on the left, Codex on the right
 
 The primary workflow is a split workspace. The mindmap keeps project context visible while the selected node owns a persistent terminal running Codex on the right.

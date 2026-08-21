@@ -12,10 +12,13 @@ test('agent demo graph covers long metadata and all visible agent states', () =>
   assert.ok(demoWorkspaceGraph.nodes.some((node) => node.archivedAt))
 })
 
-test('agent demo mode is loaded client-side and does not attach a real terminal', () => {
+test('agent demo mode is loaded client-side and renders a static terminal for screenshots', () => {
   const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
   assert.match(app, /get\('demo'\) === 'agents'/)
   assert.match(app, /setGraph\(demoWorkspaceGraph\)/)
-  assert.match(app, /Demo mode uses terminal previews only/)
+  assert.match(app, /className=\{`terminal terminal-window terminal-demo/)
+  assert.match(app, /Demo mode uses synthetic data for screenshots/)
+  assert.match(css, /\.terminal-demo-screen\s*\{/)
   assert.match(app, /<span className="demo-badge">Demo data<\/span>/)
 })
