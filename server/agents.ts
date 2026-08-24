@@ -40,6 +40,26 @@ export function detectAgentKind(panePid: number, processes: ProcessInfo[]): Agen
   if (targets.some((target) => target.split('/').pop() === 'ssh')) return 'ssh'
 }
 
+export function detectMuxMapHost(panePid: number, processes: ProcessInfo[]) {
+  const descendants = new Set([panePid])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const process of processes) {
+      if (descendants.has(process.ppid) && !descendants.has(process.pid)) {
+        descendants.add(process.pid)
+        changed = true
+      }
+    }
+  }
+  return processes.some((process) => {
+    if (!descendants.has(process.pid)) return false
+    const command = process.command.toLowerCase()
+    return /\b(server\/index\.ts|server\/app\.ts|server\/index\.js|server\/app\.js|scripts\/dev\.mjs)\b/.test(command)
+      || /\bmuxmap\b/.test(command) && /\b(vite|server\/index|server\/app|scripts\/dev)\b/.test(command)
+  })
+}
+
 function asksForInput(message: unknown) {
   if (typeof message !== 'string') return false
   return /[?？]\s*$/.test(message.trim()) || /\b(need|requires?|waiting for) (your|user) (input|answer|approval|decision)\b/i.test(message)

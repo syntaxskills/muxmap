@@ -37,7 +37,7 @@ test('agent sessions expose a right-click status submenu', () => {
 })
 
 test('agent status submenu renders all manual status choices', () => {
-  const submenu = app.match(/function AgentStatusSubmenu[\s\S]*?\n}\n\nfunction App/)?.[0] ?? ''
+  const submenu = app.match(/function AgentStatusSubmenu[\s\S]*?\r?\n}\r?\n\r?\nfunction App/)?.[0] ?? ''
   assert.match(submenu, />Working<\/button>/)
   assert.match(submenu, />Background<\/button>/)
   assert.match(submenu, />Completed<\/button>/)

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { addCommandHooks, agentActivityFromEvent, agentSessionInfoFromEvent, detectAgentKind, isMuxMapAgentHookCommand, type ProcessInfo } from './agents.ts'
+import { addCommandHooks, agentActivityFromEvent, agentSessionInfoFromEvent, detectAgentKind, detectMuxMapHost, isMuxMapAgentHookCommand, type ProcessInfo } from './agents.ts'
 
 const processes: ProcessInfo[] = [
   { pid: 10, ppid: 1, command: 'bash' },
@@ -23,6 +23,19 @@ test('agent kind is detected from tmux pane descendants without false node match
   assert.equal(detectAgentKind(30, processes), 'pi')
   assert.equal(detectAgentKind(40, processes), 'ssh')
   assert.equal(detectAgentKind(50, processes), undefined)
+})
+
+test('MuxMap host detection follows the pane process tree', () => {
+  assert.equal(detectMuxMapHost(60, [
+    { pid: 60, ppid: 1, command: 'zsh' },
+    { pid: 61, ppid: 60, command: 'node scripts/dev.mjs' },
+    { pid: 62, ppid: 61, command: 'node --experimental-strip-types server/index.ts' },
+  ]), true)
+  assert.equal(detectMuxMapHost(70, [
+    { pid: 70, ppid: 1, command: 'zsh' },
+    { pid: 71, ppid: 70, command: 'node /usr/local/bin/codex' },
+    { pid: 72, ppid: 1, command: 'node --experimental-strip-types server/index.ts' },
+  ]), false)
 })
 
 test('Codex and Claude lifecycle hooks map to working, input, and completed states', () => {

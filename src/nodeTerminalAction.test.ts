@@ -49,3 +49,15 @@ test('terminal auto suspend is driven by settings and keeps the current terminal
   assert.match(app, /\/api\/sessions\/auto-suspend/)
   assert.match(app, /keepSessionId: terminalSessionId/)
 })
+
+test('self-hosting runtimes are shown as protected instead of orphan actions', () => {
+  const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
+  const css = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
+
+  assert.match(app, /const selfHosting = graph\?\.selfHosting \?\? \[\]/)
+  assert.match(app, /<h3>Self-hosting <span>\{selfHosting\.length\}<\/span><\/h3>/)
+  assert.match(app, /Protected · hosting MuxMap server/)
+  assert.match(app, /Cannot stop from MuxMap/)
+  assert.match(css, /\.session-row\.is-self-hosting\s*\{/)
+  assert.match(css, /\.protected-session-label\s*\{/)
+})

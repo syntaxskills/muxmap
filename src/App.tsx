@@ -401,10 +401,11 @@ function App() {
   const activeTerminal = graph?.sessions.find((item) => item.id === terminalSessionId)
   const activeTerminalNode = activeGraphNodes.find((node) => node.id === activeTerminal?.nodeId)
   const orphans = graph?.orphans ?? []
+  const selfHosting = graph?.selfHosting ?? []
   const channels = useMemo(() => graph?.channels ?? [], [graph?.channels])
   const channelNodeIds = useMemo(() => new Set(channels.flatMap((channel) => [channel.sourceNodeId, channel.targetNodeId])), [channels])
   const selectedChannels = useMemo(() => channels.filter((channel) => selectedId && (channel.sourceNodeId === selectedId || channel.targetNodeId === selectedId)), [channels, selectedId])
-  const agentCount = [...(graph?.sessions ?? []).filter((item) => visibleAgentForSession(item)), ...orphans.filter((item) => item.agent)].length
+  const agentCount = [...(graph?.sessions ?? []).filter((item) => visibleAgentForSession(item)), ...orphans.filter((item) => item.agent), ...selfHosting.filter((item) => item.agent)].length
   const workingAgentNodeKey = nodes
     .map((node) => visibleAgentForSession(sessionsByNode.get(node.id))?.state === 'working' ? node.id : '')
     .filter(Boolean)
@@ -1192,7 +1193,7 @@ function App() {
           {channels.length > 0 && <span>{channels.length} channels</span>}
           <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))} aria-expanded={rightPanel === 'archive'} aria-label={`${archivedCount} archived nodes`} title="Archive"><ArchiveIcon /><span>{archivedCount} archived</span></button>
           <button type="button" onClick={toggleSessionManager} aria-expanded={rightPanel === 'sessions'} aria-label="Terminal sessions" title="Terminal sessions">
-            <DesktopIcon /><span>{graph.sessions.filter(nodeHasLiveSession).length + orphans.length} sessions{orphans.length > 0 ? ` · ${orphans.length} orphan` : ''}</span>
+            <DesktopIcon /><span>{graph.sessions.filter(nodeHasLiveSession).length + orphans.length + selfHosting.length} sessions{orphans.length > 0 ? ` · ${orphans.length} orphan` : ''}{selfHosting.length > 0 ? ` · ${selfHosting.length} self-hosting` : ''}</span>
           </button>
           <button className="settings-trigger" type="button" onClick={() => setSurface((current) => openRightPanel(current, 'settings'))} aria-expanded={rightPanel === 'settings'} aria-label="Settings" title="Settings"><GearIcon /><span>Settings</span></button>
         </div>
@@ -1555,6 +1556,16 @@ function App() {
                   </article>
                 )
               })}
+            </section>
+
+            <section>
+              <h3>Self-hosting <span>{selfHosting.length}</span></h3>
+              {selfHosting.length === 0 ? <p>No self-hosting sessions detected.</p> : selfHosting.map((item) => (
+                <article className="session-row is-self-hosting" key={`${item.backend}:${item.runtimeName}`}>
+                  <div><strong>{item.runtimeName}</strong><code>{item.backend}</code><small className={item.agent ? `is-${item.agent.state}` : undefined}>{item.agent && <AgentIcon kind={item.agent.kind} />}Protected · hosting MuxMap server</small></div>
+                  <div className="session-row-actions"><span className="protected-session-label">Cannot stop from MuxMap</span></div>
+                </article>
+              ))}
             </section>
           </aside>
         )}

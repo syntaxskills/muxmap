@@ -426,7 +426,7 @@ export function createMuxMapServer(options: ServerOptions) {
           const live = sessions.reconcile(new Set(clients.keys()))
           const inventory = sessions.inventory()
           const graph = store.getWorkspace(workspaceMatch[1])
-          return sendJson(response, 200, { ...graph, sessions: sessions.decorate(graph.sessions, inventory, live), orphans: sessions.listOrphans(inventory, live), runtime: { platform, terminalBackends: terminalBackendsForPlatform(platform) } })
+          return sendJson(response, 200, { ...graph, sessions: sessions.decorate(graph.sessions, inventory, live), orphans: sessions.listOrphans(inventory, live), selfHosting: sessions.listSelfHosting(inventory, live), runtime: { platform, terminalBackends: terminalBackendsForPlatform(platform) } })
         }
 
         const nodeMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/nodes$/)

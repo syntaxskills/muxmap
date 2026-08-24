@@ -912,13 +912,24 @@ test('orphan tmux sessions can be adopted and node deletion explicitly keeps or 
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-orphan-api-')))
   const tmux = fakeTmux()
   tmux.live.add('muxmap-external-shell')
+  tmux.live.add('muxmap-web')
   tmux.live.add('unrelated-shell')
+  tmux.panes = () => [
+    { runtimeName: 'muxmap-external-shell', paneId: '%1', pid: 900 },
+    { runtimeName: 'muxmap-web', paneId: '%2', pid: 1000 },
+  ]
   const server = createMuxMapServer({
     databasePath: ':memory:',
     allowedRoots: [root],
     platform: 'linux',
     token: 'test-token',
     tmux,
+    processReader: () => [
+      { pid: 900, ppid: 1, command: 'zsh' },
+      { pid: 1000, ppid: 1, command: 'zsh' },
+      { pid: 1001, ppid: 1000, command: 'node scripts/dev.mjs' },
+      { pid: 1002, ppid: 1001, command: 'node --experimental-strip-types server/index.ts' },
+    ],
     ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
   })
 
@@ -929,8 +940,14 @@ test('orphan tmux sessions can be adopted and node deletion explicitly keeps or 
     const cookie = auth.headers.get('set-cookie')?.split(';')[0] ?? ''
     const headers = { cookie, origin: base, 'content-type': 'application/json' }
 
-    const initial = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { orphans: Array<{ backend: string; runtimeName: string }> }
+    const initial = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { orphans: Array<{ backend: string; runtimeName: string }>; selfHosting: Array<{ backend: string; runtimeName: string; role: string }> }
     assert.deepEqual(initial.orphans, [{ backend: 'tmux', runtimeName: 'muxmap-external-shell' }])
+    assert.deepEqual(initial.selfHosting, [{ backend: 'tmux', runtimeName: 'muxmap-web', role: 'self_hosting' }])
+    const protectedStop = await fetch(`${base}/api/sessions/stop-orphan`, {
+      method: 'POST', headers, body: JSON.stringify({ backend: 'tmux', runtimeName: 'muxmap-web' }),
+    })
+    assert.equal(protectedStop.status, 400)
+    assert.equal(tmux.live.has('muxmap-web'), true)
 
     const adoptNode = await fetch(`${base}/api/workspaces/default/nodes`, {
       method: 'POST', headers, body: JSON.stringify({ parentId: 'workspace', title: 'Adopt target', type: 'terminal', repoPath: root }),

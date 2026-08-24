@@ -136,6 +136,7 @@ export type WorkspaceGraph = {
   sessions: TerminalSession[]
   channels?: AgentChannel[]
   orphans?: Array<{ backend: TerminalBackend; runtimeName: string; agent?: AgentActivity }>
+  selfHosting?: Array<{ backend: TerminalBackend; runtimeName: string; role: 'self_hosting'; agent?: AgentActivity }>
   runtime?: { platform: string; terminalBackends: TerminalBackend[] }
 }
 

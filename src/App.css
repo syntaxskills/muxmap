@@ -2651,6 +2651,18 @@ kbd {
   font-family: var(--mono);
 }
 
+.session-row.is-self-hosting {
+  border-color: color-mix(in srgb, var(--agent-working-color) 24%, var(--line));
+  background: color-mix(in srgb, var(--agent-working-color) 6%, var(--surface));
+}
+
+.protected-session-label {
+  color: var(--text-muted);
+  font: 700 10px/1.3 var(--mono);
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
 .session-row-actions {
   display: flex;
   flex-wrap: wrap;

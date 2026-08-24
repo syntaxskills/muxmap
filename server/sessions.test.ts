@@ -391,6 +391,37 @@ test('all live muxmap-prefixed tmux sessions are inventoried and orphans can be 
   }
 })
 
+test('MuxMap self-hosting sessions are protected instead of listed as orphans', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-self-host-')))
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  adapter.live.add('muxmap-web')
+  adapter.live.add('muxmap-external-shell')
+  adapter.panes = () => [
+    { runtimeName: 'muxmap-web', paneId: '%1', pid: 1000 },
+    { runtimeName: 'muxmap-external-shell', paneId: '%2', pid: 2000 },
+  ]
+  const manager = createSessionManager(store, adapter, [directory], () => [
+    { pid: 1000, ppid: 1, command: 'zsh' },
+    { pid: 1001, ppid: 1000, command: 'node scripts/dev.mjs' },
+    { pid: 1002, ppid: 1001, command: 'node --experimental-strip-types server/index.ts' },
+    { pid: 2000, ppid: 1, command: 'zsh' },
+    { pid: 2001, ppid: 2000, command: 'node /usr/local/bin/codex' },
+  ])
+
+  try {
+    assert.deepEqual(manager.listOrphans(), [{ backend: 'tmux', runtimeName: 'muxmap-external-shell', agent: { kind: 'codex', state: 'unavailable' } }])
+    assert.deepEqual(manager.listSelfHosting(), [{ backend: 'tmux', runtimeName: 'muxmap-web', role: 'self_hosting' }])
+    const node = store.createNode('default', { parentId: 'workspace', title: 'Host', type: 'terminal', repoPath: directory })
+    assert.throws(() => manager.adopt(node.id, 'tmux', 'muxmap-web'), /hosting MuxMap/)
+    assert.throws(() => manager.stopRuntime('tmux', 'muxmap-web'), /hosting MuxMap/)
+    assert.equal(adapter.live.has('muxmap-web'), true)
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('tmux descendant agents are detected and hook activity survives refresh', () => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-agent-')))
   const store = createStore(':memory:')

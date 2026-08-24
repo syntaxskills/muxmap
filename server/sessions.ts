@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import type { AgentActivity, AgentKind, TerminalBackend, TerminalSession } from '../src/model.ts'
 import type { WorkspaceStore } from './store.ts'
-import { agentActivityFromEvent, detectAgentKind, readProcesses, shouldPreserveAgentState, type ProcessInfo } from './agents.ts'
+import { agentActivityFromEvent, detectAgentKind, detectMuxMapHost, readProcesses, shouldPreserveAgentState, type ProcessInfo } from './agents.ts'
 import { platformLabel, terminalBackendsForPlatform, type RuntimePlatform } from '../src/settings.ts'
 
 export type MultiplexerPane = { runtimeName: string; paneId: string; pid: number }
@@ -223,11 +223,22 @@ export function createSessionManager(
     })))
   }
 
+  function selfHostingInventory() {
+    const processes = processReader()
+    return new Set(Object.values(adapters).flatMap((adapter) => adapter?.panes?.()
+      ?.filter((pane) => pane.runtimeName.startsWith('muxmap') && detectMuxMapHost(pane.pid, processes))
+      .map((pane) => `${adapter.backend}:${pane.runtimeName}`) ?? []))
+  }
+
   function agentFor(runtimeName: string, inventory: Map<string, AgentKind>): AgentActivity | undefined {
     const saved = store.getAgentActivity(runtimeName)
     const kind = inventory.get(runtimeName) ?? saved?.kind
     if (!kind) return
     return saved?.kind === kind ? saved : { kind, state: 'unavailable' }
+  }
+
+  function assertNotSelfHosting(backend: TerminalBackend, runtimeName: string) {
+    if (selfHostingInventory().has(`${backend}:${runtimeName}`)) throw new Error('This session is hosting MuxMap and cannot be managed here')
   }
 
   function runtimeExists(session: TerminalSession) {
@@ -346,6 +357,7 @@ export function createSessionManager(
     stop(id: string) {
       const session = store.getSession(id)
       if (!session) throw new Error('Session not found')
+      assertNotSelfHosting(session.backend, session.runtimeName)
       const adapter = adapterFor(session.backend)
       if (adapter.exists(session.runtimeName) || runtimePlatform === 'win32' && session.backend === 'zellij') adapter.stop(session.runtimeName)
       return store.updateSessionStatus(id, 'stopped')
@@ -354,6 +366,7 @@ export function createSessionManager(
     suspend(id: string) {
       const session = store.getSession(id)
       if (!session) throw new Error('Session not found')
+      assertNotSelfHosting(session.backend, session.runtimeName)
       const adapter = adapterFor(session.backend)
       if (adapter.exists(session.runtimeName) || runtimePlatform === 'win32' && session.backend === 'zellij') adapter.stop(session.runtimeName)
       return store.updateSessionStatus(id, 'suspended')
@@ -383,6 +396,7 @@ export function createSessionManager(
 
     stopRuntime(backend: TerminalBackend, runtimeName: string) {
       if (!runtimeName.startsWith('muxmap')) throw new Error('Only muxmap sessions can be managed')
+      assertNotSelfHosting(backend, runtimeName)
       const adapter = adapterFor(backend)
       if (adapter.exists(runtimeName) || runtimePlatform === 'win32' && backend === 'zellij') adapter.stop(runtimeName)
       const tracked = store.getSessionByRuntimeName(runtimeName)
@@ -402,11 +416,23 @@ export function createSessionManager(
 
     listOrphans(inventory = agentInventory(), live = runtimeSnapshot()) {
       const tracked = new Set(store.listSessions().map((session) => `${session.backend}:${session.runtimeName}`))
+      const selfHosting = selfHostingInventory()
       return Object.values(adapters).filter((adapter): adapter is MultiplexerAdapter => Boolean(adapter)).flatMap((adapter) => [...(live.get(adapter.backend) ?? [])]
-        .filter((runtimeName) => runtimeName.startsWith('muxmap') && !tracked.has(`${adapter.backend}:${runtimeName}`))
+        .filter((runtimeName) => runtimeName.startsWith('muxmap') && !tracked.has(`${adapter.backend}:${runtimeName}`) && !selfHosting.has(`${adapter.backend}:${runtimeName}`))
         .map((runtimeName) => {
           const agent = agentFor(runtimeName, inventory)
           return agent ? { backend: adapter.backend, runtimeName, agent } : { backend: adapter.backend, runtimeName }
+        }) ?? [])
+        .sort((a, b) => a.runtimeName.localeCompare(b.runtimeName))
+    },
+
+    listSelfHosting(inventory = agentInventory(), live = runtimeSnapshot()) {
+      const selfHosting = selfHostingInventory()
+      return Object.values(adapters).filter((adapter): adapter is MultiplexerAdapter => Boolean(adapter)).flatMap((adapter) => [...(live.get(adapter.backend) ?? [])]
+        .filter((runtimeName) => selfHosting.has(`${adapter.backend}:${runtimeName}`))
+        .map((runtimeName) => {
+          const agent = agentFor(runtimeName, inventory)
+          return agent ? { backend: adapter.backend, runtimeName, role: 'self_hosting' as const, agent } : { backend: adapter.backend, runtimeName, role: 'self_hosting' as const }
         }) ?? [])
         .sort((a, b) => a.runtimeName.localeCompare(b.runtimeName))
     },
@@ -486,6 +512,7 @@ export function createSessionManager(
     adopt(nodeId: string, backend: TerminalBackend, runtimeName: string) {
       const adapter = adapterFor(backend)
       if (!runtimeName.startsWith('muxmap') || !adapter.exists(runtimeName)) throw new Error('MuxMap terminal session not found')
+      assertNotSelfHosting(backend, runtimeName)
       const node = store.getNode(nodeId)
       if (!node) throw new Error('Node not found')
       const existing = store.getSessionByNode(nodeId)
