@@ -4,7 +4,7 @@ import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { accessSync, constants, readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import type { AgentActivity, AgentKind, TerminalBackend, TerminalSession } from '../src/model.ts'
+import type { AgentActivity, AgentEventLogEntry, AgentEventSummary, AgentKind, TerminalBackend, TerminalSession } from '../src/model.ts'
 import type { WorkspaceStore } from './store.ts'
 import { agentActivityFromEvent, detectAgentKind, detectMuxMapHost, readProcesses, shouldPreserveAgentState, type ProcessInfo } from './agents.ts'
 import { platformLabel, terminalBackendsForPlatform, type RuntimePlatform } from '../src/settings.ts'
@@ -186,6 +186,16 @@ export function agentResumeCommand(activity: AgentActivity) {
     const session = activity.externalSessionPath ?? activity.externalSessionId
     if (session) return ['pi', '--session', session]
   }
+}
+
+export function compactAgentEvents(events: AgentEventLogEntry[], limit = 5): AgentEventSummary[] {
+  return events.slice(0, limit).map((event) => ({
+    id: event.id,
+    eventName: event.eventName,
+    state: event.state,
+    summary: event.summary ? event.summary.slice(0, 200) : undefined,
+    createdAt: event.createdAt,
+  }))
 }
 
 function nodeSuffix(nodeId: string) {
@@ -409,7 +419,7 @@ export function createSessionManager(
       return items.map((session) => {
         const agent = agentFor(session.runtimeName, inventory)
         const exists = runtimeExistsInSnapshot(session, live)
-        const agentEvents = store.listAgentEvents(session.runtimeName)
+        const agentEvents = compactAgentEvents(store.listAgentEvents(session.runtimeName, 5))
         return { ...session, ...(agent ? { agent } : {}), ...(agentEvents.length > 0 ? { agentEvents } : {}), runtimeExists: exists, canRecoverCodex: agent?.kind === 'codex' && canRecoverAgent(session, agent, exists), canRecoverAgent: canRecoverAgent(session, agent, exists) }
       })
     },

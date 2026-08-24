@@ -285,6 +285,50 @@ test('node creation validates hierarchy and input', () => {
   store.close()
 })
 
+test('node lifecycle steps seed initialized and validate updates atomically', () => {
+  const store = createStore(':memory:')
+  const node = store.createNode('default', { parentId: 'workspace', title: 'Lifecycle work', type: 'ticket' })
+
+  assert.deepEqual(node.steps?.map((step) => [step.key, step.status]), [
+    ['initialized', 'done'],
+    ['ticket_created', 'pending'],
+    ['in_progress', 'pending'],
+    ['mr_raised', 'pending'],
+    ['finalized', 'pending'],
+  ])
+
+  const steps = store.updateNodeStep(node.id, 'ticket_created', {
+    status: 'done',
+    ref: 'DEV-2830',
+    url: 'https://jira.example/browse/DEV-2830',
+    note: 'Created by agent',
+  }, 'sess-123')
+  const ticketStep = steps.find((step) => step.key === 'ticket_created')
+  assert.equal(ticketStep?.status, 'done')
+  assert.equal(ticketStep?.ref, 'DEV-2830')
+  assert.equal(ticketStep?.url, 'https://jira.example/browse/DEV-2830')
+  assert.equal(ticketStep?.updatedBy, 'sess-123')
+
+  assert.throws(() => store.updateNodeStep(node.id, 'bad_step', { status: 'done' }), /Invalid node step key/)
+  assert.throws(() => store.updateNodeStep(node.id, 'ticket_created', { status: 'done', ref: 'x'.repeat(65) }), /64/)
+  assert.throws(() => store.updateNodeStep(node.id, 'ticket_created', { status: 'done', note: 'x'.repeat(201) }), /200/)
+  assert.throws(() => store.updateNodeStep(node.id, 'ticket_created', { status: 'done', url: 'file:///tmp/report' }), /http/)
+  assert.throws(() => store.updateNodeStep(node.id, 'ticket_created', { status: 'done', extra: true } as Record<string, unknown>), /Unknown/)
+  assert.equal(store.getNodeSteps(node.id).find((step) => step.key === 'ticket_created')?.ref, 'DEV-2830')
+  store.close()
+})
+
+test('existing nodes with no lifecycle rows render lazy initialized fallback', () => {
+  const store = createStore(':memory:')
+  const rootSteps = store.getNodeSteps('workspace')
+  assert.equal(rootSteps[0]?.key, 'initialized')
+  assert.equal(rootSteps[0]?.status, 'done')
+  assert.equal(rootSteps.slice(1).every((step) => step.status === 'pending'), true)
+  const graphNode = store.getWorkspace('default').nodes.find((node) => node.id === 'workspace')
+  assert.equal(graphNode?.steps?.[0]?.status, 'done')
+  store.close()
+})
+
 test('node title, type, and metadata can be edited without changing its hierarchy', () => {
   const store = createStore(':memory:')
   const node = store.createNode('default', {

@@ -8,6 +8,9 @@ import {
   type AgentChannelRoute,
   type AgentChannelMessage,
   type AgentEventLogEntry,
+  type NodeLifecycleStep,
+  type NodeStepKey,
+  type NodeStepStatus,
   type TerminalBackend,
   type TerminalInputHistoryItem,
   type TerminalSession,
@@ -18,6 +21,7 @@ import {
 } from '../src/model.ts'
 import { reorderSiblings, type ReorderPosition } from '../src/graph.ts'
 import { agentActivityFromRecordedEvent } from './agents.ts'
+import { nodeLifecycleStepDefinitions, nodeLifecycleStepKeys, normalizedNodeSteps } from '../src/nodeSteps.ts'
 
 type CreateNodeInput = {
   parentId: string
@@ -35,10 +39,64 @@ type UpdateNodeInput = Partial<Pick<WorkNode, 'title' | 'type' | 'project' | 'co
 type SessionInput = Omit<TerminalSession, 'createdAt' | 'updatedAt'>
 type CreateAgentChannelInput = { sourceNodeId: string; targetNodeId: string; title?: string }
 type CreateAgentChannelMessageInput = { authorNodeId: string; body: string; createdAt?: string; tokenCount?: number }
+type UpdateNodeStepInput = { status?: unknown; ref?: unknown; url?: unknown; note?: unknown }
 
 const nodeTypes: NodeType[] = ['workspace', 'repo', 'feature', 'ticket', 'note', 'todo', 'terminal']
 const agentKinds: AgentEventLogEntry['kind'][] = ['codex', 'claude', 'pi']
 const agentStates: AgentActivity['state'][] = ['unavailable', 'working', 'delegated', 'needs_input', 'completed', 'read']
+const nodeStepStatuses: NodeStepStatus[] = ['pending', 'done']
+const nodeStepInputFields = ['status', 'ref', 'url', 'note'] as const
+
+export class StoreValidationError extends Error {
+  statusCode: number
+
+  constructor(message: string, statusCode = 400) {
+    super(message)
+    this.name = 'StoreValidationError'
+    this.statusCode = statusCode
+  }
+}
+
+export function validateNodeStepKey(value: string): NodeStepKey {
+  if (!nodeLifecycleStepKeys.includes(value as NodeStepKey)) throw new StoreValidationError('Invalid node step key')
+  return value as NodeStepKey
+}
+
+function validateNodeStepInput(input: UpdateNodeStepInput) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new StoreValidationError('Step body must be an object')
+  for (const key of Object.keys(input)) {
+    if (!(nodeStepInputFields as readonly string[]).includes(key)) throw new StoreValidationError(`Unknown step field: ${key}`)
+  }
+  if (!nodeStepStatuses.includes(input.status as NodeStepStatus)) throw new StoreValidationError('status must be pending or done')
+  const output: { status: NodeStepStatus; ref?: string; url?: string; note?: string } = { status: input.status as NodeStepStatus }
+  if (input.ref !== undefined) {
+    if (typeof input.ref !== 'string') throw new StoreValidationError('ref must be a string')
+    const ref = input.ref.trim()
+    if (ref.length > 64) throw new StoreValidationError('ref must be 64 characters or fewer')
+    if (ref) output.ref = ref
+  }
+  if (input.url !== undefined) {
+    if (typeof input.url !== 'string') throw new StoreValidationError('url must be a string')
+    const candidate = input.url.trim()
+    if (candidate) {
+      let parsed: URL
+      try {
+        parsed = new URL(candidate)
+      } catch {
+        throw new StoreValidationError('url must be an http(s) URL')
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new StoreValidationError('url must be an http(s) URL')
+      output.url = candidate
+    }
+  }
+  if (input.note !== undefined) {
+    if (typeof input.note !== 'string') throw new StoreValidationError('note must be a string')
+    const note = input.note.trim()
+    if (note.length > 200) throw new StoreValidationError('note must be 200 characters or fewer')
+    if (note) output.note = note
+  }
+  return output
+}
 
 function parsePayloadJson(value: unknown) {
   try {
@@ -162,6 +220,17 @@ export function createStore(path: string) {
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS nodes_parent_order ON nodes(parent_id, sort_order);
+    CREATE TABLE IF NOT EXISTS node_steps (
+      node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+      step_key TEXT NOT NULL,
+      status TEXT NOT NULL,
+      ref TEXT,
+      url TEXT,
+      note TEXT,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT NOT NULL,
+      PRIMARY KEY (node_id, step_key)
+    );
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -333,6 +402,53 @@ export function createStore(path: string) {
     }
   }
 
+  function mapNodeStep(row: Record<string, unknown>): NodeLifecycleStep {
+    const definition = nodeLifecycleStepDefinitions.find((step) => step.key === row.step_key)
+    return {
+      key: String(row.step_key) as NodeStepKey,
+      label: definition?.label ?? String(row.step_key),
+      status: String(row.status) as NodeStepStatus,
+      ref: row.ref ? String(row.ref) : undefined,
+      url: row.url ? String(row.url) : undefined,
+      note: row.note ? String(row.note) : undefined,
+      updatedAt: String(row.updated_at),
+      updatedBy: String(row.updated_by),
+    }
+  }
+
+  function nodeStepsFromRows(rows: Record<string, unknown>[]): NodeLifecycleStep[] {
+    return normalizedNodeSteps(rows.map(mapNodeStep))
+  }
+
+  function listNodeStepsForNode(nodeId: string) {
+    const rows = database.prepare('SELECT * FROM node_steps WHERE node_id = ?').all(nodeId) as Record<string, unknown>[]
+    return nodeStepsFromRows(rows)
+  }
+
+  function nodeStepsByNodeId(nodeIds: string[]) {
+    const steps = new Map<string, NodeLifecycleStep[]>()
+    if (nodeIds.length === 0) return steps
+    const placeholders = nodeIds.map(() => '?').join(', ')
+    const rows = database.prepare(`SELECT * FROM node_steps WHERE node_id IN (${placeholders}) ORDER BY node_id`).all(...nodeIds) as Record<string, unknown>[]
+    const grouped = new Map<string, Record<string, unknown>[]>()
+    for (const row of rows) {
+      const nodeId = String(row.node_id)
+      const group = grouped.get(nodeId) ?? []
+      group.push(row)
+      grouped.set(nodeId, group)
+    }
+    for (const nodeId of nodeIds) steps.set(nodeId, nodeStepsFromRows(grouped.get(nodeId) ?? []))
+    return steps
+  }
+
+  function seedInitializedStep(nodeId: string, now: string, updatedBy = 'system') {
+    database.prepare(`
+      INSERT INTO node_steps (node_id, step_key, status, ref, url, note, updated_at, updated_by)
+      VALUES (?, 'initialized', 'done', NULL, NULL, NULL, ?, ?)
+      ON CONFLICT(node_id, step_key) DO NOTHING
+    `).run(nodeId, now, updatedBy)
+  }
+
   function mapSession(row: Record<string, unknown>): TerminalSession {
     return {
       id: String(row.id),
@@ -469,7 +585,9 @@ export function createStore(path: string) {
       const nodes = database.prepare('SELECT * FROM nodes WHERE workspace_id = ? ORDER BY sort_order, created_at').all(id) as Record<string, unknown>[]
       const sessions = database.prepare('SELECT * FROM sessions WHERE workspace_id = ? ORDER BY created_at').all(id) as Record<string, unknown>[]
       const channels = database.prepare('SELECT * FROM agent_channels WHERE workspace_id = ? AND status = ? ORDER BY created_at').all(id, 'open') as Record<string, unknown>[]
-      return { workspace: mapWorkspace(row), nodes: nodes.map(mapNode), sessions: sessions.map(mapSession), channels: channels.map(mapAgentChannel) }
+      const mappedNodes = nodes.map(mapNode)
+      const steps = nodeStepsByNodeId(mappedNodes.map((node) => node.id))
+      return { workspace: mapWorkspace(row), nodes: mappedNodes.map((node) => ({ ...node, steps: steps.get(node.id) })), sessions: sessions.map(mapSession), channels: channels.map(mapAgentChannel) }
     },
 
     createAgentChannel(workspaceId: string, input: CreateAgentChannelInput) {
@@ -575,6 +693,36 @@ export function createStore(path: string) {
       return row ? mapNode(row) : undefined
     },
 
+    getNodeSteps(id: string) {
+      if (!this.getNode(id)) throw new StoreValidationError('Node not found', 404)
+      return listNodeStepsForNode(id)
+    },
+
+    updateNodeStep(id: string, stepKey: string, input: UpdateNodeStepInput, updatedBy = 'user') {
+      const node = this.getNode(id)
+      if (!node) throw new StoreValidationError('Node not found', 404)
+      const validKey = validateNodeStepKey(stepKey)
+      const validInput = validateNodeStepInput(input)
+      const now = new Date().toISOString()
+      database.prepare(`
+        INSERT INTO node_steps (node_id, step_key, status, ref, url, note, updated_at, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(node_id, step_key) DO UPDATE SET
+          status = excluded.status,
+          ref = excluded.ref,
+          url = excluded.url,
+          note = excluded.note,
+          updated_at = excluded.updated_at,
+          updated_by = excluded.updated_by
+      `).run(
+        node.id, validKey, validInput.status,
+        validInput.ref ?? null, validInput.url ?? null, validInput.note ?? null,
+        now, updatedBy.trim() || 'user',
+      )
+      database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, node.workspaceId)
+      return listNodeStepsForNode(node.id)
+    },
+
     createNode(workspaceId: string, input: CreateNodeInput) {
       const title = input.title?.trim()
       if (!title) throw new Error('Node title is required')
@@ -609,7 +757,8 @@ export function createStore(path: string) {
         node.jiraKey ?? null, node.note ?? null, node.sortOrder, node.createdAt, node.updatedAt,
       )
       database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, workspaceId)
-      return node
+      seedInitializedStep(node.id, now)
+      return { ...node, steps: listNodeStepsForNode(node.id) }
     },
 
     updateNode(id: string, input: UpdateNodeInput) {

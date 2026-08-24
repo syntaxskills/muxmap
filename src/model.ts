@@ -21,8 +21,29 @@ export type WorkNode = {
   sortOrder: number
   doneAt?: string
   archivedAt?: string
+  steps?: NodeLifecycleStep[]
   createdAt: string
   updatedAt: string
+}
+
+export type NodeStepKey =
+  | 'initialized'
+  | 'ticket_created'
+  | 'in_progress'
+  | 'mr_raised'
+  | 'finalized'
+
+export type NodeStepStatus = 'pending' | 'done'
+
+export type NodeLifecycleStep = {
+  key: NodeStepKey
+  label: string
+  status: NodeStepStatus
+  ref?: string
+  url?: string
+  note?: string
+  updatedAt?: string
+  updatedBy?: string
 }
 
 export type TerminalStatus = 'running' | 'detached' | 'suspended' | 'stopped' | 'error'
@@ -54,6 +75,8 @@ export type AgentEventLogEntry = {
   createdAt: string
 }
 
+export type AgentEventSummary = Pick<AgentEventLogEntry, 'id' | 'eventName' | 'state' | 'summary' | 'createdAt'>
+
 export type TerminalSession = {
   id: string
   workspaceId: string
@@ -68,7 +91,7 @@ export type TerminalSession = {
   lastAttachedAt?: string
   lastActivityAt?: string
   agent?: AgentActivity
-  agentEvents?: AgentEventLogEntry[]
+  agentEvents?: Array<AgentEventLogEntry | AgentEventSummary>
   runtimeExists?: boolean
   canRecoverCodex?: boolean
   canRecoverAgent?: boolean

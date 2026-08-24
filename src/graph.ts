@@ -96,6 +96,7 @@ export function expandedNodeHeight(node: WorkNode, hasAgent: boolean, archivedCh
     node.repoPath ? 2 : 0,
     node.note ? 1 + Math.min(wrappedLineCount(node.note, valueCharsPerLine), 2) : 0,
     hasAgent ? 2 : 0,
+    2,
     archivedChildCount > 0 ? 1 : 0,
     hasActivity && !hasAgent ? 1 : 0,
     hasActivity || hasAgent ? 0 : 1,

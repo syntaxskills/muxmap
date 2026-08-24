@@ -94,7 +94,41 @@ test('secured workspace and node APIs return persisted graph data', async () => 
       body: JSON.stringify({ parentId: 'workspace', title: 'API child', type: 'note' }),
     })
     assert.equal(created.status, 201)
-    const createdNode = await created.json() as { id: string }
+    const createdNode = await created.json() as { id: string; steps?: Array<{ key: string; status: string }> }
+    assert.equal(createdNode.steps?.find((step) => step.key === 'initialized')?.status, 'done')
+
+    const initialSteps = await fetch(`${base}/api/nodes/${createdNode.id}/steps`, { headers: { cookie } })
+    assert.equal(initialSteps.status, 200)
+    assert.equal(((await initialSteps.json()) as { steps: Array<{ key: string; status: string }> }).steps.find((step) => step.key === 'initialized')?.status, 'done')
+
+    const updatedStep = await fetch(`${base}/api/nodes/${createdNode.id}/steps/ticket_created`, {
+      method: 'PUT',
+      headers: { cookie, origin: base, 'content-type': 'application/json', 'x-muxmap-updated-by': 'api-test' },
+      body: JSON.stringify({ status: 'done', ref: 'DEV-2830', url: 'https://jira.example/browse/DEV-2830' }),
+    })
+    assert.equal(updatedStep.status, 200)
+    const updatedStepPayload = await updatedStep.json() as { steps: Array<{ key: string; status: string; ref?: string; url?: string; updatedBy?: string }> }
+    assert.equal(updatedStepPayload.steps.find((step) => step.key === 'ticket_created')?.ref, 'DEV-2830')
+    assert.equal(updatedStepPayload.steps.find((step) => step.key === 'ticket_created')?.updatedBy, 'api-test')
+
+    const invalidStep = await fetch(`${base}/api/nodes/${createdNode.id}/steps/not_a_step`, {
+      method: 'PUT',
+      headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'done' }),
+    })
+    assert.equal(invalidStep.status, 400)
+
+    const invalidUrl = await fetch(`${base}/api/nodes/${createdNode.id}/steps/ticket_created`, {
+      method: 'PUT',
+      headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'done', url: 'ftp://example.test/ticket' }),
+    })
+    assert.equal(invalidUrl.status, 400)
+    const unchanged = await fetch(`${base}/api/nodes/${createdNode.id}/steps`, { headers: { cookie } }).then((response) => response.json()) as { steps: Array<{ key: string; ref?: string }> }
+    assert.equal(unchanged.steps.find((step) => step.key === 'ticket_created')?.ref, 'DEV-2830')
+
+    const missingNodeSteps = await fetch(`${base}/api/nodes/missing-node/steps`, { headers: { cookie } })
+    assert.equal(missingNodeSteps.status, 404)
 
     const renamed = await fetch(`${base}/api/nodes/${createdNode.id}`, {
       method: 'PATCH',
@@ -131,11 +165,12 @@ test('secured workspace and node APIs return persisted graph data', async () => 
     assert.deepEqual(reorderedNodes.nodes.filter((node) => node.id === createdNode.id || node.id === secondNode.id).map((node) => node.id), [secondNode.id, createdNode.id])
 
     const workspace = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } })
-    const graph = await workspace.json() as { nodes: Array<{ id: string; title: string; type: string; doneAt?: string }>; runtime: { platform: string; terminalBackends: string[] } }
+    const graph = await workspace.json() as { nodes: Array<{ id: string; title: string; type: string; doneAt?: string; steps?: Array<{ key: string; ref?: string }> }>; runtime: { platform: string; terminalBackends: string[] } }
     assert.equal(graph.nodes.some((node) => node.id === createdNode.id), true)
     assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.title, 'Renamed in place')
     assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.type, 'todo')
     assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.doneAt, undefined)
+    assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.steps?.find((step) => step.key === 'ticket_created')?.ref, 'DEV-2830')
     assert.equal(graph.runtime.platform, 'linux')
     assert.equal(graph.runtime.terminalBackends.includes('tmux'), true)
   } finally {
@@ -1068,6 +1103,8 @@ test('local agent hooks update automatically detected tmux activity', async () =
     const unreadSession = unread.sessions.find((session) => session.id === adopted.session.id)
     assert.equal(unreadSession?.agent?.state, 'completed')
     assert.deepEqual(unreadSession?.agentEvents?.map((item) => item.eventName), ['SubagentStop', 'Notification', 'Stop', 'UserPromptSubmit'])
+    assert.equal(Object.hasOwn(unreadSession!.agentEvents![0]!, 'payload'), false)
+    assert.deepEqual(Object.keys(unreadSession!.agentEvents![0]!).sort(), ['createdAt', 'eventName', 'id', 'state'].sort())
 
     const acknowledged = await fetch(`${base}/api/sessions/${adopted.session.id}/agent/read`, {
       method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' }, body: '{}',
@@ -1086,11 +1123,18 @@ test('local agent hooks update automatically detected tmux activity', async () =
     }
     const manuallyRead = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
     const manualEvents = manuallyRead.sessions.find((item) => item.id === adopted.session.id)?.agentEvents ?? []
+    assert.equal(manualEvents.length, 5)
+    assert.equal(manualEvents.every((event) => !Object.hasOwn(event, 'payload')), true)
     assert.deepEqual(manualEvents.slice(0, 3).map((item) => [item.eventName, item.state]), [
       ['manual_status', 'read'],
       ['manual_status', 'completed'],
       ['manual_status', 'delegated'],
     ])
+    const fullEvents = await fetch(`${base}/api/sessions/${adopted.session.id}/agent-events`, { headers: { cookie } }).then((response) => response.json()) as { events: Array<{ eventName: string; kind?: string; payload?: Record<string, unknown> }> }
+    assert.ok(fullEvents.events.length > manualEvents.length)
+    assert.equal(fullEvents.events[0]?.eventName, 'manual_status')
+    assert.equal(fullEvents.events[0]?.kind, 'codex')
+    assert.deepEqual(fullEvents.events[0]?.payload, { type: 'manual_status', state: 'read' })
 
     await fetch(`${base}/api/sessions/${adopted.session.id}/agent/status`, {
       method: 'POST',

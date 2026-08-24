@@ -74,6 +74,34 @@ const tools: ToolDefinition[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'muxmap_update_node_step',
+    description: 'Update one fixed MuxMap node lifecycle step. After creating a Jira ticket or MR, call this with the ref and URL so the user can click through from the map. Example: {"stepKey":"ticket_created","ref":"OCI-2830","url":"https://jira.example/browse/OCI-2830"}.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string', description: 'MuxMap node id. Defaults to MUXMAP_NODE_ID.' },
+        stepKey: { type: 'string', enum: ['initialized', 'ticket_created', 'in_progress', 'mr_raised', 'finalized'] },
+        status: { type: 'string', enum: ['pending', 'done'], default: 'done' },
+        ref: { type: 'string', description: 'Short clickable label, for example OCI-2830 or !13595.' },
+        url: { type: 'string', description: 'HTTP(S) link for the ref, for example Jira or GitLab MR URL.' },
+        note: { type: 'string', description: 'Optional short note, max 200 chars.' },
+      },
+      required: ['stepKey'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'muxmap_get_node_steps',
+    description: 'Read the fixed 5-step MuxMap lifecycle status for a node. nodeId defaults to MUXMAP_NODE_ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string', description: 'MuxMap node id. Defaults to MUXMAP_NODE_ID.' },
+      },
+      additionalProperties: false,
+    },
+  },
 ]
 
 function textResult(value: unknown, isError = false) {
@@ -111,6 +139,12 @@ function authorNodeId(env: AdapterEnv, input: JsonObject) {
   return value
 }
 
+function nodeId(env: AdapterEnv, input: JsonObject) {
+  const value = typeof input.nodeId === 'string' && input.nodeId.trim() ? input.nodeId.trim() : env.MUXMAP_NODE_ID
+  if (!value) throw new Error('nodeId is required; pass it explicitly or set MUXMAP_NODE_ID')
+  return value
+}
+
 function authHeaders(env: AdapterEnv) {
   const headers: Record<string, string> = { accept: 'application/json' }
   if (env.MUXMAP_TOKEN) headers.authorization = `Basic ${Buffer.from(`muxmap:${env.MUXMAP_TOKEN}`).toString('base64')}`
@@ -140,6 +174,17 @@ async function muxmapRequest(fetchImpl: FetchLike, env: AdapterEnv, path: string
     throw new Error(typeof message === 'string' ? message : `MuxMap API returned ${response.status}`)
   }
   return payload
+}
+
+async function updatedByForNode(fetchImpl: FetchLike, env: AdapterEnv, targetNodeId: string) {
+  try {
+    const graph = asObject(await muxmapRequest(fetchImpl, env, `/api/workspaces/${encodeURIComponent(workspaceId(env, {}))}`))
+    const sessions = Array.isArray(graph.sessions) ? graph.sessions : []
+    const session = sessions.map(asObject).find((item) => item.nodeId === targetNodeId)
+    return typeof session?.id === 'string' && session.id ? session.id : 'mcp'
+  } catch {
+    return 'mcp'
+  }
 }
 
 export async function callMuxMapMcpTool(name: string, input: unknown, options: { env?: AdapterEnv; fetchImpl?: FetchLike } = {}) {
@@ -174,6 +219,24 @@ export async function callMuxMapMcpTool(name: string, input: unknown, options: {
   if (name === 'muxmap_channel_usage') {
     const id = channelId(args.channelId)
     return textResult(await muxmapRequest(fetchImpl, env, `/api/agent-channels/${encodeURIComponent(id)}/usage`))
+  }
+  if (name === 'muxmap_update_node_step') {
+    const targetNodeId = nodeId(env, args)
+    if (typeof args.stepKey !== 'string' || !args.stepKey.trim()) throw new Error('stepKey is required')
+    const body: JsonObject = { status: typeof args.status === 'string' && args.status.trim() ? args.status.trim() : 'done' }
+    for (const key of ['ref', 'url', 'note'] as const) {
+      if (typeof args[key] === 'string') body[key] = args[key]
+    }
+    const updatedBy = await updatedByForNode(fetchImpl, env, targetNodeId)
+    return textResult(await muxmapRequest(fetchImpl, env, `/api/nodes/${encodeURIComponent(targetNodeId)}/steps/${encodeURIComponent(args.stepKey.trim())}`, {
+      method: 'PUT',
+      headers: { 'x-muxmap-updated-by': updatedBy },
+      body: JSON.stringify(body),
+    }))
+  }
+  if (name === 'muxmap_get_node_steps') {
+    const targetNodeId = nodeId(env, args)
+    return textResult(await muxmapRequest(fetchImpl, env, `/api/nodes/${encodeURIComponent(targetNodeId)}/steps`))
   }
   throw new Error(`Unknown tool: ${name}`)
 }

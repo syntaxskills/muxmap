@@ -97,6 +97,8 @@ test('MCP adapter exposes MuxMap channel tools over JSON-RPC', async () => {
       'muxmap_read_channel',
       'muxmap_send_channel_message',
       'muxmap_channel_usage',
+      'muxmap_update_node_step',
+      'muxmap_get_node_steps',
     ])
 
     const listed = textPayload(await handleMcpMessage({
@@ -134,6 +136,28 @@ test('MCP adapter exposes MuxMap channel tools over JSON-RPC', async () => {
       params: { name: 'muxmap_channel_usage', arguments: { channelId: channel.id } },
     }, { env }))
     assert.equal((usage.usage as Record<string, unknown>).messageCount, 1)
+
+    const updatedSteps = textPayload(await handleMcpMessage({
+      jsonrpc: '2.0',
+      id: 7,
+      method: 'tools/call',
+      params: {
+        name: 'muxmap_update_node_step',
+        arguments: { stepKey: 'mr_raised', ref: '!13595', url: 'https://gitlab.example/group/repo/-/merge_requests/13595' },
+      },
+    }, { env }))
+    const mrStep = (updatedSteps.steps as Array<Record<string, unknown>>).find((step) => step.key === 'mr_raised')
+    assert.equal(mrStep?.status, 'done')
+    assert.equal(mrStep?.ref, '!13595')
+    assert.equal(mrStep?.updatedBy, firstSession.session.id)
+
+    const readSteps = textPayload(await handleMcpMessage({
+      jsonrpc: '2.0',
+      id: 8,
+      method: 'tools/call',
+      params: { name: 'muxmap_get_node_steps', arguments: {} },
+    }, { env }))
+    assert.equal((readSteps.steps as Array<Record<string, unknown>>).find((step) => step.key === 'mr_raised')?.url, 'https://gitlab.example/group/repo/-/merge_requests/13595')
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })
@@ -150,4 +174,14 @@ test('MCP adapter returns tool errors as MCP tool results instead of crashing th
   const result = (response as { result: { isError: boolean; content: Array<{ text: string }> } }).result
   assert.equal(result.isError, true)
   assert.match(result.content[0]!.text, /authorNodeId is required/)
+
+  const missingNodeResponse = await handleMcpMessage({
+    jsonrpc: '2.0',
+    id: 'missing-node',
+    method: 'tools/call',
+    params: { name: 'muxmap_update_node_step', arguments: { stepKey: 'ticket_created' } },
+  }, { env: {} })
+  const missingNodeResult = (missingNodeResponse as { result: { isError: boolean; content: Array<{ text: string }> } }).result
+  assert.equal(missingNodeResult.isError, true)
+  assert.match(missingNodeResult.content[0]!.text, /nodeId is required/)
 })

@@ -869,6 +869,131 @@ kbd {
   color: var(--accent);
 }
 
+.node-step-summary span {
+  display: flex !important;
+  align-items: center;
+  gap: 5px;
+}
+
+.node-step-summary i {
+  color: var(--node-color);
+  font-style: normal;
+  letter-spacing: -0.06em;
+  white-space: nowrap;
+}
+
+.node-step-popover {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 0;
+  z-index: 18;
+  width: 214px;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-elevated) 97%, transparent);
+  box-shadow: 0 18px 44px var(--shadow), inset 0 1px 0 color-mix(in srgb, var(--surface-hover) 70%, transparent);
+  color: var(--text);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px) scale(.98);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.map-node:hover .node-step-popover,
+.map-node:focus-within .node-step-popover {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition-delay: 300ms;
+}
+
+.node-step-popover ol {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.node-step-popover li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+  padding: 5px 6px;
+  border-radius: 7px;
+}
+
+.node-step-popover li.is-current {
+  background: color-mix(in srgb, var(--node-color) 12%, transparent);
+}
+
+.node-step-popover li.is-pending {
+  color: var(--text-muted);
+}
+
+.node-step-check {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--surface-elevated);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.node-step-popover li.is-done .node-step-check {
+  border-color: var(--node-color);
+  background: var(--node-color);
+}
+
+.node-step-body {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.node-step-label {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 11px;
+  font-weight: 680;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.node-step-popover li.is-pending .node-step-label {
+  color: var(--text-muted);
+}
+
+.node-step-body a,
+.node-step-ref,
+.node-step-body small {
+  overflow: hidden;
+  font: 10px/1.35 var(--mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.node-step-body a {
+  color: var(--accent);
+  pointer-events: auto;
+  text-decoration: none;
+}
+
+.node-step-body a:hover {
+  text-decoration: underline;
+}
+
+.node-step-ref,
+.node-step-body small {
+  color: var(--text-muted);
+}
+
 .node-expanded-content em {
   color: var(--text);
   font-style: normal;

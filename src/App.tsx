@@ -11,7 +11,7 @@ import {
   useState,
 } from 'react'
 import './App.css'
-import { api } from './api.ts'
+import { api, apiText } from './api.ts'
 import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, effectiveArchivedNodeIds, expandedNodeHeight, expandedNodeWidth, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
 import { centerPan, dragPan, gridBackground, isCanvasBlankTarget, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
 import type { NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
@@ -36,6 +36,8 @@ import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { AgentEventList } from './AgentEventList.tsx'
 import { demoWorkspaceGraph } from './demoGraph.ts'
+import { nodeStepperModel, nodeStepSummary, type NodeStepperItem } from './nodeSteps.ts'
+import { parseWorkspacePayloadIfChanged } from './workspacePolling.ts'
 import { ArchiveIcon, BoxIcon, CheckboxIcon, CheckCircledIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, DrawingPinIcon, EyeOpenIcon, GearIcon, Link2Icon, OpenInNewWindowIcon, PauseIcon, Pencil2Icon, PlayIcon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import { autoUpdate, flip, offset, safePolygon, useDismiss, useFloating, useFocus, useHover, useInteractions } from '@floating-ui/react'
 import {
@@ -132,6 +134,29 @@ function AgentStatusSubmenu({ nodeTitle, sessionId, onSetStatus }: AgentStatusSu
   )
 }
 
+function NodeStepPopover({ steps }: { steps: NodeStepperItem[] }) {
+  return (
+    <aside className="node-step-popover" aria-label="Node lifecycle steps">
+      <ol>
+        {steps.map((step) => (
+          <li className={`is-${step.tone}`} key={step.key}>
+            <span className="node-step-check" aria-hidden="true">{step.status === 'done' ? '✓' : ''}</span>
+            <span className="node-step-body">
+              <span className="node-step-label">{step.label}</span>
+              {step.ref && step.url ? (
+                <a href={step.url} target="_blank" rel="noopener noreferrer" title={step.url}>{step.ref}</a>
+              ) : step.ref ? (
+                <span className="node-step-ref" title={step.ref}>{step.ref}</span>
+              ) : null}
+              {step.note && <small title={step.note}>{step.note}</small>}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </aside>
+  )
+}
+
 function App() {
   const demoMode = new URLSearchParams(window.location.search).get('demo') === 'agents'
   const [clientPlatform] = useState(() => /Win/i.test(navigator.platform) ? 'win32' : /Mac/i.test(navigator.platform) ? 'darwin' : 'linux')
@@ -190,6 +215,7 @@ function App() {
   const autoSuspendRef = useRef(false)
   const settingsPlatformRef = useRef(clientPlatform)
   const keyboardOwnerRef = useRef<KeyboardOwner>('mindmap')
+  const workspacePayloadRef = useRef<string | null>(demoMode ? JSON.stringify(demoWorkspaceGraph) : null)
   const { rightPanel, terminalSessionId, terminalFloating } = surface
   const inPageNotificationsEnabled = notificationDeliveryTargets(settings['notifications.delivery']).inPage
 
@@ -201,7 +227,9 @@ function App() {
     }
     try {
       await api('/api/auth')
-      setGraph(await api<WorkspaceGraph>('/api/workspaces/default'))
+      const text = await apiText('/api/workspaces/default')
+      workspacePayloadRef.current = text
+      setGraph(JSON.parse(text) as WorkspaceGraph)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Unable to load workspace')
     }
@@ -212,7 +240,12 @@ function App() {
     if (demoMode) return
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return
-      void api<WorkspaceGraph>('/api/workspaces/default').then(setGraph).catch(() => {})
+      void apiText('/api/workspaces/default').then((text) => {
+        const result = parseWorkspacePayloadIfChanged<WorkspaceGraph>(workspacePayloadRef.current, text)
+        if (!result.changed) return
+        workspacePayloadRef.current = text
+        setGraph(result.graph)
+      }).catch(() => {})
     }, WORKSPACE_POLL_MS)
     return () => window.clearInterval(timer)
   }, [demoMode])
@@ -1287,6 +1320,8 @@ function App() {
                   const expanded = node.id === selectedId || node.id === hoveredId
                   const isTodoNode = node.type === 'todo'
                   const hasOpenTodo = node.type === 'todo' && !node.doneAt
+                  const stepSummary = nodeStepSummary(node.steps)
+                  const stepper = nodeStepperModel(node.steps)
                   const style = {
                     left: point.x + 48,
                     top: point.y + 48,
@@ -1341,6 +1376,7 @@ function App() {
                               {node.note && <span className="is-wide is-note"><b>Note</b><em title={node.note}>{node.note}</em></span>}
                               {visibleAgent && <span className="is-wide"><b>Agent</b><span title={agentStatusText(visibleAgent)}>{agentStatusText(visibleAgent)}{nodeSession && activityTimestamp ? ` · ${activityAge === 'NOW' ? activityAge : `${activityAge} ago`}` : ''}</span></span>}
                               {nodeSession && !visibleAgent && <span><b>Activity</b><time dateTime={activityTimestamp}>{activityAge === 'NOW' ? activityAge : `${activityAge} ago`}</time></span>}
+                              <span className="is-wide node-step-summary"><b>Steps</b><span title={`${stepSummary.completed}/${stepSummary.total} · ${stepSummary.label}`}><i aria-hidden="true">{stepSummary.dots}</i>{stepSummary.label}</span></span>
                               {archivedChildCount > 0 && <span><b>Archived</b><span>{archivedChildCount} {archivedChildCount === 1 ? 'child' : 'children'}</span></span>}
                               {!nodeSession && <span><b>Terminal</b><span title="None">None</span></span>}
                             </span>
@@ -1353,6 +1389,7 @@ function App() {
                       {channelNodeIds.has(node.id) && <span className="node-channel-marker" aria-label="Agent channel linked" title="Agent channel linked"><Link2Icon /></span>}
                       {agentState === 'needs_input' && <span className="agent-needs-input-marker" role="img" aria-label={`Agent needs input for ${node.title}`} title="Agent needs input">?</span>}
                       <button className="node-add-action" type="button" onClick={() => void addChild(node)} aria-label={`Add child to ${node.title}`}>+</button>
+                      <NodeStepPopover steps={stepper} />
                     </article>
                   )
                 })}
@@ -1430,7 +1467,7 @@ function App() {
           {session && (
             <>
               <SessionBindingCard session={session} />
-              <AgentEventList events={session.agentEvents} />
+              <AgentEventList events={session.agentEvents} sessionId={session.id} />
             </>
           )}
 

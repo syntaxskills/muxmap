@@ -302,7 +302,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
         </div>}
         {showNodeEditor && <div className="terminal-node-editor">
           <SessionBindingCard session={session} statusLabel={session.agent ? agentStatusText(session.agent) : status} className="terminal-agent-session is-wide" />
-          <div className="is-wide"><AgentEventList events={session.agentEvents} /></div>
+          <div className="is-wide"><AgentEventList events={session.agentEvents} sessionId={session.id} /></div>
           <label className="is-wide">Title<input defaultValue={node.title} onBlur={(event) => { if (event.target.value !== node.title) onUpdate({ title: event.target.value }) }} /></label>
           <label>Type<select value={node.type} onChange={(event) => onUpdate({ type: event.target.value as NodeType })}>{nodeTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <div className="terminal-color-field is-wide"><span>Color</span><NodeColorPicker value={node.color} onChange={(color) => onUpdate({ color })} /></div>

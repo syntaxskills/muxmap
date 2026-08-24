@@ -22,7 +22,7 @@ import {
   type MultiplexerAdapters,
   type TmuxAdapter,
 } from './sessions.ts'
-import { createStore } from './store.ts'
+import { createStore, StoreValidationError } from './store.ts'
 import type { ProcessInfo } from './agents.ts'
 import { terminalBackendsForPlatform, type RuntimePlatform } from '../src/settings.ts'
 
@@ -482,6 +482,27 @@ export function createMuxMapServer(options: ServerOptions) {
           return sendJson(response, 200, { usage: store.getAgentChannelUsage(agentChannelUsageMatch[1]) })
         }
 
+        const nodeStepsMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/steps$/)
+        if (request.method === 'GET' && nodeStepsMatch) {
+          return sendJson(response, 200, { steps: store.getNodeSteps(nodeStepsMatch[1]) })
+        }
+
+        const nodeStepMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/steps\/([^/]+)$/)
+        if (request.method === 'PUT' && nodeStepMatch) {
+          const body = await readJson(request)
+          const updatedBy = Array.isArray(request.headers['x-muxmap-updated-by'])
+            ? request.headers['x-muxmap-updated-by'][0]
+            : request.headers['x-muxmap-updated-by']
+          return sendJson(response, 200, {
+            steps: store.updateNodeStep(
+              nodeStepMatch[1],
+              decodeURIComponent(nodeStepMatch[2]),
+              body,
+              typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.slice(0, 128) : 'user',
+            ),
+          })
+        }
+
         const attachMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/session$/)
         if (request.method === 'POST' && attachMatch) {
           const body = await readJson(request)
@@ -608,6 +629,13 @@ export function createMuxMapServer(options: ServerOptions) {
           return sendJson(response, 201, { item: store.recordTerminalInput(inputHistoryMatch[1], body.value) })
         }
 
+        const agentEventsMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/agent-events$/)
+        if (request.method === 'GET' && agentEventsMatch) {
+          const session = store.getSession(agentEventsMatch[1])
+          if (!session) throw new Error('Session not found')
+          return sendJson(response, 200, { events: store.listAgentEvents(session.runtimeName) })
+        }
+
         const recoverCodexMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/recover-codex$/)
         if (request.method === 'POST' && recoverCodexMatch) {
           return sendJson(response, 200, { session: sessions.recoverCodex(recoverCodexMatch[1]) })
@@ -647,7 +675,8 @@ export function createMuxMapServer(options: ServerOptions) {
       response.end(request.method === 'HEAD' ? undefined : readFileSync(file))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unexpected error'
-      sendJson(response, /not found/i.test(message) ? 404 : 400, { error: message })
+      const status = error instanceof StoreValidationError ? error.statusCode : /not found/i.test(message) ? 404 : 400
+      sendJson(response, status, { error: message })
     }
   })
 
