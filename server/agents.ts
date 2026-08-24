@@ -115,8 +115,9 @@ export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: R
   let state: AgentActivity['state'] | undefined
   if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'before_agent_start' || event === 'agent_start' || event === 'SubagentStart' || event === 'TaskCreated') state = 'working'
   if (event === 'Stop' || event === 'StopFailure' || event === 'agent_end' || notification === 'agent_completed') state = 'completed'
+  if (event === 'Notification' && notification === 'idle_prompt') state = 'completed'
   if (kind === 'claude' && event === 'Stop' && hasActiveDelegatedWork(input)) state = 'delegated'
-  if (event === 'PermissionRequest' || (event === 'Notification' && /permission_prompt|agent_needs_input|elicitation_dialog|elicitation_url_dialog|idle_prompt/.test(notification))) state = 'needs_input'
+  if (event === 'PermissionRequest' || (event === 'Notification' && /permission_prompt|agent_needs_input|elicitation_dialog|elicitation_url_dialog/.test(notification))) state = 'needs_input'
   if (event === 'Stop' && asksForInput(input.last_assistant_message)) state = 'needs_input'
   if (!state && event === 'SessionStart') state = 'read'
   if (!state) return null
@@ -125,7 +126,9 @@ export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: R
 
 export function shouldPreserveAgentState(current: AgentActivity | undefined, event: Record<string, unknown>, next: AgentActivity | null) {
   const eventName = eventField(event, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? ''
+  const notification = eventField(event, ['notification_type', 'notificationType']) ?? ''
   if (!next) return true
+  if (eventName === 'Notification' && notification === 'idle_prompt' && current && ['needs_input', 'completed', 'read'].includes(current.state)) return true
   if (next.state !== 'working') return false
   if (!current || !['completed', 'read', 'needs_input', 'delegated'].includes(current.state)) return false
   return ['SubagentStop', 'TaskCompleted'].includes(eventName)

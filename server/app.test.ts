@@ -1066,7 +1066,7 @@ test('local agent hooks update automatically detected tmux activity', async () =
     }).then((response) => response.json()) as { session: TerminalSession }
     const unread = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
     const unreadSession = unread.sessions.find((session) => session.id === adopted.session.id)
-    assert.equal(unreadSession?.agent?.state, 'needs_input')
+    assert.equal(unreadSession?.agent?.state, 'completed')
     assert.deepEqual(unreadSession?.agentEvents?.map((item) => item.eventName), ['SubagentStop', 'Notification', 'Stop', 'UserPromptSubmit'])
 
     const acknowledged = await fetch(`${base}/api/sessions/${adopted.session.id}/agent/read`, {
@@ -1074,7 +1074,7 @@ test('local agent hooks update automatically detected tmux activity', async () =
     })
     assert.equal(acknowledged.status, 200)
     const read = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
-    assert.equal(read.sessions.find((session) => session.id === adopted.session.id)?.agent?.state, 'needs_input')
+    assert.equal(read.sessions.find((session) => session.id === adopted.session.id)?.agent?.state, 'read')
 
     for (const state of ['working', 'delegated', 'completed', 'read'] as const) {
       const updated = await fetch(`${base}/api/sessions/${adopted.session.id}/agent/status`, {
