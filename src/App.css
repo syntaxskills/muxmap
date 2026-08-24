@@ -1779,6 +1779,94 @@ kbd {
   opacity: .6;
 }
 
+.lifecycle-settings-editor {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.lifecycle-settings-heading,
+.lifecycle-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lifecycle-settings-heading > span {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.lifecycle-settings-heading strong {
+  color: var(--text-strong);
+  font-size: 11px;
+}
+
+.lifecycle-settings-heading small,
+.lifecycle-settings-actions small {
+  color: var(--text-muted);
+  font: 8px/1.45 var(--mono);
+}
+
+.lifecycle-step-editor-list {
+  display: grid;
+  gap: 6px;
+}
+
+.lifecycle-step-editor-row {
+  display: grid;
+  grid-template-columns: 18px minmax(60px, .8fr) minmax(70px, 1fr) minmax(80px, 1.2fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.lifecycle-step-editor-row > span {
+  color: var(--text-muted);
+  font: 9px/1 var(--mono);
+}
+
+.lifecycle-step-editor-row input {
+  min-width: 0;
+  height: 29px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: var(--input);
+  color: var(--text-strong);
+  padding: 0 7px;
+  font: 9px/1 var(--mono);
+}
+
+.lifecycle-step-editor-row input:focus {
+  outline: 0;
+  border-color: var(--accent);
+}
+
+.lifecycle-settings-heading button,
+.lifecycle-settings-actions button,
+.lifecycle-step-editor-row button {
+  min-height: 29px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 8px;
+  font: 9px/1 var(--mono);
+}
+
+.lifecycle-settings-actions .is-primary {
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+
+.lifecycle-settings-heading button:disabled,
+.lifecycle-step-editor-row button:disabled {
+  cursor: default;
+  opacity: .45;
+}
+
 .settings-empty {
   margin: 0;
   padding: 24px 14px;

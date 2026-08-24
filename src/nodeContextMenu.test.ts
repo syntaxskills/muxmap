@@ -39,6 +39,14 @@ test('context menus stay inside the viewport margin', () => {
   assert.deepEqual(contextMenuPosition(-20, -30, 1000, 800), { x: 8, y: 8 })
 })
 
+test('node context menu is positioned by Floating UI from the click point', () => {
+  const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
+  assert.match(app, /useFloating\(\{[\s\S]*placement:\s*'bottom-start'[\s\S]*shift\(\{\s*padding:\s*8\s*\}\)/)
+  assert.match(app, /setPositionReference\(\{[\s\S]*getBoundingClientRect/)
+  assert.match(app, /ref=\{contextMenuFloating\.refs\.setFloating\}/)
+  assert.doesNotMatch(app, /style=\{\{ left: contextMenu\.x, top: contextMenu\.y \}\}/)
+})
+
 test('context menu destructive actions confirm in place', () => {
   assert.equal(contextMenuConfirmationText('archive', false), 'Confirm archive?')
   assert.equal(contextMenuConfirmationText('delete', false), 'Confirm delete?')

@@ -89,9 +89,11 @@ Configure the MCP client with:
 - `MUXMAP_NODE_ID` so sends can default to the current node
 - `MUXMAP_WORKSPACE_ID`, default `default`
 
+New tmux sessions started from MuxMap automatically carry `MUXMAP_NODE_ID`, `MUXMAP_SESSION_ID`, and `MUXMAP_URL` in their session environment. Agents launched inside those terminals can call lifecycle tools such as `muxmap_update_node_step` without passing `nodeId` manually. Existing sessions are not retroactively modified.
+
 The adapter exposes tools to list channels, read messages, send concise messages, and check hourly quota usage. It only works through channels you created in the map.
 
-It also exposes node lifecycle tools. Copy `muxmap.config.example.json` to `muxmap.config.json` or set `MUXMAP_CONFIG=/path/to/muxmap.config.json` to customize the step list. MCP `tools/list` reflects those configured step keys, so agents know which `stepKey` values are valid.
+It also exposes node lifecycle tools. Edit stages in Settings → Lifecycle, or seed defaults by copying `muxmap.config.example.json` to `muxmap.config.json` / setting `MUXMAP_CONFIG=/path/to/muxmap.config.json`. MCP `tools/list` reflects the active step keys, so agents know which `stepKey` values are valid.
 
 ## Access modes
 

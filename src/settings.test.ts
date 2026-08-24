@@ -12,12 +12,13 @@ import {
 } from './settings.ts'
 
 test('the settings schema exposes the compact adjustable settings', () => {
-  assert.equal(settingDefinitions.length, 30)
-  assert.equal(new Set(settingDefinitions.map((item) => item.key)).size, 30)
+  assert.equal(settingDefinitions.length, 31)
+  assert.equal(new Set(settingDefinitions.map((item) => item.key)).size, 31)
   assert.deepEqual([...new Set(settingDefinitions.map((item) => item.category))], [
     'Appearance',
     'Canvas',
     'Mindmap',
+    'Lifecycle',
     'Terminal',
     'Notifications',
   ])
@@ -30,6 +31,14 @@ test('notification delivery can target the system, the page, both, or neither', 
   assert.deepEqual(notificationDeliveryTargets('off'), { system: false, inPage: false })
   assert.equal(defaultSettings('linux')['notifications.delivery'], 'both')
   assert.equal(parseSettingsJson('{"notifications.delivery":"system"}', 'linux').settings?.['notifications.delivery'], 'system')
+})
+
+test('lifecycle display can be disabled through settings UI and JSON', () => {
+  assert.equal(defaultSettings('linux')['lifecycle.enabled'], true)
+  const parsed = parseSettingsJson('{"lifecycle":{"enabled":false}}', 'linux')
+  assert.deepEqual(parsed.errors, [])
+  assert.equal(parsed.settings?.['lifecycle.enabled'], false)
+  assert.equal(JSON.parse(settingsJson(parsed.settings!)).lifecycle.enabled, false)
 })
 
 test('settings JSON accepts partial overrides and round trips all effective values', () => {

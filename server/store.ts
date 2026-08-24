@@ -23,6 +23,7 @@ import {
 import { reorderSiblings, type ReorderPosition } from '../src/graph.ts'
 import { agentActivityFromRecordedEvent } from './agents.ts'
 import { defaultNodeStepDefinitions, nodeStepKeys, normalizedNodeSteps } from '../src/nodeSteps.ts'
+import { validateNodeStepDefinitions } from './config.ts'
 
 type CreateNodeInput = {
   parentId: string
@@ -195,10 +196,15 @@ function estimateMessageTokens(text: string) {
 }
 
 export function createStore(path: string, options: { nodeStepDefinitions?: readonly NodeStepDefinition[] } = {}) {
-  const nodeStepDefinitions = options.nodeStepDefinitions?.length ? [...options.nodeStepDefinitions] : defaultNodeStepDefinitions
+  let nodeStepDefinitions = options.nodeStepDefinitions?.length ? [...options.nodeStepDefinitions] : defaultNodeStepDefinitions
   const database = new DatabaseSync(path)
   database.exec(`
     PRAGMA foreign_keys = ON;
+    CREATE TABLE IF NOT EXISTS app_config (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS workspaces (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -324,6 +330,17 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
     database.exec('ALTER TABLE sessions ADD COLUMN last_activity_at TEXT')
   }
   database.exec('UPDATE sessions SET last_activity_at = COALESCE(last_attached_at, created_at) WHERE last_activity_at IS NULL')
+
+  const storedNodeSteps = database.prepare('SELECT value_json FROM app_config WHERE key = ?').get('nodeSteps') as Record<string, unknown> | undefined
+  if (storedNodeSteps) {
+    try {
+      const parsed = JSON.parse(String(storedNodeSteps.value_json)) as unknown
+      const result = validateNodeStepDefinitions(parsed)
+      if (result.definitions) nodeStepDefinitions = result.definitions
+    } catch {
+      // Invalid persisted lifecycle config falls back to the startup config.
+    }
+  }
 
   database.prepare("UPDATE agent_activity SET state = 'read' WHERE state = 'idle'").run()
 
@@ -583,6 +600,22 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
   }
 
   return {
+    getNodeStepDefinitions() {
+      return [...nodeStepDefinitions]
+    },
+
+    updateNodeStepDefinitions(input: unknown) {
+      const result = validateNodeStepDefinitions(input)
+      if (result.errors.length || !result.definitions) throw new StoreValidationError(result.errors.join(' '), 400)
+      nodeStepDefinitions = result.definitions
+      database.prepare(`
+        INSERT INTO app_config (key, value_json, updated_at)
+        VALUES ('nodeSteps', ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+      `).run(JSON.stringify(nodeStepDefinitions), new Date().toISOString())
+      return [...nodeStepDefinitions]
+    },
+
     getWorkspace(id: string): WorkspaceGraph {
       const row = database.prepare('SELECT * FROM workspaces WHERE id = ?').get(id) as Record<string, unknown> | undefined
       if (!row) throw new Error('Workspace not found')

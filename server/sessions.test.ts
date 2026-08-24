@@ -3,21 +3,23 @@ import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import test from 'node:test'
-import { agentResumeCommand, createSessionManager, defaultTerminalBackend, parseZellijSessions, tmuxExecutable, type MultiplexerAdapter, type TmuxAdapter } from './sessions.ts'
+import { agentResumeCommand, createSessionManager, defaultTerminalBackend, parseZellijSessions, tmuxExecutable, tmuxNewSessionArgs, type MultiplexerAdapter, type TmuxAdapter } from './sessions.ts'
 import { createStore } from './store.ts'
 
-function fakeTmux(): TmuxAdapter & { created: string[]; createCommands: Array<string[] | undefined>; stopped: string[]; live: Set<string> } {
+function fakeTmux(): TmuxAdapter & { created: string[]; createCommands: Array<string[] | undefined>; createEnvs: Array<Record<string, string> | undefined>; stopped: string[]; live: Set<string> } {
   const live = new Set<string>()
   return {
     live,
     created: [],
     createCommands: [],
+    createEnvs: [],
     stopped: [],
     exists: (name) => live.has(name),
     list: () => [...live],
-    create(name, _cwd, command) {
+    create(name, _cwd, command, sessionEnv) {
       this.created.push(name)
       this.createCommands.push(command)
+      this.createEnvs.push(sessionEnv)
       live.add(name)
     },
     stop(name) {
@@ -55,6 +57,48 @@ test('attaching reuses a deterministic tmux session and stopping is explicit', (
     manager.stop(first.id)
     assert.deepEqual(adapter.stopped, ['muxmap-default-DEV-1420'])
     assert.equal(store.getSession(first.id)?.status, 'stopped')
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('new tmux node sessions receive MuxMap MCP context environment and reattach does not recreate it', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-session-env-')))
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  const manager = createSessionManager(store, adapter, [directory], undefined, undefined, undefined, {
+    muxMapUrl: 'http://127.0.0.1:61234',
+  })
+
+  try {
+    const node = store.createNode('default', {
+      parentId: 'workspace',
+      title: 'Report lifecycle',
+      type: 'terminal',
+      repoPath: directory,
+    })
+
+    const session = manager.attach(node.id)
+    const reattached = manager.attach(node.id)
+
+    assert.equal(session.id, `sess_${node.id}`)
+    assert.equal(reattached.id, session.id)
+    assert.deepEqual(adapter.createEnvs, [{
+      MUXMAP_NODE_ID: node.id,
+      MUXMAP_SESSION_ID: session.id,
+      MUXMAP_URL: 'http://127.0.0.1:61234',
+    }])
+    assert.deepEqual(tmuxNewSessionArgs(session.runtimeName, directory, undefined, adapter.createEnvs[0]), [
+      '-L', 'default',
+      'new-session', '-d',
+      '-s', session.runtimeName,
+      '-c', directory,
+      '-e', `MUXMAP_NODE_ID=${node.id}`,
+      '-e', `MUXMAP_SESSION_ID=${session.id}`,
+      '-e', 'MUXMAP_URL=http://127.0.0.1:61234',
+    ])
+    assert.equal(adapter.created.length, 1)
   } finally {
     store.close()
     rmSync(directory, { recursive: true, force: true })

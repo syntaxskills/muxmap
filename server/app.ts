@@ -316,7 +316,10 @@ export function createMuxMapServer(options: ServerOptions) {
     ? { tmux: Object.assign(options.tmux, { backend: 'tmux' as const }) }
     : { tmux: realTmux, zellij: realZellij })
   const platform = options.platform ?? process.platform
-  const sessions = createSessionManager(store, multiplexers, options.allowedRoots, options.processReader, options.defaultBackend ?? defaultTerminalBackend(platform), platform)
+  let boundPort = Number(process.env.PORT ?? 4782)
+  const sessions = createSessionManager(store, multiplexers, options.allowedRoots, options.processReader, options.defaultBackend ?? defaultTerminalBackend(platform), platform, {
+    muxMapUrl: () => `http://127.0.0.1:${boundPort}`,
+  })
   const ptyFactory = options.ptyFactory ?? defaultPtyFactory
   const staticDirectory = resolve(options.staticDirectory ?? 'dist')
   const allowedOrigins = options.allowedOrigins ?? []
@@ -433,7 +436,12 @@ export function createMuxMapServer(options: ServerOptions) {
         }
 
         if (request.method === 'GET' && url.pathname === '/api/node-step-definitions') {
-          return sendJson(response, 200, { steps: nodeStepDefinitions })
+          return sendJson(response, 200, { steps: store.getNodeStepDefinitions() })
+        }
+
+        if (request.method === 'PUT' && url.pathname === '/api/node-step-definitions') {
+          const body = await readJson(request)
+          return sendJson(response, 200, { steps: store.updateNodeStepDefinitions(body.steps ?? body.nodeSteps) })
         }
 
         const nodeMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/nodes$/)
@@ -802,7 +810,11 @@ export function createMuxMapServer(options: ServerOptions) {
     listen(port: number, host = '127.0.0.1') {
       return new Promise<AddressInfo>((resolveListen, reject) => {
         http.once('error', reject)
-        http.listen(port, host, () => resolveListen(http.address() as AddressInfo))
+        http.listen(port, host, () => {
+          const address = http.address() as AddressInfo
+          boundPort = address.port
+          resolveListen(address)
+        })
       })
     },
     close() {

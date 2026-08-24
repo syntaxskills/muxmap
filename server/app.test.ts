@@ -243,9 +243,24 @@ test('workspace API exposes configured node lifecycle steps and validates custom
     const stepDefinitions = await fetch(`${base}/api/node-step-definitions`, { headers: { cookie } }).then((response) => response.json()) as { steps: Array<{ key: string; label: string }> }
     assert.deepEqual(stepDefinitions.steps.map((step) => step.key), ['briefed', 'implemented', 'verified'])
 
+    const editedDefinitions = await fetch(`${base}/api/node-step-definitions`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ steps: [{ key: 'planned', label: 'Planned' }, { key: 'shipped', label: 'Shipped' }] }),
+    })
+    assert.equal(editedDefinitions.status, 200)
+    assert.deepEqual(((await editedDefinitions.json()) as { steps: Array<{ key: string }> }).steps.map((step) => step.key), ['planned', 'shipped'])
+
+    const invalidDefinitions = await fetch(`${base}/api/node-step-definitions`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ steps: [{ key: 'bad key', label: 'Bad' }] }),
+    })
+    assert.equal(invalidDefinitions.status, 400)
+
     const workspace = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { nodeStepDefinitions: Array<{ key: string }>; nodes: Array<{ id: string; steps?: Array<{ key: string }> }> }
-    assert.deepEqual(workspace.nodeStepDefinitions.map((step) => step.key), ['briefed', 'implemented', 'verified'])
-    assert.equal(workspace.nodes.find((node) => node.id === created.id)?.steps?.[0]?.key, 'briefed')
+    assert.deepEqual(workspace.nodeStepDefinitions.map((step) => step.key), ['planned', 'shipped'])
+    assert.equal(workspace.nodes.find((node) => node.id === created.id)?.steps?.[0]?.key, 'planned')
 
     const invalidLegacyKey = await fetch(`${base}/api/nodes/${created.id}/steps/ticket_created`, {
       method: 'PUT',
@@ -253,7 +268,7 @@ test('workspace API exposes configured node lifecycle steps and validates custom
       body: JSON.stringify({ status: 'done' }),
     })
     assert.equal(invalidLegacyKey.status, 400)
-    const validCustomKey = await fetch(`${base}/api/nodes/${created.id}/steps/implemented`, {
+    const validCustomKey = await fetch(`${base}/api/nodes/${created.id}/steps/shipped`, {
       method: 'PUT',
       headers,
       body: JSON.stringify({ status: 'done', ref: 'MR-1', url: 'https://gitlab.example/mr/1' }),

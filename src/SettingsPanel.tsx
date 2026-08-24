@@ -13,34 +13,46 @@ import {
   type SettingKey,
 } from './settings.ts'
 import { systemNotificationResultText, type SystemNotificationResult } from './systemNotifications.ts'
+import type { NodeStepDefinition } from './model.ts'
 
 type Props = {
   settings: AppSettings
   platform: string
+  nodeStepDefinitions: readonly NodeStepDefinition[]
   notificationPermission: NotificationPermission | 'unsupported'
   onChange(settings: AppSettings): void
+  onNodeStepDefinitionsChange(steps: NodeStepDefinition[]): Promise<void>
   onEnableNotifications(): void
   onTestSystemNotification(): Promise<SystemNotificationResult>
   onClose(): void
 }
 
-const categories: SettingCategory[] = ['Appearance', 'Canvas', 'Mindmap', 'Terminal', 'Notifications']
+const categories: SettingCategory[] = ['Appearance', 'Canvas', 'Mindmap', 'Lifecycle', 'Terminal', 'Notifications']
 
 function settingValue(definition: SettingDefinition, settings: AppSettings) {
   return settings[definition.key]
 }
 
-export function SettingsPanel({ settings, platform, notificationPermission, onChange, onEnableNotifications, onTestSystemNotification, onClose }: Props) {
+export function SettingsPanel({ settings, platform, nodeStepDefinitions, notificationPermission, onChange, onNodeStepDefinitionsChange, onEnableNotifications, onTestSystemNotification, onClose }: Props) {
   const [mode, setMode] = useState<'ui' | 'json'>('ui')
   const [category, setCategory] = useState<SettingCategory>('Appearance')
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState(() => settingsJson(settings))
   const [jsonErrors, setJsonErrors] = useState<string[]>([])
+  const [stepDrafts, setStepDrafts] = useState<NodeStepDefinition[]>(() => nodeStepDefinitions.map((step) => ({ ...step })))
+  const [stepError, setStepError] = useState('')
+  const [stepSaved, setStepSaved] = useState(false)
   const [notificationTest, setNotificationTest] = useState<SystemNotificationResult | null>(null)
 
   useEffect(() => {
     if (mode === 'ui') setDraft(settingsJson(settings))
   }, [mode, settings])
+
+  useEffect(() => {
+    setStepDrafts(nodeStepDefinitions.map((step) => ({ ...step })))
+    setStepError('')
+    setStepSaved(false)
+  }, [nodeStepDefinitions])
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -57,6 +69,23 @@ export function SettingsPanel({ settings, platform, notificationPermission, onCh
     if (!parsed.settings) return
     onChange(parsed.settings)
     setDraft(settingsJson(parsed.settings))
+  }
+
+  function updateStep(index: number, patch: Partial<NodeStepDefinition>) {
+    setStepSaved(false)
+    setStepError('')
+    setStepDrafts((current) => current.map((step, stepIndex) => stepIndex === index ? { ...step, ...patch } : step))
+  }
+
+  async function saveSteps() {
+    setStepError('')
+    setStepSaved(false)
+    try {
+      await onNodeStepDefinitionsChange(stepDrafts)
+      setStepSaved(true)
+    } catch (error) {
+      setStepError(error instanceof Error ? error.message : 'Unable to save lifecycle steps')
+    }
   }
 
   return (
@@ -90,6 +119,28 @@ export function SettingsPanel({ settings, platform, notificationPermission, onCh
                 </span>
               </label>
             })}
+            {category === 'Lifecycle' && !query && <div className="lifecycle-settings-editor">
+              <div className="lifecycle-settings-heading">
+                <span><strong>Development stages</strong><small>These keys are exposed to MCP tools. Agents use them when calling muxmap_update_node_step.</small></span>
+                <button type="button" onClick={() => setStepDrafts((current) => [...current, { key: `step_${current.length + 1}`, label: `Step ${current.length + 1}` }])} disabled={stepDrafts.length >= 8}>Add step</button>
+              </div>
+              <div className="lifecycle-step-editor-list">
+                {stepDrafts.map((step, index) => (
+                  <div className="lifecycle-step-editor-row" key={`${step.key}-${index}`}>
+                    <span>{index + 1}</span>
+                    <input value={step.key} onChange={(event) => updateStep(index, { key: event.target.value })} aria-label={`Step ${index + 1} key`} placeholder="key" />
+                    <input value={step.label} onChange={(event) => updateStep(index, { label: event.target.value })} aria-label={`Step ${index + 1} label`} placeholder="Label" />
+                    <input value={step.description ?? ''} onChange={(event) => updateStep(index, { description: event.target.value || undefined })} aria-label={`Step ${index + 1} description`} placeholder="Description" />
+                    <button type="button" onClick={() => setStepDrafts((current) => current.filter((_, stepIndex) => stepIndex !== index))} disabled={stepDrafts.length <= 1} aria-label={`Remove ${step.label || step.key}`}>Remove</button>
+                  </div>
+                ))}
+              </div>
+              <div className="lifecycle-settings-actions">
+                <small>{stepSaved ? 'Saved. MCP tools will use the updated keys.' : stepError || 'Saved on the MuxMap server.'}</small>
+                <button type="button" onClick={() => setStepDrafts(nodeStepDefinitions.map((step) => ({ ...step })))}>Revert</button>
+                <button className="is-primary" type="button" onClick={() => void saveSteps()}>Save stages</button>
+              </div>
+            </div>}
             {category === 'Notifications' && !query && <div className="notification-permission">
               <span><strong>System notifications</strong><small>Your browser delivers agent alerts to the operating system notification center.</small>{notificationTest && <small className={`notification-test-result is-${notificationTest}`} role="status">{systemNotificationResultText(notificationTest)}</small>}</span>
               <span className="notification-actions">

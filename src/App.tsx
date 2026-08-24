@@ -21,7 +21,7 @@ import { readViewState, writeViewState } from './viewState.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { IN_PAGE_NOTIFICATION_LIFETIME_MS, mergeAgentNotifications, routeAgentNotifications, scanAgentNotifications, type AgentNotification } from './agentNotifications.ts'
 import { dragIntent, dropPositionAt, pointerReleaseIntent } from './nodeReorderInteraction.ts'
-import { contextMenuConfirmationText, contextMenuPosition, duplicateNodeInput, type ContextMenuConfirmation } from './nodeContextMenu.ts'
+import { contextMenuConfirmationText, duplicateNodeInput, type ContextMenuConfirmation } from './nodeContextMenu.ts'
 import { AgentIcon } from './AgentIcon.tsx'
 import { SettingsPanel } from './SettingsPanel.tsx'
 import { ArchivePanel } from './ArchivePanel.tsx'
@@ -36,10 +36,11 @@ import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { AgentEventList } from './AgentEventList.tsx'
 import { demoWorkspaceGraph } from './demoGraph.ts'
+import { clearHoveredNodeAfterGrace, NODE_HOVER_LEAVE_GRACE_MS, nodeUsesExpandedLayout, nodeUsesExpandedRender } from './nodeHover.ts'
 import { defaultNodeStepDefinitions, nodeStepperModel, nodeStepSummary, type NodeStepperItem } from './nodeSteps.ts'
 import { parseWorkspacePayloadIfChanged } from './workspacePolling.ts'
 import { ArchiveIcon, BoxIcon, CheckboxIcon, CheckCircledIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, DrawingPinIcon, EyeOpenIcon, GearIcon, Link2Icon, OpenInNewWindowIcon, PauseIcon, Pencil2Icon, PlayIcon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
-import { autoUpdate, flip, offset, safePolygon, useDismiss, useFloating, useFocus, useHover, useInteractions } from '@floating-ui/react'
+import { autoUpdate, flip, offset, safePolygon, shift, useDismiss, useFloating, useFocus, useHover, useInteractions } from '@floating-ui/react'
 import {
   closeTerminal,
   floatTerminal,
@@ -217,12 +218,20 @@ function App() {
   const notificationBaselineReady = useRef(false)
   const agentAlertTimers = useRef(new Map<string, number>())
   const splitDragRef = useRef<number | null>(null)
+  const hoverLeaveTimerRef = useRef<number | null>(null)
   const autoSuspendRef = useRef(false)
   const settingsPlatformRef = useRef(clientPlatform)
   const keyboardOwnerRef = useRef<KeyboardOwner>('mindmap')
   const workspacePayloadRef = useRef<string | null>(demoMode ? JSON.stringify(demoWorkspaceGraph) : null)
   const { rightPanel, terminalSessionId, terminalFloating } = surface
   const inPageNotificationsEnabled = notificationDeliveryTargets(settings['notifications.delivery']).inPage
+  const contextMenuFloating = useFloating({
+    open: Boolean(contextMenu),
+    placement: 'bottom-start',
+    strategy: 'fixed',
+    middleware: [flip(), shift({ padding: 8 })],
+    whileElementsMounted: autoUpdate,
+  })
 
   const loadWorkspace = useCallback(async () => {
     setError('')
@@ -240,7 +249,39 @@ function App() {
     }
   }, [demoMode])
 
+  const saveNodeStepDefinitions = useCallback(async (steps: NodeStepDefinition[]) => {
+    if (demoMode) {
+      setGraph((current) => current ? { ...current, nodeStepDefinitions: steps } : current)
+      return
+    }
+    const response = await api<{ steps: NodeStepDefinition[] }>('/api/node-step-definitions', {
+      method: 'PUT',
+      body: JSON.stringify({ steps }),
+    })
+    setGraph((current) => current ? { ...current, nodeStepDefinitions: response.steps } : current)
+    workspacePayloadRef.current = null
+  }, [demoMode])
+
+  useEffect(() => {
+    if (!contextMenu) return
+    contextMenuFloating.refs.setPositionReference({
+      getBoundingClientRect: () => ({
+        x: contextMenu.x,
+        y: contextMenu.y,
+        top: contextMenu.y,
+        right: contextMenu.x,
+        bottom: contextMenu.y,
+        left: contextMenu.x,
+        width: 0,
+        height: 0,
+      }),
+    })
+  }, [contextMenu, contextMenuFloating.refs])
+
   useEffect(() => { void loadWorkspace() }, [loadWorkspace])
+  useEffect(() => () => {
+    if (hoverLeaveTimerRef.current !== null) window.clearTimeout(hoverLeaveTimerRef.current)
+  }, [])
   useEffect(() => {
     if (demoMode) return
     const timer = window.setInterval(() => {
@@ -419,17 +460,17 @@ function App() {
     return nodeSession && !visibleAgent ? sessionActivityTimestamp(nodeSession) : undefined
   }), [nodes, sessionsByNode])
   const nodeHeights = useMemo(() => new Map(nodes
-    .filter((node) => node.id === selectedId || node.id === hoveredId)
+    .filter((node) => nodeUsesExpandedLayout(node.id, selectedId))
     .map((node) => {
       const nodeSession = sessionsByNode.get(node.id)
       return [node.id, expandedNodeHeight(node, Boolean(visibleAgentForSession(nodeSession)), archivedChildCounts.get(node.id) ?? 0, Boolean(nodeSession))]
-    })), [archivedChildCounts, hoveredId, nodes, selectedId, sessionsByNode])
+    })), [archivedChildCounts, nodes, selectedId, sessionsByNode])
   const nodeWidths = useMemo(() => new Map(nodes
-    .filter((node) => node.id === selectedId || node.id === hoveredId)
+    .filter((node) => nodeUsesExpandedLayout(node.id, selectedId))
     .map((node) => {
       const nodeSession = sessionsByNode.get(node.id)
       return [node.id, expandedNodeWidth(node, Boolean(visibleAgentForSession(nodeSession)))]
-    })), [hoveredId, nodes, selectedId, sessionsByNode])
+    })), [nodes, selectedId, sessionsByNode])
   const positions = useMemo(
     () => layoutTree(nodes, graph?.workspace.rootNodeId ?? 'workspace', settings['mindmap.columnGap'], settings['mindmap.rowGap'], nodeHeights, nodeWidths),
     [graph?.workspace.rootNodeId, nodeHeights, nodeWidths, nodes, settings],
@@ -817,9 +858,25 @@ function App() {
   function openNodeContextMenu(event: React.MouseEvent<HTMLElement>, node: WorkNode) {
     event.preventDefault()
     event.stopPropagation()
-    const position = contextMenuPosition(event.clientX, event.clientY, window.innerWidth, window.innerHeight)
     setSelectedId(node.id)
-    setContextMenu({ nodeId: node.id, ...position })
+    setContextMenu({ nodeId: node.id, x: event.clientX, y: event.clientY })
+  }
+
+  function enterNodeHover(nodeId: string) {
+    if (hoverLeaveTimerRef.current !== null) {
+      window.clearTimeout(hoverLeaveTimerRef.current)
+      hoverLeaveTimerRef.current = null
+    }
+    if (!nodeDragRef.current && settings['mindmap.expandOnHover']) setHoveredId(nodeId)
+  }
+
+  function leaveNodeHover(nodeId: string) {
+    if (nodeDragRef.current) return
+    if (hoverLeaveTimerRef.current !== null) window.clearTimeout(hoverLeaveTimerRef.current)
+    hoverLeaveTimerRef.current = window.setTimeout(() => {
+      hoverLeaveTimerRef.current = null
+      setHoveredId((current) => clearHoveredNodeAfterGrace(current, nodeId))
+    }, NODE_HOVER_LEAVE_GRACE_MS)
   }
 
   function toggleNodeCollapsed(nodeId: string) {
@@ -1323,16 +1380,20 @@ function App() {
                   }) : 'fresh'
                   const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
                   const archivedChildCount = archivedChildCounts.get(node.id) ?? 0
-                  const expanded = node.id === selectedId || node.id === hoveredId
+                  const expanded = nodeUsesExpandedRender(node.id, selectedId, hoveredId)
                   const isTodoNode = node.type === 'todo'
                   const hasOpenTodo = node.type === 'todo' && !node.doneAt
-                  const stepSummary = nodeStepSummary(node.steps, nodeStepDefinitions)
-                  const stepper = nodeStepperModel(node.steps, nodeStepDefinitions)
+                  const lifecycleEnabled = settings['lifecycle.enabled']
+                  const stepSummary = lifecycleEnabled ? nodeStepSummary(node.steps, nodeStepDefinitions) : undefined
+                  const stepper = lifecycleEnabled ? nodeStepperModel(node.steps, nodeStepDefinitions) : []
+                  const renderHeight = expanded
+                    ? expandedNodeHeight(node, Boolean(visibleAgent), archivedChildCount, Boolean(nodeSession))
+                    : NODE_HEIGHT
                   const style = {
                     left: point.x + 48,
                     top: point.y + 48,
                     width: nodeWidth(node.id),
-                    height: nodeHeights.get(node.id) ?? NODE_HEIGHT,
+                    height: renderHeight,
                     '--node-color': node.color,
                     ...(agentState === 'working' ? { '--agent-working-sweep-delay': agentWorkingSweepDelay(performance.now()) } : {}),
                   } as CSSProperties
@@ -1342,8 +1403,8 @@ function App() {
                       key={node.id}
                       style={style}
                       data-node-id={node.id}
-                      onMouseEnter={() => { if (!nodeDragRef.current && settings['mindmap.expandOnHover']) setHoveredId(node.id) }}
-                      onMouseLeave={() => { if (!nodeDragRef.current) setHoveredId((current) => current === node.id ? null : current) }}
+                      onMouseEnter={() => enterNodeHover(node.id)}
+                      onMouseLeave={() => leaveNodeHover(node.id)}
                       onPointerDown={(event) => beginNodeReorder(event, node)}
                       onPointerMove={moveNodeReorder}
                       onPointerUp={endNodeReorder}
@@ -1382,7 +1443,7 @@ function App() {
                               {node.note && <span className="is-wide is-note"><b>Note</b><em title={node.note}>{node.note}</em></span>}
                               {visibleAgent && <span className="is-wide"><b>Agent</b><span title={agentStatusText(visibleAgent)}>{agentStatusText(visibleAgent)}{nodeSession && activityTimestamp ? ` · ${activityAge === 'NOW' ? activityAge : `${activityAge} ago`}` : ''}</span></span>}
                               {nodeSession && !visibleAgent && <span><b>Activity</b><time dateTime={activityTimestamp}>{activityAge === 'NOW' ? activityAge : `${activityAge} ago`}</time></span>}
-                              <span className="is-wide node-step-summary"><b>Steps</b><span title={`${stepSummary.completed}/${stepSummary.total} · ${stepSummary.label}`}><i aria-hidden="true">{stepSummary.dots}</i>{stepSummary.label}</span></span>
+                              {stepSummary && <span className="is-wide node-step-summary"><b>Steps</b><span title={`${stepSummary.completed}/${stepSummary.total} · ${stepSummary.label}`}><i aria-hidden="true">{stepSummary.dots}</i>{stepSummary.label}</span></span>}
                               {archivedChildCount > 0 && <span><b>Archived</b><span>{archivedChildCount} {archivedChildCount === 1 ? 'child' : 'children'}</span></span>}
                               {!nodeSession && <span><b>Terminal</b><span title="None">None</span></span>}
                             </span>
@@ -1395,7 +1456,7 @@ function App() {
                       {channelNodeIds.has(node.id) && <span className="node-channel-marker" aria-label="Agent channel linked" title="Agent channel linked"><Link2Icon /></span>}
                       {agentState === 'needs_input' && <span className="agent-needs-input-marker" role="img" aria-label={`Agent needs input for ${node.title}`} title="Agent needs input">?</span>}
                       <button className="node-add-action" type="button" onClick={() => void addChild(node)} aria-label={`Add child to ${node.title}`}>+</button>
-                      <NodeStepPopover steps={stepper} />
+                      {lifecycleEnabled && <NodeStepPopover steps={stepper} />}
                     </article>
                   )
                 })}
@@ -1413,7 +1474,7 @@ function App() {
             const confirmingArchive = contextMenu.confirm === 'archive'
             const confirmingDelete = contextMenu.confirm === 'delete'
             return (
-              <div className="node-context-menu" role="menu" aria-label={`Actions for ${node.title}`} style={{ left: contextMenu.x, top: contextMenu.y }} onContextMenu={(event) => event.preventDefault()}>
+              <div className="node-context-menu" role="menu" aria-label={`Actions for ${node.title}`} ref={contextMenuFloating.refs.setFloating} style={contextMenuFloating.floatingStyles} onContextMenu={(event) => event.preventDefault()}>
                 <div className="node-context-menu-title"><span>{node.title}</span><small>{typeLabels[node.type]}</small></div>
                 <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void addChild(node) }}><PlusIcon />Add child</button>
                 <button type="button" role="menuitem" onClick={() => { setContextMenu(null); startRename(node) }}><Pencil2Icon />Rename</button>
@@ -1544,7 +1605,7 @@ function App() {
           )}
         </aside>}
 
-        {sidePanelOpen && rightPanel === 'settings' && <SettingsPanel settings={settings} platform={platform} notificationPermission={notificationPermission} onChange={setSettings} onEnableNotifications={() => void enableAgentNotifications()} onTestSystemNotification={testSystemNotification} onClose={() => setSurface((current) => ({ ...current, rightPanel: null }))} />}
+        {sidePanelOpen && rightPanel === 'settings' && <SettingsPanel settings={settings} platform={platform} nodeStepDefinitions={nodeStepDefinitions} notificationPermission={notificationPermission} onChange={setSettings} onNodeStepDefinitionsChange={saveNodeStepDefinitions} onEnableNotifications={() => void enableAgentNotifications()} onTestSystemNotification={testSystemNotification} onClose={() => setSurface((current) => ({ ...current, rightPanel: null }))} />}
 
         {sidePanelOpen && rightPanel === 'archive' && <ArchivePanel nodes={graph.nodes} sessions={graph.sessions} busy={busy} onRestore={(nodeId) => void restoreNode(nodeId)} onDelete={(nodeId, stopSession) => void deleteArchivedNode(nodeId, stopSession)} onClose={() => setSurface((current) => ({ ...current, rightPanel: null }))} />}
 

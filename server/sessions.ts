@@ -15,7 +15,7 @@ export type MultiplexerAdapter = {
   backend: TerminalBackend
   exists(name: string): boolean
   list(): string[]
-  create(name: string, cwd: string, command?: string[]): void
+  create(name: string, cwd: string, command?: string[], sessionEnv?: Record<string, string>): void
   stop(name: string): void
   currentWorkingDirectory?(name: string): string | undefined
   panes?(): MultiplexerPane[]
@@ -66,6 +66,11 @@ export function defaultZellijEnv() {
 
 export const defaultTmuxArgs = (...args: string[]) => ['-L', 'default', ...args]
 
+export function tmuxNewSessionArgs(name: string, cwd: string, command?: string[], sessionEnv: Record<string, string> = {}) {
+  const envArgs = Object.entries(sessionEnv).flatMap(([key, value]) => ['-e', `${key}=${value}`])
+  return defaultTmuxArgs('new-session', '-d', '-s', name, '-c', cwd, ...envArgs, ...(command ?? []))
+}
+
 export const realTmux: MultiplexerAdapter = {
   backend: 'tmux',
   exists(name) {
@@ -75,8 +80,8 @@ export const realTmux: MultiplexerAdapter = {
     const result = spawnSync(tmuxExecutable(), defaultTmuxArgs('list-sessions', '-F', '#S'), { encoding: 'utf8', env: defaultTmuxEnv() })
     return result.status === 0 ? result.stdout.trim().split('\n').filter(Boolean) : []
   },
-  create(name, cwd, command) {
-    const result = spawnSync(tmuxExecutable(), defaultTmuxArgs('new-session', '-d', '-s', name, '-c', cwd, ...(command ?? [])), { encoding: 'utf8', env: defaultTmuxEnv() })
+  create(name, cwd, command, sessionEnv) {
+    const result = spawnSync(tmuxExecutable(), tmuxNewSessionArgs(name, cwd, command, sessionEnv), { encoding: 'utf8', env: defaultTmuxEnv() })
     if (result.status !== 0) throw new Error(result.stderr.trim() || 'Unable to create tmux session')
   },
   stop(name) {
@@ -139,6 +144,7 @@ export const realZellij: MultiplexerAdapter = {
     return result.status === 0 ? parseZellijSessions(result.stdout) : []
   },
   create(name, cwd) {
+    // Zellij has no portable per-session environment flag equivalent to tmux new-session -e.
     const args = process.platform === 'win32'
       ? ['--version']
       : ['--config', zellijConfigPath(), 'attach', '--create-background', name]
@@ -214,6 +220,7 @@ export function createSessionManager(
   processReader: () => ProcessInfo[] = readProcesses,
   defaultBackend?: TerminalBackend,
   platform?: RuntimePlatform,
+  options: { muxMapUrl?: string | (() => string) } = {},
 ) {
   const runtimePlatform = platform ?? ('exists' in input ? 'linux' : process.platform)
   const adapters = normalizeAdapters(input)
@@ -286,6 +293,16 @@ export function createSessionManager(
     throw new Error('Unable to allocate a unique terminal session name')
   }
 
+  function contextEnv(nodeId: string, sessionId: string) {
+    const muxMapUrl = typeof options.muxMapUrl === 'function' ? options.muxMapUrl() : options.muxMapUrl
+    if (!muxMapUrl) return undefined
+    return {
+      MUXMAP_NODE_ID: nodeId,
+      MUXMAP_SESSION_ID: sessionId,
+      MUXMAP_URL: muxMapUrl,
+    }
+  }
+
   return {
     attach(nodeId: string, requestedCwd?: string, requestedBackend = selectedDefaultBackend): TerminalSession {
       const node = store.getNode(nodeId)
@@ -296,11 +313,12 @@ export function createSessionManager(
       const adapter = adapterFor(backend)
       const label = node.jiraKey ?? node.title.toLowerCase().replace(/\s+/g, '-')
       const names = existing ?? availableSessionNames(backend, node.workspaceId, label, node.id, adapter)
+      const sessionId = existing?.id ?? `sess_${node.id}`
 
-      if (!adapter.exists(names.runtimeName)) adapter.create(names.runtimeName, cwd)
+      if (!adapter.exists(names.runtimeName)) adapter.create(names.runtimeName, cwd, undefined, backend === 'tmux' ? contextEnv(nodeId, sessionId) : undefined)
 
       return store.upsertSession({
-        id: existing?.id ?? `sess_${node.id}`,
+        id: sessionId,
         workspaceId: node.workspaceId,
         nodeId,
         ...names,
@@ -321,13 +339,14 @@ export function createSessionManager(
       const label = node.jiraKey ?? node.title.toLowerCase().replace(/\s+/g, '-')
       const forbidden = existing ? new Set([existing.runtimeName]) : new Set<string>()
       const names = availableSessionNames(backend, node.workspaceId, label, node.id, adapter, forbidden)
+      const sessionId = existing?.id ?? `sess_${node.id}`
 
       const existingAdapter = existing && existing.status !== 'stopped' && existing.status !== 'suspended' ? adapterFor(existing.backend) : undefined
       if (existing && existing.status !== 'stopped' && existingAdapter?.exists(existing.runtimeName)) existingAdapter.stop(existing.runtimeName)
-      if (!adapter.exists(names.runtimeName)) adapter.create(names.runtimeName, cwd)
+      if (!adapter.exists(names.runtimeName)) adapter.create(names.runtimeName, cwd, undefined, backend === 'tmux' ? contextEnv(nodeId, sessionId) : undefined)
 
       return store.upsertSession({
-        id: existing?.id ?? `sess_${node.id}`,
+        id: sessionId,
         workspaceId: node.workspaceId,
         nodeId,
         ...names,
@@ -396,7 +415,7 @@ export function createSessionManager(
       if (!command) throw new Error(`${activity.kind} session id is not available`)
       if (session.backend !== 'tmux') throw new Error('Agent recovery currently requires a tmux-backed session')
       const adapter = adapterFor(session.backend)
-      if (!adapter.exists(session.runtimeName)) adapter.create(session.runtimeName, session.cwd, command)
+      if (!adapter.exists(session.runtimeName)) adapter.create(session.runtimeName, session.cwd, command, contextEnv(session.nodeId, session.id))
       return store.upsertSession({
         ...session,
         status: 'running',

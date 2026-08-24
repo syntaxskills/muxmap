@@ -350,6 +350,32 @@ test('custom node lifecycle steps seed first configured step and validate keys',
   store.close()
 })
 
+test('node lifecycle step definitions are editable and persist in SQLite', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'muxmap-lifecycle-settings-'))
+  const database = join(directory, 'muxmap.db')
+
+  try {
+    const first = createStore(database)
+    assert.equal(first.getNodeStepDefinitions()[0]?.key, 'initialized')
+    const saved = first.updateNodeStepDefinitions([
+      { key: 'planned', label: 'Planned' },
+      { key: 'built', label: 'Built', description: 'Implementation finished' },
+    ])
+    assert.deepEqual(saved.map((step) => step.key), ['planned', 'built'])
+    const node = first.createNode('default', { parentId: 'workspace', title: 'Editable lifecycle', type: 'ticket' })
+    assert.equal(node.steps?.[0]?.key, 'planned')
+    assert.throws(() => first.updateNodeStepDefinitions([{ key: 'bad key', label: 'Bad' }]), /nodeSteps/)
+    first.close()
+
+    const second = createStore(database)
+    assert.deepEqual(second.getNodeStepDefinitions().map((step) => step.key), ['planned', 'built'])
+    assert.deepEqual(second.getWorkspace('default').nodeStepDefinitions?.map((step) => step.key), ['planned', 'built'])
+    second.close()
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('node title, type, and metadata can be edited without changing its hierarchy', () => {
   const store = createStore(':memory:')
   const node = store.createNode('default', {
