@@ -87,20 +87,20 @@ test('terminal input dedupe only drops repeated long bursts', () => {
   assert.equal(shouldDropDuplicateTerminalInput('另一句话', previous, 1200, true), false)
 })
 
-test('terminal command input uses double Enter to submit while single Enter edits text', () => {
+test('terminal command input uses double Enter to submit without inserting a first newline', () => {
   assert.deepEqual(commandInputEnterAction({ value: 'explain this', disabled: false, shiftKey: false, lastEnterAt: null, now: 1000 }), {
     submit: false,
-    preventDefault: false,
+    preventDefault: true,
     nextLastEnterAt: 1000,
   })
-  assert.deepEqual(commandInputEnterAction({ value: 'explain this\n', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1500 }), {
+  assert.deepEqual(commandInputEnterAction({ value: 'explain this', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1500 }), {
     submit: true,
     preventDefault: true,
     nextLastEnterAt: null,
   })
-  assert.deepEqual(commandInputEnterAction({ value: 'explain this\n', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1700 }), {
+  assert.deepEqual(commandInputEnterAction({ value: 'explain this', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1700 }), {
     submit: false,
-    preventDefault: false,
+    preventDefault: true,
     nextLastEnterAt: 1700,
   })
   assert.equal(commandInputEnterAction({ value: 'explain this', disabled: false, shiftKey: true, lastEnterAt: 1000, now: 1100 }).submit, false)

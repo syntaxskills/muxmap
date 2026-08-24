@@ -320,14 +320,14 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
             value={commandInput}
             rows={3}
             placeholder="Type or paste… double Enter to send"
-            title="Enter adds a line; double Enter sends"
+            title="Double Enter sends; Shift+Enter adds a line"
             onChange={(event) => { setCommandInput(event.target.value); setHistoryIndex(-1) }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 const action = commandInputEnterAction({ value: commandInput, disabled, shiftKey: event.shiftKey, lastEnterAt: lastCommandEnterAt.current, now: Date.now() })
                 lastCommandEnterAt.current = action.nextLastEnterAt
-                if (!action.submit) return
                 if (action.preventDefault) event.preventDefault()
+                if (!action.submit) return
                 void submitCommandInput()
                 return
               }

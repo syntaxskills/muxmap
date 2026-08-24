@@ -67,7 +67,7 @@ export function commandInputEnterAction(input: { value: string; disabled: boolea
   if (input.shiftKey || input.disabled || !input.value.trim()) return { submit: false, preventDefault: false, nextLastEnterAt: null }
   const windowMs = input.windowMs ?? COMMAND_DOUBLE_ENTER_MS
   const submit = input.lastEnterAt !== null && input.now - input.lastEnterAt <= windowMs
-  return { submit, preventDefault: submit, nextLastEnterAt: submit ? null : input.now }
+  return { submit, preventDefault: true, nextLastEnterAt: submit ? null : input.now }
 }
 
 export function stopSessionIntent(confirming: boolean) {
