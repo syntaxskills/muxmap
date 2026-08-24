@@ -129,8 +129,8 @@ test('agent activity rebuilds from event log on startup instead of trusting stal
     first.close()
 
     const rebuilt = createStore(database)
-    assert.equal(rebuilt.getAgentActivity('muxmap-claude-completed')?.state, 'completed')
-    assert.equal(rebuilt.getAgentActivity('muxmap-claude-completed')?.since, '2026-08-07T10:00:00.000Z')
+    assert.equal(rebuilt.getAgentActivity('muxmap-claude-completed')?.state, 'needs_input')
+    assert.equal(rebuilt.getAgentActivity('muxmap-claude-completed')?.since, '2026-08-07T10:01:00.000Z')
     assert.equal(rebuilt.getAgentActivity('muxmap-claude-permission')?.state, 'working')
     assert.equal(rebuilt.getAgentActivity('muxmap-manual-working')?.state, 'completed')
     assert.equal(rebuilt.getAgentActivity('muxmap-claude-delegated')?.state, 'delegated')

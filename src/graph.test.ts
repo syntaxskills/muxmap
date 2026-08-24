@@ -80,6 +80,35 @@ test('Codex recovery is based on missing runtime and a saved Codex session id', 
   }), { kind: 'codex', state: 'working' })
 })
 
+test('stale delegated agents render as completed without mutating stored state', () => {
+  const now = Date.parse('2026-08-07T12:00:00.000Z')
+  const oneHourDelegated = {
+    status: 'running',
+    runtimeExists: true,
+    agent: { kind: 'claude' as const, state: 'delegated' as const, since: '2026-08-07T11:00:00.000Z' },
+  }
+  assert.deepEqual(visibleAgentForSession(oneHourDelegated, now), oneHourDelegated.agent)
+
+  const threeHourDelegated = {
+    status: 'running',
+    runtimeExists: true,
+    agent: { kind: 'claude' as const, state: 'delegated' as const, since: '2026-08-07T09:00:00.000Z' },
+  }
+  assert.deepEqual(visibleAgentForSession(threeHourDelegated, now), { kind: 'claude', state: 'completed', since: '2026-08-07T09:00:00.000Z' })
+  assert.equal(threeHourDelegated.agent.state, 'delegated')
+
+  assert.equal(visibleAgentForSession({
+    status: 'running',
+    runtimeExists: true,
+    agent: { kind: 'claude' as const, state: 'working' as const, since: '2026-08-07T09:00:00.000Z' },
+  }, now)?.state, 'working')
+  assert.equal(visibleAgentForSession({
+    status: 'running',
+    runtimeExists: true,
+    agent: { kind: 'claude' as const, state: 'needs_input' as const, since: '2026-08-07T09:00:00.000Z' },
+  }, now)?.state, 'needs_input')
+})
+
 test('agent recovery supports Claude and Pi metadata on missing tmux runtimes', () => {
   assert.equal(canRecoverAgentSession({
     backend: 'tmux',

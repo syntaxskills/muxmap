@@ -116,7 +116,7 @@ export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: R
   if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'before_agent_start' || event === 'agent_start' || event === 'SubagentStart' || event === 'TaskCreated') state = 'working'
   if (event === 'Stop' || event === 'StopFailure' || event === 'agent_end' || notification === 'agent_completed') state = 'completed'
   if (kind === 'claude' && event === 'Stop' && hasActiveDelegatedWork(input)) state = 'delegated'
-  if (event === 'PermissionRequest' || (event === 'Notification' && /permission_prompt|agent_needs_input|elicitation_dialog|elicitation_url_dialog/.test(notification))) state = 'needs_input'
+  if (event === 'PermissionRequest' || (event === 'Notification' && /permission_prompt|agent_needs_input|elicitation_dialog|elicitation_url_dialog|idle_prompt/.test(notification))) state = 'needs_input'
   if (event === 'Stop' && asksForInput(input.last_assistant_message)) state = 'needs_input'
   if (!state && event === 'SessionStart') state = 'read'
   if (!state) return null

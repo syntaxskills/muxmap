@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { addCommandHooks, agentActivityFromEvent, agentSessionInfoFromEvent, detectAgentKind, detectMuxMapHost, isMuxMapAgentHookCommand, type ProcessInfo } from './agents.ts'
+import { addCommandHooks, agentActivityFromEvent, agentSessionInfoFromEvent, detectAgentKind, detectMuxMapHost, isMuxMapAgentHookCommand, shouldPreserveAgentState, type ProcessInfo } from './agents.ts'
 
 const processes: ProcessInfo[] = [
   { pid: 10, ppid: 1, command: 'bash' },
@@ -45,7 +45,9 @@ test('Codex and Claude lifecycle hooks map to working, input, and completed stat
   assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'Stop', last_assistant_message: 'All tests pass.' }, '2026-08-07T10:04:00.000Z')!.state, 'completed')
   assert.equal(agentActivityFromEvent('codex', { hook_event_name: 'Stop', last_assistant_message: 'Which option should I use?' }, '2026-08-07T10:04:00.000Z')!.state, 'needs_input')
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'agent_needs_input' }, '2026-08-07T10:05:00.000Z')!.state, 'needs_input')
-  assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, '2026-08-07T10:05:00.000Z'), null)
+  const idlePrompt = agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, '2026-08-07T10:05:00.000Z')
+  assert.equal(idlePrompt!.state, 'needs_input')
+  assert.equal(shouldPreserveAgentState({ kind: 'claude', state: 'delegated', since: '2026-08-07T10:00:00.000Z' }, { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, idlePrompt), false)
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'unknown' }, '2026-08-07T10:05:00.000Z'), null)
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'StopFailure' }, '2026-08-07T10:05:00.000Z')!.state, 'completed')
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Stop' }, '2026-08-07T10:06:00.000Z')!.state, 'completed')

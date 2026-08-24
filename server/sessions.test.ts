@@ -519,7 +519,7 @@ test('completed agent activity stays read after reopening the workspace', () => 
   }
 })
 
-test('unmapped Claude idle prompts and late subagent stops preserve the current state', () => {
+test('Claude idle prompts mark needs input and late subagent stops preserve the current state', () => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-agent-preserve-')))
   const store = createStore(':memory:')
   const adapter = fakeTmux()
@@ -533,7 +533,7 @@ test('unmapped Claude idle prompts and late subagent stops preserve the current 
     manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'PermissionRequest' }, '2026-08-07T10:00:00.000Z')
     manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, '2026-08-07T10:01:00.000Z')
     assert.equal(manager.decorate([session])[0].agent?.state, 'needs_input')
-    assert.equal(store.getSession(session.id)?.lastActivityAt, '2026-08-07T10:00:00.000Z')
+    assert.equal(store.getSession(session.id)?.lastActivityAt, '2026-08-07T10:01:00.000Z')
     manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { payload: { hookEventName: 'PreToolUse' } }, '2026-08-07T10:01:30.000Z')
     assert.equal(manager.decorate([session])[0].agent?.state, 'working')
 

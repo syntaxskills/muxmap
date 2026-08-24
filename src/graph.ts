@@ -154,8 +154,18 @@ export function recoverableAgentLabel(session: RecoverableSession) {
   return kind && kind in agentNames ? agentNames[kind as keyof typeof agentNames] : 'Agent'
 }
 
-export function visibleAgentForSession<T extends { status: string; runtimeExists?: boolean; agent?: unknown }>(session: T | undefined): T['agent'] | undefined {
+const STALE_DELEGATED_MS = 2 * 60 * 60 * 1000
+
+export function visibleAgentForSession<T extends { status: string; runtimeExists?: boolean; agent?: unknown }>(session: T | undefined, now = Date.now()): T['agent'] | undefined {
   if (!session || !nodeHasLiveSession(session)) return undefined
+  if (session.agent && typeof session.agent === 'object') {
+    const agent = session.agent as { state?: unknown; since?: unknown }
+    const sinceValue = agent.since
+    const since = typeof sinceValue === 'string' ? Date.parse(sinceValue) : Number.NaN
+    if (agent.state === 'delegated' && Number.isFinite(since) && now - since > STALE_DELEGATED_MS) {
+      return { ...session.agent, state: 'completed' } as T['agent']
+    }
+  }
   return session.agent
 }
 
