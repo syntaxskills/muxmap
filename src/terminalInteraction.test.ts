@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication } from './terminalInteraction.ts'
+import { commandInputEnterAction, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication } from './terminalInteraction.ts'
 
 test('terminal dragging follows the pointer without changing its starting offset', () => {
   assert.deepEqual(dragOffset({ x: 20, y: -10 }, { x: 100, y: 80 }, { x: 145, y: 55 }), { x: 65, y: -35 })
@@ -85,6 +85,27 @@ test('terminal input dedupe only drops repeated long bursts', () => {
   assert.equal(shouldDropDuplicateTerminalInput('这两个问题能解决吗?', previous, 1200, false), false)
   assert.equal(shouldDropDuplicateTerminalInput('短句', { data: '短句', at: 1000 }, 1100, true), false)
   assert.equal(shouldDropDuplicateTerminalInput('另一句话', previous, 1200, true), false)
+})
+
+test('terminal command input uses double Enter to submit while single Enter edits text', () => {
+  assert.deepEqual(commandInputEnterAction({ value: 'explain this', disabled: false, shiftKey: false, lastEnterAt: null, now: 1000 }), {
+    submit: false,
+    preventDefault: false,
+    nextLastEnterAt: 1000,
+  })
+  assert.deepEqual(commandInputEnterAction({ value: 'explain this\n', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1500 }), {
+    submit: true,
+    preventDefault: true,
+    nextLastEnterAt: null,
+  })
+  assert.deepEqual(commandInputEnterAction({ value: 'explain this\n', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1700 }), {
+    submit: false,
+    preventDefault: false,
+    nextLastEnterAt: 1700,
+  })
+  assert.equal(commandInputEnterAction({ value: 'explain this', disabled: false, shiftKey: true, lastEnterAt: 1000, now: 1100 }).submit, false)
+  assert.equal(commandInputEnterAction({ value: 'explain this', disabled: true, shiftKey: false, lastEnterAt: 1000, now: 1100 }).submit, false)
+  assert.equal(commandInputEnterAction({ value: '   \n', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1100 }).submit, false)
 })
 
 test('terminal output draining batches chunks without dropping overflow', () => {

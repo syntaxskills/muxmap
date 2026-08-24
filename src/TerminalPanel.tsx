@@ -5,7 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 import { api } from './api.ts'
 import type { NodeType, TerminalInputHistoryItem, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
-import { consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
+import { commandInputEnterAction, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { AgentIcon } from './AgentIcon.tsx'
@@ -64,6 +64,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
   const [inputHistory, setInputHistory] = useState<TerminalInputHistoryItem[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const socketRef = useRef<WebSocket | null>(null)
+  const lastCommandEnterAt = useRef<number | null>(null)
 
   useEffect(() => {
     let disposed = false
@@ -318,14 +319,19 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
           <textarea
             value={commandInput}
             rows={3}
-            placeholder="Type or paste… Enter to send"
-            title="Shift+Enter adds a line"
+            placeholder="Type or paste… double Enter to send"
+            title="Enter adds a line; double Enter sends"
             onChange={(event) => { setCommandInput(event.target.value); setHistoryIndex(-1) }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
+              if (event.key === 'Enter') {
+                const action = commandInputEnterAction({ value: commandInput, disabled, shiftKey: event.shiftKey, lastEnterAt: lastCommandEnterAt.current, now: Date.now() })
+                lastCommandEnterAt.current = action.nextLastEnterAt
+                if (!action.submit) return
+                if (action.preventDefault) event.preventDefault()
                 void submitCommandInput()
+                return
               }
+              lastCommandEnterAt.current = null
               if (event.key === 'ArrowUp' && !event.shiftKey && !event.metaKey && !event.altKey) {
                 event.preventDefault()
                 navigateCommandHistory(1)
