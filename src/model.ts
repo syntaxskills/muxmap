@@ -26,14 +26,15 @@ export type WorkNode = {
   updatedAt: string
 }
 
-export type NodeStepKey =
-  | 'initialized'
-  | 'ticket_created'
-  | 'in_progress'
-  | 'mr_raised'
-  | 'finalized'
+export type NodeStepKey = string
 
 export type NodeStepStatus = 'pending' | 'done'
+
+export type NodeStepDefinition = {
+  key: NodeStepKey
+  label: string
+  description?: string
+}
 
 export type NodeLifecycleStep = {
   key: NodeStepKey
@@ -157,6 +158,7 @@ export type WorkspaceGraph = {
   workspace: Workspace
   nodes: WorkNode[]
   sessions: TerminalSession[]
+  nodeStepDefinitions?: NodeStepDefinition[]
   channels?: AgentChannel[]
   orphans?: Array<{ backend: TerminalBackend; runtimeName: string; agent?: AgentActivity }>
   selfHosting?: Array<{ backend: TerminalBackend; runtimeName: string; role: 'self_hosting'; agent?: AgentActivity }>

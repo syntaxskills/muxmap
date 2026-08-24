@@ -13,6 +13,7 @@ dist-ssr
 *.local
 *.tsbuildinfo
 .muxmap/
+muxmap.config.json
 
 # Editor directories and files
 .vscode/*

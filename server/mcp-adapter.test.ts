@@ -99,7 +99,10 @@ test('MCP adapter exposes MuxMap channel tools over JSON-RPC', async () => {
       'muxmap_channel_usage',
       'muxmap_update_node_step',
       'muxmap_get_node_steps',
+      'muxmap_get_node_step_definitions',
     ])
+    const updateStepTool = ((toolList as { result: { tools: Array<{ name: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }> } }).result.tools).find((tool) => tool.name === 'muxmap_update_node_step')
+    assert.deepEqual(updateStepTool?.inputSchema.properties.stepKey.enum, ['initialized', 'ticket_created', 'in_progress', 'mr_raised', 'finalized'])
 
     const listed = textPayload(await handleMcpMessage({
       jsonrpc: '2.0',
@@ -158,6 +161,14 @@ test('MCP adapter exposes MuxMap channel tools over JSON-RPC', async () => {
       params: { name: 'muxmap_get_node_steps', arguments: {} },
     }, { env }))
     assert.equal((readSteps.steps as Array<Record<string, unknown>>).find((step) => step.key === 'mr_raised')?.url, 'https://gitlab.example/group/repo/-/merge_requests/13595')
+
+    const definitions = textPayload(await handleMcpMessage({
+      jsonrpc: '2.0',
+      id: 9,
+      method: 'tools/call',
+      params: { name: 'muxmap_get_node_step_definitions', arguments: {} },
+    }, { env }))
+    assert.deepEqual((definitions.steps as Array<Record<string, unknown>>).map((step) => step.key), ['initialized', 'ticket_created', 'in_progress', 'mr_raised', 'finalized'])
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })
@@ -184,4 +195,41 @@ test('MCP adapter returns tool errors as MCP tool results instead of crashing th
   const missingNodeResult = (missingNodeResponse as { result: { isError: boolean; content: Array<{ text: string }> } }).result
   assert.equal(missingNodeResult.isError, true)
   assert.match(missingNodeResult.content[0]!.text, /nodeId is required/)
+})
+
+test('MCP tools/list reflects configured lifecycle step keys from MuxMap', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-mcp-custom-steps-')))
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'mcp-token',
+    requireBasicAuth: true,
+    nodeStepDefinitions: [
+      { key: 'briefed', label: 'Briefed' },
+      { key: 'patched', label: 'Patched' },
+      { key: 'verified', label: 'Verified' },
+    ],
+    tmux: fakeTmux(),
+    ptyFactory: () => ({
+      onData() {},
+      onExit() {},
+      write() {},
+      scroll() {},
+      resize() {},
+      kill() {},
+    }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const env = { MUXMAP_URL: `http://127.0.0.1:${address.port}`, MUXMAP_TOKEN: 'mcp-token' }
+    const toolList = await handleMcpMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, { env })
+    const updateStepTool = ((toolList as { result: { tools: Array<{ name: string; description: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }> } }).result.tools).find((tool) => tool.name === 'muxmap_update_node_step')
+    assert.deepEqual(updateStepTool?.inputSchema.properties.stepKey.enum, ['briefed', 'patched', 'verified'])
+    assert.match(updateStepTool?.description ?? '', /briefed \(Briefed\).*patched \(Patched\).*verified \(Verified\)/)
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
 })

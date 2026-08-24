@@ -1,5 +1,7 @@
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
+import type { NodeStepDefinition } from '../src/model.ts'
+import { defaultNodeStepDefinitions } from '../src/nodeSteps.ts'
 
 type JsonRpcId = string | number | null
 type JsonObject = Record<string, unknown>
@@ -21,7 +23,13 @@ type ToolDefinition = {
 const defaultMuxMapUrl = 'http://127.0.0.1:4782'
 const defaultWorkspaceId = 'default'
 
-const tools: ToolDefinition[] = [
+function lifecycleDescription(definitions: readonly NodeStepDefinition[]) {
+  return definitions.map((step, index) => `${index + 1}. ${step.key} (${step.label})`).join('; ')
+}
+
+function toolsForNodeSteps(definitions: readonly NodeStepDefinition[] = defaultNodeStepDefinitions): ToolDefinition[] {
+  const stepKeys = definitions.map((step) => step.key)
+  return [
   {
     name: 'muxmap_list_channels',
     description: 'List open MuxMap agent chat channels. If nodeId is omitted, MUXMAP_NODE_ID is used when available.',
@@ -76,12 +84,12 @@ const tools: ToolDefinition[] = [
   },
   {
     name: 'muxmap_update_node_step',
-    description: 'Update one fixed MuxMap node lifecycle step. After creating a Jira ticket or MR, call this with the ref and URL so the user can click through from the map. Example: {"stepKey":"ticket_created","ref":"OCI-2830","url":"https://jira.example/browse/OCI-2830"}.',
+    description: `Update one configured MuxMap node lifecycle step. Configured steps: ${lifecycleDescription(definitions)}. After creating a ticket or MR, call this with the ref and URL so the user can click through from the map. Example: {"stepKey":"${stepKeys[1] ?? stepKeys[0] ?? 'step'}","ref":"DEV-2830","url":"https://jira.example/browse/DEV-2830"}.`,
     inputSchema: {
       type: 'object',
       properties: {
         nodeId: { type: 'string', description: 'MuxMap node id. Defaults to MUXMAP_NODE_ID.' },
-        stepKey: { type: 'string', enum: ['initialized', 'ticket_created', 'in_progress', 'mr_raised', 'finalized'] },
+        stepKey: { type: 'string', enum: stepKeys },
         status: { type: 'string', enum: ['pending', 'done'], default: 'done' },
         ref: { type: 'string', description: 'Short clickable label, for example OCI-2830 or !13595.' },
         url: { type: 'string', description: 'HTTP(S) link for the ref, for example Jira or GitLab MR URL.' },
@@ -93,7 +101,7 @@ const tools: ToolDefinition[] = [
   },
   {
     name: 'muxmap_get_node_steps',
-    description: 'Read the fixed 5-step MuxMap lifecycle status for a node. nodeId defaults to MUXMAP_NODE_ID.',
+    description: 'Read the configured MuxMap lifecycle status for a node. nodeId defaults to MUXMAP_NODE_ID.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -102,7 +110,17 @@ const tools: ToolDefinition[] = [
       additionalProperties: false,
     },
   },
-]
+  {
+    name: 'muxmap_get_node_step_definitions',
+    description: 'Read the configured MuxMap lifecycle step definitions so the agent knows the valid stepKey values.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+  ]
+}
 
 function textResult(value: unknown, isError = false) {
   return {
@@ -187,6 +205,23 @@ async function updatedByForNode(fetchImpl: FetchLike, env: AdapterEnv, targetNod
   }
 }
 
+async function nodeStepDefinitions(fetchImpl: FetchLike, env: AdapterEnv) {
+  try {
+    const payload = asObject(await muxmapRequest(fetchImpl, env, '/api/node-step-definitions'))
+    const steps = Array.isArray(payload.steps) ? payload.steps.map(asObject) : []
+    const definitions = steps
+      .map((step) => ({
+        key: typeof step.key === 'string' ? step.key : '',
+        label: typeof step.label === 'string' ? step.label : '',
+        description: typeof step.description === 'string' ? step.description : undefined,
+      }))
+      .filter((step) => step.key && step.label)
+    return definitions.length ? definitions : defaultNodeStepDefinitions
+  } catch {
+    return defaultNodeStepDefinitions
+  }
+}
+
 export async function callMuxMapMcpTool(name: string, input: unknown, options: { env?: AdapterEnv; fetchImpl?: FetchLike } = {}) {
   const env = options.env ?? process.env
   const fetchImpl = options.fetchImpl ?? fetch
@@ -238,6 +273,9 @@ export async function callMuxMapMcpTool(name: string, input: unknown, options: {
     const targetNodeId = nodeId(env, args)
     return textResult(await muxmapRequest(fetchImpl, env, `/api/nodes/${encodeURIComponent(targetNodeId)}/steps`))
   }
+  if (name === 'muxmap_get_node_step_definitions') {
+    return textResult({ steps: await nodeStepDefinitions(fetchImpl, env) })
+  }
   throw new Error(`Unknown tool: ${name}`)
 }
 
@@ -267,7 +305,7 @@ export async function handleMcpMessage(message: unknown, options: { env?: Adapte
       })
     }
     if (method === 'ping') return success(id, {})
-    if (method === 'tools/list') return success(id, { tools })
+    if (method === 'tools/list') return success(id, { tools: toolsForNodeSteps(await nodeStepDefinitions(options.fetchImpl ?? fetch, options.env ?? process.env)) })
     if (method === 'tools/call') {
       const toolName = typeof params.name === 'string' ? params.name : ''
       if (!toolName) return failure(id, -32602, 'Tool name is required')

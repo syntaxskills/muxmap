@@ -1,0 +1,29 @@
+{
+  "nodeSteps": [
+    {
+      "key": "initialized",
+      "label": "Initialized",
+      "description": "Node exists and the work item is known."
+    },
+    {
+      "key": "ticket_created",
+      "label": "Ticket created",
+      "description": "Agent or human created the tracker item."
+    },
+    {
+      "key": "in_progress",
+      "label": "In progress",
+      "description": "Implementation has started."
+    },
+    {
+      "key": "mr_raised",
+      "label": "MR raised",
+      "description": "A reviewable change is available."
+    },
+    {
+      "key": "finalized",
+      "label": "Finalized",
+      "description": "Merged, verified, or otherwise complete."
+    }
+  ]
+}

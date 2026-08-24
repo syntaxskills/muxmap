@@ -7,7 +7,7 @@ import { homedir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { spawn as spawnPty } from 'node-pty'
 import { WebSocketServer, type WebSocket } from 'ws'
-import type { TerminalBackend, TerminalSession } from '../src/model.ts'
+import type { NodeStepDefinition, TerminalBackend, TerminalSession } from '../src/model.ts'
 import {
   createSessionManager,
   defaultTerminalBackend,
@@ -25,6 +25,7 @@ import {
 import { createStore, StoreValidationError } from './store.ts'
 import type { ProcessInfo } from './agents.ts'
 import { terminalBackendsForPlatform, type RuntimePlatform } from '../src/settings.ts'
+import { defaultNodeStepDefinitions } from '../src/nodeSteps.ts'
 
 export type PtyHandle = {
   onData(listener: (data: string) => void): void
@@ -55,6 +56,7 @@ type ServerOptions = {
   activityWriteIntervalMs?: number
   outputFlushIntervalMs?: number
   attachmentsDirectory?: string
+  nodeStepDefinitions?: NodeStepDefinition[]
 }
 
 const mimeTypes: Record<string, string> = {
@@ -308,7 +310,8 @@ function rejectUpgrade(socket: import('node:stream').Duplex, status: number, mes
 export function createMuxMapServer(options: ServerOptions) {
   const token = options.token ?? process.env.MUXMAP_TOKEN ?? randomUUID()
   const requireBasicAuth = options.requireBasicAuth ?? false
-  const store = createStore(options.databasePath)
+  const nodeStepDefinitions = options.nodeStepDefinitions?.length ? options.nodeStepDefinitions : defaultNodeStepDefinitions
+  const store = createStore(options.databasePath, { nodeStepDefinitions })
   const multiplexers = options.multiplexers ?? (options.tmux
     ? { tmux: Object.assign(options.tmux, { backend: 'tmux' as const }) }
     : { tmux: realTmux, zellij: realZellij })
@@ -427,6 +430,10 @@ export function createMuxMapServer(options: ServerOptions) {
           const inventory = sessions.inventory()
           const graph = store.getWorkspace(workspaceMatch[1])
           return sendJson(response, 200, { ...graph, sessions: sessions.decorate(graph.sessions, inventory, live), orphans: sessions.listOrphans(inventory, live), selfHosting: sessions.listSelfHosting(inventory, live), runtime: { platform, terminalBackends: terminalBackendsForPlatform(platform) } })
+        }
+
+        if (request.method === 'GET' && url.pathname === '/api/node-step-definitions') {
+          return sendJson(response, 200, { steps: nodeStepDefinitions })
         }
 
         const nodeMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/nodes$/)

@@ -329,6 +329,27 @@ test('existing nodes with no lifecycle rows render lazy initialized fallback', (
   store.close()
 })
 
+test('custom node lifecycle steps seed first configured step and validate keys', () => {
+  const store = createStore(':memory:', {
+    nodeStepDefinitions: [
+      { key: 'briefed', label: 'Briefed' },
+      { key: 'implemented', label: 'Implemented' },
+      { key: 'verified', label: 'Verified' },
+    ],
+  })
+  const node = store.createNode('default', { parentId: 'workspace', title: 'Custom lifecycle', type: 'ticket' })
+
+  assert.deepEqual(node.steps?.map((step) => [step.key, step.label, step.status]), [
+    ['briefed', 'Briefed', 'done'],
+    ['implemented', 'Implemented', 'pending'],
+    ['verified', 'Verified', 'pending'],
+  ])
+  assert.equal(store.updateNodeStep(node.id, 'implemented', { status: 'done', ref: 'MR-1' }).find((step) => step.key === 'implemented')?.status, 'done')
+  assert.throws(() => store.updateNodeStep(node.id, 'ticket_created', { status: 'done' }), /Invalid node step key/)
+  assert.deepEqual(store.getWorkspace('default').nodeStepDefinitions?.map((step) => step.key), ['briefed', 'implemented', 'verified'])
+  store.close()
+})
+
 test('node title, type, and metadata can be edited without changing its hierarchy', () => {
   const store = createStore(':memory:')
   const node = store.createNode('default', {

@@ -210,6 +210,61 @@ test('LAN mode requires persistent basic auth before issuing its session cookie'
   }
 })
 
+test('workspace API exposes configured node lifecycle steps and validates custom keys', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-api-custom-steps-')))
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    nodeStepDefinitions: [
+      { key: 'briefed', label: 'Briefed' },
+      { key: 'implemented', label: 'Implemented' },
+      { key: 'verified', label: 'Verified' },
+    ],
+    tmux: fakeTmux(),
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const auth = await fetch(`${base}/api/auth`)
+    const cookie = auth.headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const created = await fetch(`${base}/api/workspaces/default/nodes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ parentId: 'workspace', title: 'Configured flow', type: 'ticket' }),
+    }).then((response) => response.json()) as { id: string; steps: Array<{ key: string; status: string }> }
+    assert.equal(created.steps[0]?.key, 'briefed')
+    assert.equal(created.steps[0]?.status, 'done')
+
+    const stepDefinitions = await fetch(`${base}/api/node-step-definitions`, { headers: { cookie } }).then((response) => response.json()) as { steps: Array<{ key: string; label: string }> }
+    assert.deepEqual(stepDefinitions.steps.map((step) => step.key), ['briefed', 'implemented', 'verified'])
+
+    const workspace = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { nodeStepDefinitions: Array<{ key: string }>; nodes: Array<{ id: string; steps?: Array<{ key: string }> }> }
+    assert.deepEqual(workspace.nodeStepDefinitions.map((step) => step.key), ['briefed', 'implemented', 'verified'])
+    assert.equal(workspace.nodes.find((node) => node.id === created.id)?.steps?.[0]?.key, 'briefed')
+
+    const invalidLegacyKey = await fetch(`${base}/api/nodes/${created.id}/steps/ticket_created`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ status: 'done' }),
+    })
+    assert.equal(invalidLegacyKey.status, 400)
+    const validCustomKey = await fetch(`${base}/api/nodes/${created.id}/steps/implemented`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ status: 'done', ref: 'MR-1', url: 'https://gitlab.example/mr/1' }),
+    })
+    assert.equal(validCustomKey.status, 200)
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('agent channel and terminal input history APIs persist collaboration state', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-channel-api-')))
   const server = createMuxMapServer({

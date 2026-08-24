@@ -1,6 +1,6 @@
-import type { NodeLifecycleStep, NodeStepKey, NodeStepStatus } from './model.ts'
+import type { NodeLifecycleStep, NodeStepDefinition, NodeStepKey, NodeStepStatus } from './model.ts'
 
-export const nodeLifecycleStepDefinitions: Array<{ key: NodeStepKey; label: string }> = [
+export const defaultNodeStepDefinitions: NodeStepDefinition[] = [
   { key: 'initialized', label: 'Initialized' },
   { key: 'ticket_created', label: 'Jira created' },
   { key: 'in_progress', label: 'In progress' },
@@ -8,27 +8,37 @@ export const nodeLifecycleStepDefinitions: Array<{ key: NodeStepKey; label: stri
   { key: 'finalized', label: 'Finalized' },
 ]
 
-export const nodeLifecycleStepKeys = nodeLifecycleStepDefinitions.map((step) => step.key)
+export const nodeLifecycleStepDefinitions = defaultNodeStepDefinitions
+export const nodeLifecycleStepKeys = defaultNodeStepDefinitions.map((step) => step.key)
 
 export type NodeStepperItem = NodeLifecycleStep & {
   tone: 'done' | 'current' | 'pending'
 }
 
-function isStepKey(value: unknown): value is NodeStepKey {
-  return typeof value === 'string' && nodeLifecycleStepKeys.includes(value as NodeStepKey)
+function definitionsOrDefault(definitions?: readonly NodeStepDefinition[]) {
+  return definitions && definitions.length > 0 ? definitions : defaultNodeStepDefinitions
+}
+
+export function nodeStepKeys(definitions?: readonly NodeStepDefinition[]) {
+  return definitionsOrDefault(definitions).map((step) => step.key)
+}
+
+function isStepKey(value: unknown, definitions?: readonly NodeStepDefinition[]): value is NodeStepKey {
+  return typeof value === 'string' && nodeStepKeys(definitions).includes(value)
 }
 
 function isStepStatus(value: unknown): value is NodeStepStatus {
   return value === 'pending' || value === 'done'
 }
 
-export function normalizedNodeSteps(rows: unknown): NodeLifecycleStep[] {
+export function normalizedNodeSteps(rows: unknown, definitions?: readonly NodeStepDefinition[]): NodeLifecycleStep[] {
+  const stepDefinitions = definitionsOrDefault(definitions)
   const input = Array.isArray(rows) ? rows : []
   const byKey = new Map<NodeStepKey, Partial<NodeLifecycleStep>>()
   for (const row of input) {
     if (!row || typeof row !== 'object' || Array.isArray(row)) continue
     const item = row as Record<string, unknown>
-    if (!isStepKey(item.key) || !isStepStatus(item.status)) continue
+    if (!isStepKey(item.key, stepDefinitions) || !isStepStatus(item.status)) continue
     byKey.set(item.key, {
       key: item.key,
       status: item.status,
@@ -40,12 +50,12 @@ export function normalizedNodeSteps(rows: unknown): NodeLifecycleStep[] {
     })
   }
   const noRows = byKey.size === 0
-  return nodeLifecycleStepDefinitions.map((definition) => {
+  return stepDefinitions.map((definition, index) => {
     const row = byKey.get(definition.key)
     return {
       key: definition.key,
       label: definition.label,
-      status: row?.status ?? (noRows && definition.key === 'initialized' ? 'done' : 'pending'),
+      status: row?.status ?? (noRows && index === 0 ? 'done' : 'pending'),
       ref: row?.ref,
       url: row?.url,
       note: row?.note,
@@ -55,8 +65,8 @@ export function normalizedNodeSteps(rows: unknown): NodeLifecycleStep[] {
   })
 }
 
-export function nodeStepperModel(rows: unknown): NodeStepperItem[] {
-  const steps = normalizedNodeSteps(rows)
+export function nodeStepperModel(rows: unknown, definitions?: readonly NodeStepDefinition[]): NodeStepperItem[] {
+  const steps = normalizedNodeSteps(rows, definitions)
   const lastDoneIndex = steps.reduce((last, step, index) => step.status === 'done' ? index : last, -1)
   const currentIndex = steps.findIndex((step, index) => step.status === 'pending' && index > lastDoneIndex)
   const fallbackCurrentIndex = steps.findIndex((step) => step.status === 'pending')
@@ -67,9 +77,9 @@ export function nodeStepperModel(rows: unknown): NodeStepperItem[] {
   }))
 }
 
-export function nodeStepSummary(rows: unknown) {
-  const steps = normalizedNodeSteps(rows)
-  const model = nodeStepperModel(steps)
+export function nodeStepSummary(rows: unknown, definitions?: readonly NodeStepDefinition[]) {
+  const steps = normalizedNodeSteps(rows, definitions)
+  const model = nodeStepperModel(steps, definitions)
   const current = model.find((step) => step.tone === 'current') ?? model.at(-1)!
   return {
     dots: steps.map((step) => step.status === 'done' ? '●' : '○').join(''),

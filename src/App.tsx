@@ -14,7 +14,7 @@ import './App.css'
 import { api, apiText } from './api.ts'
 import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, effectiveArchivedNodeIds, expandedNodeHeight, expandedNodeWidth, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
 import { centerPan, dragPan, gridBackground, isCanvasBlankTarget, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
-import type { NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
+import type { NodeStepDefinition, NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { normalizeTerminalOpacity, normalizeTerminalSplit } from './terminalInteraction.ts'
 import { readViewState, writeViewState } from './viewState.ts'
@@ -36,7 +36,7 @@ import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { AgentEventList } from './AgentEventList.tsx'
 import { demoWorkspaceGraph } from './demoGraph.ts'
-import { nodeStepperModel, nodeStepSummary, type NodeStepperItem } from './nodeSteps.ts'
+import { defaultNodeStepDefinitions, nodeStepperModel, nodeStepSummary, type NodeStepperItem } from './nodeSteps.ts'
 import { parseWorkspacePayloadIfChanged } from './workspacePolling.ts'
 import { ArchiveIcon, BoxIcon, CheckboxIcon, CheckCircledIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, DrawingPinIcon, EyeOpenIcon, GearIcon, Link2Icon, OpenInNewWindowIcon, PauseIcon, Pencil2Icon, PlayIcon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import { autoUpdate, flip, offset, safePolygon, useDismiss, useFloating, useFocus, useHover, useInteractions } from '@floating-ui/react'
@@ -138,17 +138,22 @@ function NodeStepPopover({ steps }: { steps: NodeStepperItem[] }) {
   return (
     <aside className="node-step-popover" aria-label="Node lifecycle steps">
       <ol>
-        {steps.map((step) => (
+        {steps.map((step, index) => (
           <li className={`is-${step.tone}`} key={step.key}>
-            <span className="node-step-check" aria-hidden="true">{step.status === 'done' ? '✓' : ''}</span>
+            <span className="node-step-node" tabIndex={0} aria-label={`${step.label}: ${step.status}`}>
+              <span className="node-step-check" aria-hidden="true">{step.status === 'done' ? '✓' : index + 1}</span>
+              <span className="node-step-detail">
+                <strong>{step.label}</strong>
+                {step.ref && step.url ? (
+                  <a href={step.url} target="_blank" rel="noopener noreferrer" title={step.url}>{step.ref}</a>
+                ) : step.ref ? (
+                  <span className="node-step-ref" title={step.ref}>{step.ref}</span>
+                ) : <em>{step.status === 'done' ? 'Done' : 'Pending'}</em>}
+                {step.note && <small title={step.note}>{step.note}</small>}
+              </span>
+            </span>
             <span className="node-step-body">
               <span className="node-step-label">{step.label}</span>
-              {step.ref && step.url ? (
-                <a href={step.url} target="_blank" rel="noopener noreferrer" title={step.url}>{step.ref}</a>
-              ) : step.ref ? (
-                <span className="node-step-ref" title={step.ref}>{step.ref}</span>
-              ) : null}
-              {step.note && <small title={step.note}>{step.note}</small>}
             </span>
           </li>
         ))}
@@ -407,6 +412,7 @@ function App() {
     [activeGraphNodes, collapsed, query],
   )
   const sessionsByNode = useMemo(() => new Map(graph?.sessions.map((item) => [item.nodeId, item]) ?? []), [graph?.sessions])
+  const nodeStepDefinitions: readonly NodeStepDefinition[] = graph?.nodeStepDefinitions?.length ? graph.nodeStepDefinitions : defaultNodeStepDefinitions
   const visibleSessionActivityTimestamps = useMemo(() => nodes.map((node) => {
     const nodeSession = sessionsByNode.get(node.id)
     const visibleAgent = visibleAgentForSession(nodeSession)
@@ -1320,8 +1326,8 @@ function App() {
                   const expanded = node.id === selectedId || node.id === hoveredId
                   const isTodoNode = node.type === 'todo'
                   const hasOpenTodo = node.type === 'todo' && !node.doneAt
-                  const stepSummary = nodeStepSummary(node.steps)
-                  const stepper = nodeStepperModel(node.steps)
+                  const stepSummary = nodeStepSummary(node.steps, nodeStepDefinitions)
+                  const stepper = nodeStepperModel(node.steps, nodeStepDefinitions)
                   const style = {
                     left: point.x + 48,
                     top: point.y + 48,

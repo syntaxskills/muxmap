@@ -41,3 +41,22 @@ test('node step normalization ignores malformed rows', () => {
     ['finalized', 'pending'],
   ])
 })
+
+test('node stepper accepts configured lifecycle definitions', () => {
+  const definitions = [
+    { key: 'briefed', label: 'Briefed' },
+    { key: 'patched', label: 'Patched' },
+    { key: 'verified', label: 'Verified' },
+  ]
+  assert.deepEqual(nodeStepperModel(undefined, definitions).map((step) => [step.key, step.status, step.tone]), [
+    ['briefed', 'done', 'done'],
+    ['patched', 'pending', 'current'],
+    ['verified', 'pending', 'pending'],
+  ])
+  assert.deepEqual(nodeStepSummary([{ key: 'patched', status: 'done' }], definitions), {
+    dots: '○●○',
+    label: 'Verified',
+    completed: 1,
+    total: 3,
+  })
+})

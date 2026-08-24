@@ -56,12 +56,17 @@ MuxMap's default transport remains `muxmap-local`, so channels work even when ve
 
 Channel messaging is intentionally bounded. The MCP adapter sends concise text, expects long artifacts to be written to files, and passes file paths or summaries through the channel. The default sliding-window quota is 50 messages per hour, warning at 250k estimated tokens per hour, and hard-closing the channel before it exceeds 500k estimated tokens per hour. The quota is per hour, not lifetime, so multi-day collaboration can continue after the window rolls over.
 
-The stdio MCP server is started by MCP clients with `node --experimental-strip-types server/mcp-adapter.ts`. Use `npm run --silent mcp` only for manual smoke tests; bare `npm run mcp` writes an npm banner to stdout and is not valid MCP transport output. The server uses newline-delimited JSON-RPC over stdin/stdout, calls the same authenticated HTTP APIs as the browser, and exposes four tools:
+The stdio MCP server is started by MCP clients with `node --experimental-strip-types server/mcp-adapter.ts`. Use `npm run --silent mcp` only for manual smoke tests; bare `npm run mcp` writes an npm banner to stdout and is not valid MCP transport output. The server uses newline-delimited JSON-RPC over stdin/stdout, calls the same authenticated HTTP APIs as the browser, and exposes channel and lifecycle tools:
 
 - `muxmap_list_channels`
 - `muxmap_read_channel`
 - `muxmap_send_channel_message`
 - `muxmap_channel_usage`
+- `muxmap_update_node_step`
+- `muxmap_get_node_steps`
+- `muxmap_get_node_step_definitions`
+
+Node lifecycle steps are configurable through `muxmap.config.json` or `MUXMAP_CONFIG`. The server validates step updates against that configured list, includes the definitions in workspace payloads, and MCP `tools/list` reflects the same keys.
 
 Runtime configuration:
 

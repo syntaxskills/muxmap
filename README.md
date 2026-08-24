@@ -19,6 +19,7 @@ Most terminal-heavy workflows eventually become a pile of anonymous panes. MuxMa
 - Manage orphan `muxmap*` sessions instead of leaving hidden tmux/Zellij clutter.
 - Track Codex, Claude Code, Pi, and SSH activity with optional system or in-page notifications.
 - Manually connect two terminal-backed nodes into a bounded agent chat channel and see that relationship on the map.
+- Track node lifecycle steps from MCP, with configurable step names and clickable ticket/MR refs.
 - Use the terminal command box for edited input with MuxMap-managed history.
 - Tune the workspace through a VS Code-style settings UI or JSON editor.
 
@@ -89,6 +90,8 @@ Configure the MCP client with:
 - `MUXMAP_WORKSPACE_ID`, default `default`
 
 The adapter exposes tools to list channels, read messages, send concise messages, and check hourly quota usage. It only works through channels you created in the map.
+
+It also exposes node lifecycle tools. Copy `muxmap.config.example.json` to `muxmap.config.json` or set `MUXMAP_CONFIG=/path/to/muxmap.config.json` to customize the step list. MCP `tools/list` reflects those configured step keys, so agents know which `stepKey` values are valid.
 
 ## Access modes
 
