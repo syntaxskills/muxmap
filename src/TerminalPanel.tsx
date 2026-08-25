@@ -5,7 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 import { api } from './api.ts'
 import type { NodeType, TerminalInputHistoryItem, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
-import { commandInputEnterAction, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
+import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { AgentIcon } from './AgentIcon.tsx'
@@ -61,10 +61,19 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
   const [showNodeEditor, setShowNodeEditor] = useState(false)
   const [stopConfirming, setStopConfirming] = useState(false)
   const [commandInput, setCommandInput] = useState('')
+  const [commandEnterArmed, setCommandEnterArmed] = useState(false)
   const [inputHistory, setInputHistory] = useState<TerminalInputHistoryItem[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const socketRef = useRef<WebSocket | null>(null)
   const lastCommandEnterAt = useRef<number | null>(null)
+  const commandEnterExpiry = useRef<number | null>(null)
+  const pendingCommandSubmitEnters = useRef<Set<number>>(new Set())
+
+  useEffect(() => () => {
+    if (commandEnterExpiry.current !== null) window.clearTimeout(commandEnterExpiry.current)
+    for (const timer of pendingCommandSubmitEnters.current) window.clearTimeout(timer)
+    pendingCommandSubmitEnters.current.clear()
+  }, [])
 
   useEffect(() => {
     let disposed = false
@@ -246,15 +255,33 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     }
   }
 
-  function terminalInputData(value: string) {
-    return `${value.replace(/\r?\n/g, '\r')}\r`
+  function updateCommandEnterArm(nextLastEnterAt: number | null) {
+    if (commandEnterExpiry.current !== null) window.clearTimeout(commandEnterExpiry.current)
+    commandEnterExpiry.current = null
+    lastCommandEnterAt.current = nextLastEnterAt
+    setCommandEnterArmed(nextLastEnterAt !== null)
+    if (nextLastEnterAt === null) return
+    commandEnterExpiry.current = window.setTimeout(() => {
+      commandEnterExpiry.current = null
+      lastCommandEnterAt.current = null
+      setCommandEnterArmed(false)
+    }, COMMAND_DOUBLE_ENTER_MS)
   }
 
   async function submitCommandInput() {
     const value = commandInput.trim()
     if (!value) return
     const socket = socketRef.current
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data: terminalInputData(value) }))
+    const [text, enter] = commandInputSubmissionWrites(value)
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'input', data: text }))
+      const timer = window.setTimeout(() => {
+        pendingCommandSubmitEnters.current.delete(timer)
+        if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data: enter }))
+      }, COMMAND_SUBMIT_ENTER_DELAY_MS)
+      pendingCommandSubmitEnters.current.add(timer)
+    }
+    updateCommandEnterArm(null)
     setCommandInput('')
     setHistoryIndex(-1)
     try {
@@ -314,24 +341,27 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
         </div>}
       </div>
       <div className="terminal-screen"><div className="terminal-mount" ref={container} /></div>
-      <form className="terminal-command-box" onSubmit={(event) => { event.preventDefault(); void submitCommandInput() }}>
+      <form className={`terminal-command-box ${commandEnterArmed ? 'is-enter-armed' : ''}`} onSubmit={(event) => { event.preventDefault(); void submitCommandInput() }}>
         <label>
           <textarea
             value={commandInput}
             rows={3}
             placeholder="Type or paste… double Enter to send"
             title="Double Enter sends; Shift+Enter adds a line"
-            onChange={(event) => { setCommandInput(event.target.value); setHistoryIndex(-1) }}
+            onChange={(event) => { setCommandInput(event.target.value); setHistoryIndex(-1); updateCommandEnterArm(null) }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 const action = commandInputEnterAction({ value: commandInput, disabled, shiftKey: event.shiftKey, lastEnterAt: lastCommandEnterAt.current, now: Date.now() })
-                lastCommandEnterAt.current = action.nextLastEnterAt
+                updateCommandEnterArm(action.nextLastEnterAt)
                 if (action.preventDefault) event.preventDefault()
-                if (!action.submit) return
-                void submitCommandInput()
+                if (action.submit) void submitCommandInput()
+                if (action.forwardEnter) {
+                  const socket = socketRef.current
+                  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data: '\r' }))
+                }
                 return
               }
-              lastCommandEnterAt.current = null
+              updateCommandEnterArm(null)
               if (event.key === 'ArrowUp' && !event.shiftKey && !event.metaKey && !event.altKey) {
                 event.preventDefault()
                 navigateCommandHistory(1)
@@ -342,6 +372,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
               }
             }}
           />
+          {commandEnterArmed && <span className="terminal-command-enter-hint" aria-live="polite">press Enter again to send</span>}
         </label>
         <div className="terminal-command-actions">
           {inputHistory.length > 0 && <button className="is-history" type="button" onClick={() => navigateCommandHistory(1)} title="Previous input">↑</button>}

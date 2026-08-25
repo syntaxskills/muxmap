@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { commandInputEnterAction, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication } from './terminalInteraction.ts'
+import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication } from './terminalInteraction.ts'
 
 test('terminal dragging follows the pointer without changing its starting offset', () => {
   assert.deepEqual(dragOffset({ x: 20, y: -10 }, { x: 100, y: 80 }, { x: 145, y: 55 }), { x: 65, y: -35 })
@@ -87,25 +87,69 @@ test('terminal input dedupe only drops repeated long bursts', () => {
   assert.equal(shouldDropDuplicateTerminalInput('另一句话', previous, 1200, true), false)
 })
 
-test('terminal command input uses double Enter to submit without inserting a first newline', () => {
+test('terminal command submission splits text and Enter into delayed writes', () => {
+  assert.equal(COMMAND_SUBMIT_ENTER_DELAY_MS, 150)
+  assert.deepEqual(commandInputSubmissionWrites('status'), ['status', '\r'])
+  assert.deepEqual(commandInputSubmissionWrites('first line\nsecond line\r\nthird line'), ['first line\rsecond line\rthird line', '\r'])
+  const longPaste = 'x'.repeat(4096)
+  assert.deepEqual(commandInputSubmissionWrites(longPaste), [longPaste, '\r'])
+})
+
+test('terminal command input uses a 900ms double Enter window to submit', () => {
+  assert.equal(COMMAND_DOUBLE_ENTER_MS, 900)
   assert.deepEqual(commandInputEnterAction({ value: 'explain this', disabled: false, shiftKey: false, lastEnterAt: null, now: 1000 }), {
     submit: false,
+    forwardEnter: false,
     preventDefault: true,
     nextLastEnterAt: 1000,
   })
-  assert.deepEqual(commandInputEnterAction({ value: 'explain this', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1500 }), {
+  assert.deepEqual(commandInputEnterAction({ value: 'explain this', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1900 }), {
     submit: true,
+    forwardEnter: false,
     preventDefault: true,
     nextLastEnterAt: null,
   })
-  assert.deepEqual(commandInputEnterAction({ value: 'explain this', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1700 }), {
+  assert.deepEqual(commandInputEnterAction({ value: 'explain this', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1901 }), {
     submit: false,
+    forwardEnter: false,
     preventDefault: true,
-    nextLastEnterAt: 1700,
+    nextLastEnterAt: 1901,
   })
-  assert.equal(commandInputEnterAction({ value: 'explain this', disabled: false, shiftKey: true, lastEnterAt: 1000, now: 1100 }).submit, false)
-  assert.equal(commandInputEnterAction({ value: 'explain this', disabled: true, shiftKey: false, lastEnterAt: 1000, now: 1100 }).submit, false)
-  assert.equal(commandInputEnterAction({ value: '   \n', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1100 }).submit, false)
+})
+
+test('empty command input forwards one Enter only on the second press', () => {
+  assert.deepEqual(commandInputEnterAction({ value: '   \n', disabled: false, shiftKey: false, lastEnterAt: null, now: 1000 }), {
+    submit: false,
+    forwardEnter: false,
+    preventDefault: true,
+    nextLastEnterAt: 1000,
+  })
+  assert.deepEqual(commandInputEnterAction({ value: '', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1800 }), {
+    submit: false,
+    forwardEnter: true,
+    preventDefault: true,
+    nextLastEnterAt: null,
+  })
+  assert.deepEqual(commandInputEnterAction({ value: '', disabled: false, shiftKey: false, lastEnterAt: 1000, now: 1901 }), {
+    submit: false,
+    forwardEnter: false,
+    preventDefault: true,
+    nextLastEnterAt: 1901,
+  })
+})
+
+test('shift and disabled command input never submit or forward Enter', () => {
+  for (const action of [
+    commandInputEnterAction({ value: '', disabled: false, shiftKey: true, lastEnterAt: 1000, now: 1100 }),
+    commandInputEnterAction({ value: '', disabled: true, shiftKey: false, lastEnterAt: 1000, now: 1100 }),
+    commandInputEnterAction({ value: 'explain this', disabled: false, shiftKey: true, lastEnterAt: 1000, now: 1100 }),
+    commandInputEnterAction({ value: 'explain this', disabled: true, shiftKey: false, lastEnterAt: 1000, now: 1100 }),
+  ]) {
+    assert.equal(action.submit, false)
+    assert.equal(action.forwardEnter, false)
+    assert.equal(action.preventDefault, false)
+    assert.equal(action.nextLastEnterAt, null)
+  }
 })
 
 test('terminal output draining batches chunks without dropping overflow', () => {

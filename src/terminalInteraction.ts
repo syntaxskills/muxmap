@@ -3,7 +3,8 @@ type TerminalSelectionEvent = { readonly button: number; readonly altKey: boolea
 export type TerminalWheelMode = 'auto' | 'muxmap' | 'application'
 export type RecentTerminalInput = { data: string; at: number }
 export type TerminalScrollMultipliers = { precision: number; discrete: number }
-export const COMMAND_DOUBLE_ENTER_MS = 600
+export const COMMAND_DOUBLE_ENTER_MS = 900
+export const COMMAND_SUBMIT_ENTER_DELAY_MS = 150
 
 export function terminalShortcutData(event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'altKey'>) {
   if (event.metaKey && (event.key === 'Backspace' || event.key === 'Delete')) return '\x15'
@@ -63,11 +64,20 @@ export function shouldDropDuplicateTerminalInput(data: string, previous: RecentT
   return enabled && data.length >= 8 && Boolean(previous) && previous!.data === data && now - previous!.at <= 1500
 }
 
+export function commandInputSubmissionWrites(value: string) {
+  return [value.replace(/\r?\n/g, '\r'), '\r'] as const
+}
+
 export function commandInputEnterAction(input: { value: string; disabled: boolean; shiftKey: boolean; lastEnterAt: number | null; now: number; windowMs?: number }) {
-  if (input.shiftKey || input.disabled || !input.value.trim()) return { submit: false, preventDefault: false, nextLastEnterAt: null }
+  if (input.shiftKey || input.disabled) return { submit: false, forwardEnter: false, preventDefault: false, nextLastEnterAt: null }
   const windowMs = input.windowMs ?? COMMAND_DOUBLE_ENTER_MS
-  const submit = input.lastEnterAt !== null && input.now - input.lastEnterAt <= windowMs
-  return { submit, preventDefault: true, nextLastEnterAt: submit ? null : input.now }
+  const send = input.lastEnterAt !== null && input.now - input.lastEnterAt <= windowMs
+  return {
+    submit: send && Boolean(input.value.trim()),
+    forwardEnter: send && !input.value.trim(),
+    preventDefault: true,
+    nextLastEnterAt: send ? null : input.now,
+  }
 }
 
 export function stopSessionIntent(confirming: boolean) {
