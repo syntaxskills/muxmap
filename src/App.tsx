@@ -36,7 +36,7 @@ import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { AgentEventList } from './AgentEventList.tsx'
 import { demoWorkspaceGraph } from './demoGraph.ts'
-import { clearHoveredNodeAfterGrace, NODE_HOVER_LEAVE_GRACE_MS, nodeUsesExpandedLayout, nodeUsesExpandedRender } from './nodeHover.ts'
+import { clearHoveredNodeAfterGrace, containsPoint, inflateRect, NODE_HOVER_LEAVE_GRACE_MS, nodeUsesExpandedLayout } from './nodeHover.ts'
 import { defaultNodeStepDefinitions, nodeStepperModel, nodeStepSummary, type NodeStepperItem } from './nodeSteps.ts'
 import { parseWorkspacePayloadIfChanged } from './workspacePolling.ts'
 import { ArchiveIcon, BoxIcon, CheckboxIcon, CheckCircledIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, DrawingPinIcon, EyeOpenIcon, GearIcon, Link2Icon, OpenInNewWindowIcon, PauseIcon, Pencil2Icon, PlayIcon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
@@ -207,6 +207,7 @@ function App() {
   const [busy, setBusy] = useState(false)
   const workspaceRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
+  const nodeElementRefs = useRef(new Map<string, HTMLElement>())
   const searchRef = useRef<HTMLInputElement>(null)
   const centeredOnce = useRef(false)
   const dragRef = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null)
@@ -282,6 +283,20 @@ function App() {
   useEffect(() => () => {
     if (hoverLeaveTimerRef.current !== null) window.clearTimeout(hoverLeaveTimerRef.current)
   }, [])
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !hoveredId || !settings['mindmap.expandOnHover']) return
+    const keepHoverInsideExpandedRect = (event: MouseEvent) => {
+      if (nodeDragRef.current) return
+      if (hoveredNodeContainsPoint(hoveredId, event.clientX, event.clientY)) {
+        clearHoverLeaveTimer()
+        return
+      }
+      scheduleHoverClear(hoveredId)
+    }
+    canvas.addEventListener('mousemove', keepHoverInsideExpandedRect)
+    return () => canvas.removeEventListener('mousemove', keepHoverInsideExpandedRect)
+  }, [hoveredId, settings])
   useEffect(() => {
     if (demoMode) return
     const timer = window.setInterval(() => {
@@ -460,17 +475,17 @@ function App() {
     return nodeSession && !visibleAgent ? sessionActivityTimestamp(nodeSession) : undefined
   }), [nodes, sessionsByNode])
   const nodeHeights = useMemo(() => new Map(nodes
-    .filter((node) => nodeUsesExpandedLayout(node.id, selectedId))
+    .filter((node) => nodeUsesExpandedLayout(node.id, selectedId, hoveredId))
     .map((node) => {
       const nodeSession = sessionsByNode.get(node.id)
       return [node.id, expandedNodeHeight(node, Boolean(visibleAgentForSession(nodeSession)), archivedChildCounts.get(node.id) ?? 0, Boolean(nodeSession))]
-    })), [archivedChildCounts, nodes, selectedId, sessionsByNode])
+    })), [archivedChildCounts, hoveredId, nodes, selectedId, sessionsByNode])
   const nodeWidths = useMemo(() => new Map(nodes
-    .filter((node) => nodeUsesExpandedLayout(node.id, selectedId))
+    .filter((node) => nodeUsesExpandedLayout(node.id, selectedId, hoveredId))
     .map((node) => {
       const nodeSession = sessionsByNode.get(node.id)
       return [node.id, expandedNodeWidth(node, Boolean(visibleAgentForSession(nodeSession)))]
-    })), [nodes, selectedId, sessionsByNode])
+    })), [hoveredId, nodes, selectedId, sessionsByNode])
   const positions = useMemo(
     () => layoutTree(nodes, graph?.workspace.rootNodeId ?? 'workspace', settings['mindmap.columnGap'], settings['mindmap.rowGap'], nodeHeights, nodeWidths),
     [graph?.workspace.rootNodeId, nodeHeights, nodeWidths, nodes, settings],
@@ -862,21 +877,36 @@ function App() {
     setContextMenu({ nodeId: node.id, x: event.clientX, y: event.clientY })
   }
 
-  function enterNodeHover(nodeId: string) {
+  function clearHoverLeaveTimer() {
     if (hoverLeaveTimerRef.current !== null) {
       window.clearTimeout(hoverLeaveTimerRef.current)
       hoverLeaveTimerRef.current = null
     }
-    if (!nodeDragRef.current && settings['mindmap.expandOnHover']) setHoveredId(nodeId)
   }
 
-  function leaveNodeHover(nodeId: string) {
-    if (nodeDragRef.current) return
-    if (hoverLeaveTimerRef.current !== null) window.clearTimeout(hoverLeaveTimerRef.current)
+  function hoveredNodeContainsPoint(nodeId: string, clientX: number, clientY: number) {
+    const element = nodeElementRefs.current.get(nodeId)
+    if (!element) return false
+    return containsPoint(inflateRect(element.getBoundingClientRect()), { x: clientX, y: clientY })
+  }
+
+  function scheduleHoverClear(nodeId: string) {
+    clearHoverLeaveTimer()
     hoverLeaveTimerRef.current = window.setTimeout(() => {
       hoverLeaveTimerRef.current = null
       setHoveredId((current) => clearHoveredNodeAfterGrace(current, nodeId))
     }, NODE_HOVER_LEAVE_GRACE_MS)
+  }
+
+  function enterNodeHover(nodeId: string) {
+    clearHoverLeaveTimer()
+    if (!nodeDragRef.current && settings['mindmap.expandOnHover']) setHoveredId(nodeId)
+  }
+
+  function leaveNodeHover(nodeId: string, event: React.MouseEvent<HTMLElement>) {
+    if (nodeDragRef.current) return
+    if (hoveredNodeContainsPoint(nodeId, event.clientX, event.clientY)) return
+    scheduleHoverClear(nodeId)
   }
 
   function toggleNodeCollapsed(nodeId: string) {
@@ -1380,20 +1410,17 @@ function App() {
                   }) : 'fresh'
                   const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
                   const archivedChildCount = archivedChildCounts.get(node.id) ?? 0
-                  const expanded = nodeUsesExpandedRender(node.id, selectedId, hoveredId)
+                  const expanded = nodeUsesExpandedLayout(node.id, selectedId, hoveredId)
                   const isTodoNode = node.type === 'todo'
                   const hasOpenTodo = node.type === 'todo' && !node.doneAt
                   const lifecycleEnabled = settings['lifecycle.enabled']
                   const stepSummary = lifecycleEnabled ? nodeStepSummary(node.steps, nodeStepDefinitions) : undefined
                   const stepper = lifecycleEnabled ? nodeStepperModel(node.steps, nodeStepDefinitions) : []
-                  const renderHeight = expanded
-                    ? expandedNodeHeight(node, Boolean(visibleAgent), archivedChildCount, Boolean(nodeSession))
-                    : NODE_HEIGHT
                   const style = {
                     left: point.x + 48,
                     top: point.y + 48,
                     width: nodeWidth(node.id),
-                    height: renderHeight,
+                    height: nodeHeights.get(node.id) ?? NODE_HEIGHT,
                     '--node-color': node.color,
                     ...(agentState === 'working' ? { '--agent-working-sweep-delay': agentWorkingSweepDelay(performance.now()) } : {}),
                   } as CSSProperties
@@ -1401,10 +1428,14 @@ function App() {
                     <article
                       className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${isTodoNode ? 'is-todo' : ''} ${hasOpenTodo ? 'is-todo-open' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${agentState ? `is-agent-${agentState}` : ''} ${channelNodeIds.has(node.id) ? 'is-channel-linked' : ''} ${pendingChannelNodeId === node.id ? 'is-channel-pending' : ''} ${activityFade !== 'fresh' ? `is-activity-${activityFade}` : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
                       key={node.id}
+                      ref={(element) => {
+                        if (element) nodeElementRefs.current.set(node.id, element)
+                        else nodeElementRefs.current.delete(node.id)
+                      }}
                       style={style}
                       data-node-id={node.id}
                       onMouseEnter={() => enterNodeHover(node.id)}
-                      onMouseLeave={() => leaveNodeHover(node.id)}
+                      onMouseLeave={(event) => leaveNodeHover(node.id, event)}
                       onPointerDown={(event) => beginNodeReorder(event, node)}
                       onPointerMove={moveNodeReorder}
                       onPointerUp={endNodeReorder}
