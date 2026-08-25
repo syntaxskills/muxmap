@@ -179,6 +179,54 @@ test('runtime discovery snapshot is shared within the TTL and invalidated by ter
   }
 })
 
+test('attaching a tracked live session uses cached runtime discovery instead of exists', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-attach-cache-')))
+  const store = createStore(':memory:')
+  let existsReads = 0
+  let listReads = 0
+  const adapter = {
+    ...fakeTmux(),
+    exists(name: string) {
+      existsReads++
+      return this.live.has(name)
+    },
+    list() {
+      listReads++
+      return [...this.live]
+    },
+  }
+  const manager = createSessionManager(store, adapter, [directory], () => [])
+
+  try {
+    const node = store.createNode('default', {
+      parentId: 'workspace',
+      title: 'Cached attach',
+      type: 'terminal',
+      repoPath: directory,
+    })
+    const session = manager.attach(node.id)
+    assert.ok(existsReads >= 1)
+
+    existsReads = 0
+    const trusted = manager.attach(node.id)
+    assert.equal(trusted.id, session.id)
+    assert.equal(existsReads, 0)
+
+    manager.discoverySnapshot()
+    existsReads = 0
+    listReads = 0
+    const reattached = manager.attach(node.id)
+
+    assert.equal(reattached.id, session.id)
+    assert.equal(existsReads, 0)
+    assert.equal(listReads, 0)
+    assert.deepEqual(adapter.created, [session.runtimeName])
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('duplicate node labels allocate distinct tmux session names instead of sharing a runtime', () => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-duplicate-label-')))
   const store = createStore(':memory:')

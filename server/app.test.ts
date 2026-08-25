@@ -34,7 +34,7 @@ function fakeTmux(options: { currentWorkingDirectories?: Record<string, string> 
   }
 }
 
-function fakePtyFactory(record: { writes: string[]; resizes: number[][]; kills: number[]; starts?: number[][]; scrolls?: number[]; emitData?: (data: string) => void }): PtyFactory {
+function fakePtyFactory(record: { writes: string[]; resizes: number[][]; kills: number[]; starts?: number[][]; scrolls?: number[]; emitData?: (data: string) => void; autoReady?: boolean }): PtyFactory {
   return (_session, size) => {
     if (size) record.starts?.push([size.cols, size.rows])
     const dataListeners: Array<(data: string) => void> = []
@@ -42,7 +42,7 @@ function fakePtyFactory(record: { writes: string[]; resizes: number[][]; kills: 
       onData(listener) {
         dataListeners.push(listener)
         record.emitData = listener
-        listener('ready')
+        if (record.autoReady !== false) listener('ready')
       },
       onExit() {},
       write: (data) => { record.writes.push(data) },
@@ -592,8 +592,8 @@ test('websocket detaches safely and workspace refresh surfaces a missing tmux se
 
     assert.deepEqual(ptyRecord.writes, ['pwd\r'])
     assert.deepEqual(ptyRecord.scrolls, [-4])
-    assert.deepEqual(ptyRecord.starts, [[84, 27]])
-    assert.deepEqual(ptyRecord.resizes, [[120, 36]])
+    assert.deepEqual(ptyRecord.starts, [])
+    assert.deepEqual(ptyRecord.resizes, [])
     assert.equal(ptyRecord.kills.length, 1)
     assert.equal(tmux.stopped.length, 0)
     assert.equal(server.store.getSession(session.id)?.status, 'detached')
@@ -615,6 +615,63 @@ test('websocket detaches safely and workspace refresh surfaces a missing tmux se
     const workspace = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } })
     const graph = await workspace.json() as { sessions: Array<{ id: string; status: string }> }
     assert.equal(graph.sessions.find((item) => item.id === session.id)?.status, 'stopped')
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('websocket attaches at the current pane size and resizes after first output', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-ws-resize-')))
+  const tmux = fakeTmux()
+  const ptyRecord = { writes: [] as string[], resizes: [] as number[][], kills: [] as number[], starts: [] as number[][], autoReady: false, emitData: undefined as ((data: string) => void) | undefined }
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    tmux,
+    ptyFactory: fakePtyFactory(ptyRecord),
+    outputFlushIntervalMs: 1,
+    initialResizeDelayMs: 5,
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const auth = await fetch(`${base}/api/auth`)
+    const cookie = auth.headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const node = await fetch(`${base}/api/workspaces/default/nodes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ parentId: 'workspace', title: 'Heavy Claude', type: 'terminal', repoPath: root }),
+    }).then((response) => response.json()) as { id: string }
+    const { session } = await fetch(`${base}/api/nodes/${node.id}/session`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ backend: 'tmux', cwd: root }),
+    }).then((response) => response.json()) as { session: { id: string } }
+
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/sessions/${session.id}/attach?cols=84&rows=27`, {
+      headers: { cookie, origin: base },
+    })
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', resolve)
+      ws.once('error', reject)
+    })
+
+    assert.deepEqual(ptyRecord.starts, [])
+    ws.send(JSON.stringify({ type: 'resize', cols: 120, rows: 36 }))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.deepEqual(ptyRecord.resizes, [])
+
+    ptyRecord.emitData?.('buffered screen')
+    await eventually(() => ptyRecord.resizes.length === 1)
+    assert.deepEqual(ptyRecord.resizes, [[120, 36]])
+
+    ws.close()
+    await new Promise((resolve) => ws.once('close', resolve))
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })

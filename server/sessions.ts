@@ -40,6 +40,9 @@ export function createShortTtlCache<T>(load: () => T, ttlMs: number, clock: () =
       cached = { value, expiresAt: now + ttlMs }
       return value
     },
+    peek() {
+      return cached?.value
+    },
     invalidate() {
       cached = undefined
     },
@@ -313,6 +316,11 @@ export function createSessionManager(
       || runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped' && session.status !== 'suspended'
   }
 
+  function runtimeExistsInCachedSnapshot(session: TerminalSession) {
+    const snapshot = runtimeDiscovery.peek()
+    return snapshot ? runtimeExistsInSnapshot(session, snapshot.live) : undefined
+  }
+
   function canRecoverAgent(session: TerminalSession, agent: AgentActivity | undefined, exists: boolean) {
     return session.backend === 'tmux' && !exists && Boolean(agent && agent.kind !== 'ssh' && agentResumeCommand(agent))
   }
@@ -345,7 +353,6 @@ export function createSessionManager(
 
   return {
     attach(nodeId: string, requestedCwd?: string, requestedBackend = selectedDefaultBackend): TerminalSession {
-      invalidateRuntimeDiscovery()
       const node = store.getNode(nodeId)
       if (!node) throw new Error('Node not found')
       const cwd = safePath(requestedCwd ?? node.repoPath ?? allowedRoots[0], allowedRoots)
@@ -355,8 +362,12 @@ export function createSessionManager(
       const label = node.jiraKey ?? node.title.toLowerCase().replace(/\s+/g, '-')
       const names = existing ?? availableSessionNames(backend, node.workspaceId, label, node.id, adapter)
       const sessionId = existing?.id ?? `sess_${node.id}`
+      const cachedRuntimeExists = existing ? runtimeExistsInCachedSnapshot(existing) : undefined
+      const shouldCreate = existing
+        ? cachedRuntimeExists === false || (cachedRuntimeExists === undefined && ['stopped', 'suspended'].includes(existing.status))
+        : !adapter.exists(names.runtimeName)
 
-      if (!adapter.exists(names.runtimeName)) {
+      if (shouldCreate) {
         adapter.create(names.runtimeName, cwd, undefined, backend === 'tmux' ? contextEnv(nodeId, sessionId) : undefined)
         invalidateRuntimeDiscovery()
       }
@@ -411,6 +422,12 @@ export function createSessionManager(
     exists(session: TerminalSession) {
       return runtimeExists(session)
         || runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped' && session.status !== 'suspended'
+    },
+
+    canAttach(session: TerminalSession) {
+      if (['stopped', 'suspended'].includes(session.status)) return false
+      const cachedRuntimeExists = runtimeExistsInCachedSnapshot(session)
+      return cachedRuntimeExists ?? true
     },
 
     currentWorkingDirectory(id: string) {

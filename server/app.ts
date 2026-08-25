@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net'
 import { homedir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
-import { spawn as spawnPty } from 'node-pty'
+import { spawn as spawnPty, type IPtyForkOptions, type IWindowsPtyForkOptions } from 'node-pty'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { NodeStepDefinition, TerminalBackend, TerminalSession } from '../src/model.ts'
 import {
@@ -57,6 +57,7 @@ type ServerOptions = {
   outputFlushIntervalMs?: number
   attachmentsDirectory?: string
   nodeStepDefinitions?: NodeStepDefinition[]
+  initialResizeDelayMs?: number
 }
 
 const mimeTypes: Record<string, string> = {
@@ -115,13 +116,15 @@ export function tmuxPtyFallbackCommand(tmux: string, args: string[]) {
   return `exec ${[tmux, ...args].map(shellQuote).join(' ')}`
 }
 
-function spawnTmuxPty(tmux: string, args: string[], session: TerminalSession, size: TerminalSize) {
-  const options = {
+function spawnTmuxPty(tmux: string, args: string[], session: TerminalSession, size?: TerminalSize) {
+  const options: IPtyForkOptions = {
     name: 'xterm-256color',
-    cols: size.cols,
-    rows: size.rows,
     cwd: session.cwd,
     env: { ...defaultTmuxEnv(), TERM: 'xterm-256color' } as Record<string, string>,
+  }
+  if (size) {
+    options.cols = size.cols
+    options.rows = size.rows
   }
   try {
     return spawnPty(tmux, args, options)
@@ -131,16 +134,19 @@ function spawnTmuxPty(tmux: string, args: string[], session: TerminalSession, si
   }
 }
 
-export const defaultPtyFactory: PtyFactory = (session, size = { cols: 100, rows: 30 }) => {
+export const defaultPtyFactory: PtyFactory = (session, size) => {
   if (session.backend === 'zellij') {
-    const pty = spawnPty(zellijExecutable(), ['--config', zellijConfigPath(), 'attach', '--create', session.runtimeName], {
+    const options: IWindowsPtyForkOptions = {
       name: 'xterm-256color',
-      cols: size.cols,
-      rows: size.rows,
       cwd: session.cwd,
       env: { ...defaultZellijEnv(), TERM: 'xterm-256color' } as Record<string, string>,
       useConptyDll: process.platform === 'win32',
-    })
+    }
+    if (size) {
+      options.cols = size.cols
+      options.rows = size.rows
+    }
+    const pty = spawnPty(zellijExecutable(), ['--config', zellijConfigPath(), 'attach', '--create', session.runtimeName], options)
     return {
       onData: (listener) => { pty.onData(listener) },
       onExit: (listener) => { pty.onExit(listener) },
@@ -329,6 +335,7 @@ export function createMuxMapServer(options: ServerOptions) {
   const lastActivityWrites = new Map<string, number>()
   const activityWriteIntervalMs = options.activityWriteIntervalMs ?? 5_000
   const outputFlushIntervalMs = options.outputFlushIntervalMs ?? 16
+  const initialResizeDelayMs = options.initialResizeDelayMs ?? 300
   const attachmentsDirectory = attachmentDirectory(options.databasePath, options.attachmentsDirectory)
   let closing = false
 
@@ -702,7 +709,7 @@ export function createMuxMapServer(options: ServerOptions) {
     if (cookieValue(request, 'muxmap_token') !== token) return rejectUpgrade(socket, 401, 'Unauthorized')
     if (!isAllowedOrigin(request, allowedOrigins)) return rejectUpgrade(socket, 403, 'Forbidden')
     const session = store.getSession(match[1])
-    if (!session || ['stopped', 'suspended'].includes(session.status) || !sessions.exists(session)) {
+    if (!session || !sessions.canAttach(session)) {
       return rejectUpgrade(socket, 409, 'Session Not Running')
     }
 
@@ -713,14 +720,15 @@ export function createMuxMapServer(options: ServerOptions) {
 
   webSockets.on('connection', (webSocket: WebSocket, request: IncomingMessage, session: TerminalSession) => {
     let pty: PtyHandle
+    let requestedSize: TerminalSize | undefined
     try {
       const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`)
       const cols = Number(url.searchParams.get('cols'))
       const rows = Number(url.searchParams.get('rows'))
-      const size = Number.isInteger(cols) && Number.isInteger(rows) && cols >= 2 && rows >= 1 && cols <= 500 && rows <= 200
+      requestedSize = Number.isInteger(cols) && Number.isInteger(rows) && cols >= 2 && rows >= 1 && cols <= 500 && rows <= 200
         ? { cols, rows }
         : undefined
-      pty = ptyFactory(session, size)
+      pty = ptyFactory(session)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to start terminal'
       store.updateSessionStatus(session.id, 'error')
@@ -739,12 +747,24 @@ export function createMuxMapServer(options: ServerOptions) {
     }
     let outputBuffer = ''
     let outputTimer: ReturnType<typeof setTimeout> | undefined
+    let initialResizeTimer: ReturnType<typeof setTimeout> | undefined
+    let initialResizeApplied = false
+    const applyInitialResizeSoon = () => {
+      if (initialResizeApplied || initialResizeTimer || !requestedSize) return
+      initialResizeTimer = setTimeout(() => {
+        initialResizeTimer = undefined
+        if (!requestedSize) return
+        initialResizeApplied = true
+        pty.resize(requestedSize.cols, requestedSize.rows)
+      }, initialResizeDelayMs)
+    }
     const flushOutput = () => {
       outputTimer = undefined
       if (!outputBuffer) return
       const data = outputBuffer
       outputBuffer = ''
       send({ type: 'output', data })
+      applyInitialResizeSoon()
     }
     const queueOutput = (data: string) => {
       outputBuffer += data
@@ -779,7 +799,8 @@ export function createMuxMapServer(options: ServerOptions) {
           const cols = Number(message.cols)
           const rows = Number(message.rows)
           if (Number.isInteger(cols) && Number.isInteger(rows) && cols >= 2 && rows >= 1 && cols <= 500 && rows <= 200) {
-            pty.resize(cols, rows)
+            requestedSize = { cols, rows }
+            if (initialResizeApplied) pty.resize(cols, rows)
           }
         } else if (message.type === 'ping') {
           send({ type: 'status', status: 'running' })
@@ -791,6 +812,7 @@ export function createMuxMapServer(options: ServerOptions) {
 
     webSocket.on('close', () => {
       if (outputTimer) clearTimeout(outputTimer)
+      if (initialResizeTimer) clearTimeout(initialResizeTimer)
       pty.kill()
       handles.delete(pty)
       if (handles.size === 0) ptys.delete(session.id)
