@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import test from 'node:test'
-import { agentResumeCommand, createSessionManager, defaultTerminalBackend, parseZellijSessions, tmuxExecutable, tmuxNewSessionArgs, type MultiplexerAdapter, type TmuxAdapter } from './sessions.ts'
+import { agentResumeCommand, createSessionManager, createShortTtlCache, defaultTerminalBackend, parseZellijSessions, tmuxExecutable, tmuxNewSessionArgs, type MultiplexerAdapter, type TmuxAdapter } from './sessions.ts'
 import { createStore } from './store.ts'
 
 function fakeTmux(): TmuxAdapter & { created: string[]; createCommands: Array<string[] | undefined>; createEnvs: Array<Record<string, string> | undefined>; stopped: string[]; live: Set<string> } {
@@ -28,6 +28,32 @@ function fakeTmux(): TmuxAdapter & { created: string[]; createCommands: Array<st
     },
   }
 }
+
+test('short TTL cache reuses values until expiry and refreshes after', () => {
+  let now = 1000
+  let loads = 0
+  const cache = createShortTtlCache(() => {
+    loads++
+    return { value: loads }
+  }, 2500, () => now)
+
+  assert.deepEqual(cache.get(), { value: 1 })
+  now += 2499
+  assert.deepEqual(cache.get(), { value: 1 })
+  now += 1
+  assert.deepEqual(cache.get(), { value: 2 })
+  assert.equal(loads, 2)
+})
+
+test('short TTL cache invalidates immediately on mutation', () => {
+  let loads = 0
+  const cache = createShortTtlCache(() => ++loads, 2500, () => 1000)
+
+  assert.equal(cache.get(), 1)
+  assert.equal(cache.get(), 1)
+  cache.invalidate()
+  assert.equal(cache.get(), 2)
+})
 
 test('attaching reuses a deterministic tmux session and stopping is explicit', () => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-session-')))
@@ -99,6 +125,54 @@ test('new tmux node sessions receive MuxMap MCP context environment and reattach
       '-e', 'MUXMAP_URL=http://127.0.0.1:61234',
     ])
     assert.equal(adapter.created.length, 1)
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('runtime discovery snapshot is shared within the TTL and invalidated by terminal mutations', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-discovery-cache-')))
+  const store = createStore(':memory:')
+  let processReads = 0
+  let paneReads = 0
+  let listReads = 0
+  const adapter = {
+    ...fakeTmux(),
+    list() {
+      listReads++
+      return [...this.live]
+    },
+    panes() {
+      paneReads++
+      return [...this.live].map((runtimeName, index) => ({ runtimeName, paneId: `%${index + 1}`, pid: 1000 + index }))
+    },
+  }
+  const manager = createSessionManager(store, adapter, [directory], () => {
+    processReads++
+    return []
+  })
+
+  try {
+    manager.discoverySnapshot()
+    manager.discoverySnapshot()
+
+    assert.equal(processReads, 1)
+    assert.equal(paneReads, 1)
+    assert.equal(listReads, 1)
+
+    const node = store.createNode('default', {
+      parentId: 'workspace',
+      title: 'Cached runtime',
+      type: 'terminal',
+      repoPath: directory,
+    })
+    manager.attach(node.id)
+    manager.discoverySnapshot()
+
+    assert.equal(processReads, 2)
+    assert.equal(paneReads, 2)
+    assert.equal(listReads, 2)
   } finally {
     store.close()
     rmSync(directory, { recursive: true, force: true })

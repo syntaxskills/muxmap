@@ -24,6 +24,27 @@ export type MultiplexerAdapter = {
 export type TmuxAdapter = Omit<MultiplexerAdapter, 'backend'> & { backend?: 'tmux' }
 export type MultiplexerAdapters = Partial<Record<TerminalBackend, MultiplexerAdapter>>
 export type AgentLocator = { backend: 'tmux'; paneId: string } | { backend: 'zellij'; runtimeName: string; paneId?: string }
+export type RuntimeDiscoverySnapshot = {
+  inventory: Map<string, AgentKind>
+  selfHosting: Set<string>
+  live: Map<TerminalBackend, Set<string>>
+}
+
+export function createShortTtlCache<T>(load: () => T, ttlMs: number, clock: () => number = () => Date.now()) {
+  let cached: { value: T; expiresAt: number } | undefined
+  return {
+    get() {
+      const now = clock()
+      if (cached && now < cached.expiresAt) return cached.value
+      const value = load()
+      cached = { value, expiresAt: now + ttlMs }
+      return value
+    },
+    invalidate() {
+      cached = undefined
+    },
+  }
+}
 
 export function defaultTerminalBackend(platform: RuntimePlatform = process.platform): TerminalBackend {
   return platform === 'win32' ? 'zellij' : 'tmux'
@@ -232,19 +253,40 @@ export function createSessionManager(
     return adapter
   }
 
-  function agentInventory() {
+  function uncachedRuntimeSnapshot() {
+    return new Map(Object.values(adapters)
+      .filter((adapter): adapter is MultiplexerAdapter => Boolean(adapter))
+      .map((adapter) => [adapter.backend, new Set(adapter.list())]))
+  }
+
+  function buildRuntimeDiscoverySnapshot(): RuntimeDiscoverySnapshot {
     const processes = processReader()
-    return new Map(Object.values(adapters).flatMap((adapter) => (adapter?.panes?.() ?? []).flatMap((pane) => {
+    const panes = Object.values(adapters).flatMap((adapter) => adapter
+      ? (adapter.panes?.() ?? []).map((pane) => ({ ...pane, backend: adapter.backend }))
+      : [])
+    const inventory = new Map(panes.flatMap((pane) => {
       const kind = detectAgentKind(pane.pid, processes)
       return kind ? [[pane.runtimeName, kind] as const] : []
-    })))
+    }))
+    const selfHosting = new Set(panes
+      .filter((pane) => pane.runtimeName.startsWith('muxmap') && detectMuxMapHost(pane.pid, processes))
+      .map((pane) => `${pane.backend}:${pane.runtimeName}`))
+    return { inventory, selfHosting, live: uncachedRuntimeSnapshot() }
+  }
+
+  const runtimeDiscovery = createShortTtlCache(buildRuntimeDiscoverySnapshot, 2500)
+  const invalidateRuntimeDiscovery = () => runtimeDiscovery.invalidate()
+
+  function discoverySnapshot() {
+    return runtimeDiscovery.get()
+  }
+
+  function agentInventory() {
+    return discoverySnapshot().inventory
   }
 
   function selfHostingInventory() {
-    const processes = processReader()
-    return new Set(Object.values(adapters).flatMap((adapter) => adapter?.panes?.()
-      ?.filter((pane) => pane.runtimeName.startsWith('muxmap') && detectMuxMapHost(pane.pid, processes))
-      .map((pane) => `${adapter.backend}:${pane.runtimeName}`) ?? []))
+    return discoverySnapshot().selfHosting
   }
 
   function agentFor(runtimeName: string, inventory: Map<string, AgentKind>): AgentActivity | undefined {
@@ -263,9 +305,7 @@ export function createSessionManager(
   }
 
   function runtimeSnapshot() {
-    return new Map(Object.values(adapters)
-      .filter((adapter): adapter is MultiplexerAdapter => Boolean(adapter))
-      .map((adapter) => [adapter.backend, new Set(adapter.list())]))
+    return discoverySnapshot().live
   }
 
   function runtimeExistsInSnapshot(session: TerminalSession, live: Map<TerminalBackend, Set<string>>) {
@@ -305,6 +345,7 @@ export function createSessionManager(
 
   return {
     attach(nodeId: string, requestedCwd?: string, requestedBackend = selectedDefaultBackend): TerminalSession {
+      invalidateRuntimeDiscovery()
       const node = store.getNode(nodeId)
       if (!node) throw new Error('Node not found')
       const cwd = safePath(requestedCwd ?? node.repoPath ?? allowedRoots[0], allowedRoots)
@@ -315,7 +356,10 @@ export function createSessionManager(
       const names = existing ?? availableSessionNames(backend, node.workspaceId, label, node.id, adapter)
       const sessionId = existing?.id ?? `sess_${node.id}`
 
-      if (!adapter.exists(names.runtimeName)) adapter.create(names.runtimeName, cwd, undefined, backend === 'tmux' ? contextEnv(nodeId, sessionId) : undefined)
+      if (!adapter.exists(names.runtimeName)) {
+        adapter.create(names.runtimeName, cwd, undefined, backend === 'tmux' ? contextEnv(nodeId, sessionId) : undefined)
+        invalidateRuntimeDiscovery()
+      }
 
       return store.upsertSession({
         id: sessionId,
@@ -330,6 +374,7 @@ export function createSessionManager(
     },
 
     startNew(nodeId: string, requestedCwd?: string, requestedBackend = selectedDefaultBackend): TerminalSession {
+      invalidateRuntimeDiscovery()
       const node = store.getNode(nodeId)
       if (!node) throw new Error('Node not found')
       const cwd = safePath(requestedCwd ?? node.repoPath ?? allowedRoots[0], allowedRoots)
@@ -342,8 +387,14 @@ export function createSessionManager(
       const sessionId = existing?.id ?? `sess_${node.id}`
 
       const existingAdapter = existing && existing.status !== 'stopped' && existing.status !== 'suspended' ? adapterFor(existing.backend) : undefined
-      if (existing && existing.status !== 'stopped' && existingAdapter?.exists(existing.runtimeName)) existingAdapter.stop(existing.runtimeName)
-      if (!adapter.exists(names.runtimeName)) adapter.create(names.runtimeName, cwd, undefined, backend === 'tmux' ? contextEnv(nodeId, sessionId) : undefined)
+      if (existing && existing.status !== 'stopped' && existingAdapter?.exists(existing.runtimeName)) {
+        existingAdapter.stop(existing.runtimeName)
+        invalidateRuntimeDiscovery()
+      }
+      if (!adapter.exists(names.runtimeName)) {
+        adapter.create(names.runtimeName, cwd, undefined, backend === 'tmux' ? contextEnv(nodeId, sessionId) : undefined)
+        invalidateRuntimeDiscovery()
+      }
 
       return store.upsertSession({
         id: sessionId,
@@ -376,28 +427,38 @@ export function createSessionManager(
     },
 
     markRunning(id: string) {
+      invalidateRuntimeDiscovery()
       return store.updateSessionStatus(id, 'running')
     },
 
     detach(id: string) {
+      invalidateRuntimeDiscovery()
       return store.updateSessionStatus(id, 'detached')
     },
 
     stop(id: string) {
+      invalidateRuntimeDiscovery()
       const session = store.getSession(id)
       if (!session) throw new Error('Session not found')
       assertNotSelfHosting(session.backend, session.runtimeName)
       const adapter = adapterFor(session.backend)
-      if (adapter.exists(session.runtimeName) || runtimePlatform === 'win32' && session.backend === 'zellij') adapter.stop(session.runtimeName)
+      if (adapter.exists(session.runtimeName) || runtimePlatform === 'win32' && session.backend === 'zellij') {
+        adapter.stop(session.runtimeName)
+        invalidateRuntimeDiscovery()
+      }
       return store.updateSessionStatus(id, 'stopped')
     },
 
     suspend(id: string) {
+      invalidateRuntimeDiscovery()
       const session = store.getSession(id)
       if (!session) throw new Error('Session not found')
       assertNotSelfHosting(session.backend, session.runtimeName)
       const adapter = adapterFor(session.backend)
-      if (adapter.exists(session.runtimeName) || runtimePlatform === 'win32' && session.backend === 'zellij') adapter.stop(session.runtimeName)
+      if (adapter.exists(session.runtimeName) || runtimePlatform === 'win32' && session.backend === 'zellij') {
+        adapter.stop(session.runtimeName)
+        invalidateRuntimeDiscovery()
+      }
       return store.updateSessionStatus(id, 'suspended')
     },
 
@@ -406,6 +467,7 @@ export function createSessionManager(
     },
 
     recoverAgent(id: string, requestedKind?: Exclude<AgentKind, 'ssh'>) {
+      invalidateRuntimeDiscovery()
       const session = store.getSession(id)
       if (!session) throw new Error('Session not found')
       const activity = store.getAgentActivity(session.runtimeName)
@@ -415,7 +477,10 @@ export function createSessionManager(
       if (!command) throw new Error(`${activity.kind} session id is not available`)
       if (session.backend !== 'tmux') throw new Error('Agent recovery currently requires a tmux-backed session')
       const adapter = adapterFor(session.backend)
-      if (!adapter.exists(session.runtimeName)) adapter.create(session.runtimeName, session.cwd, command, contextEnv(session.nodeId, session.id))
+      if (!adapter.exists(session.runtimeName)) {
+        adapter.create(session.runtimeName, session.cwd, command, contextEnv(session.nodeId, session.id))
+        invalidateRuntimeDiscovery()
+      }
       return store.upsertSession({
         ...session,
         status: 'running',
@@ -424,10 +489,14 @@ export function createSessionManager(
     },
 
     stopRuntime(backend: TerminalBackend, runtimeName: string) {
+      invalidateRuntimeDiscovery()
       if (!runtimeName.startsWith('muxmap')) throw new Error('Only muxmap sessions can be managed')
       assertNotSelfHosting(backend, runtimeName)
       const adapter = adapterFor(backend)
-      if (adapter.exists(runtimeName) || runtimePlatform === 'win32' && backend === 'zellij') adapter.stop(runtimeName)
+      if (adapter.exists(runtimeName) || runtimePlatform === 'win32' && backend === 'zellij') {
+        adapter.stop(runtimeName)
+        invalidateRuntimeDiscovery()
+      }
       const tracked = store.getSessionByRuntimeName(runtimeName)
       if (tracked?.backend === backend) store.updateSessionStatus(tracked.id, 'stopped')
     },
@@ -443,9 +512,8 @@ export function createSessionManager(
       })
     },
 
-    listOrphans(inventory = agentInventory(), live = runtimeSnapshot()) {
+    listOrphans(inventory = agentInventory(), live = runtimeSnapshot(), selfHosting = selfHostingInventory()) {
       const tracked = new Set(store.listSessions().map((session) => `${session.backend}:${session.runtimeName}`))
-      const selfHosting = selfHostingInventory()
       return Object.values(adapters).filter((adapter): adapter is MultiplexerAdapter => Boolean(adapter)).flatMap((adapter) => [...(live.get(adapter.backend) ?? [])]
         .filter((runtimeName) => runtimeName.startsWith('muxmap') && !tracked.has(`${adapter.backend}:${runtimeName}`) && !selfHosting.has(`${adapter.backend}:${runtimeName}`))
         .map((runtimeName) => {
@@ -455,8 +523,7 @@ export function createSessionManager(
         .sort((a, b) => a.runtimeName.localeCompare(b.runtimeName))
     },
 
-    listSelfHosting(inventory = agentInventory(), live = runtimeSnapshot()) {
-      const selfHosting = selfHostingInventory()
+    listSelfHosting(inventory = agentInventory(), live = runtimeSnapshot(), selfHosting = selfHostingInventory()) {
       return Object.values(adapters).filter((adapter): adapter is MultiplexerAdapter => Boolean(adapter)).flatMap((adapter) => [...(live.get(adapter.backend) ?? [])]
         .filter((runtimeName) => selfHosting.has(`${adapter.backend}:${runtimeName}`))
         .map((runtimeName) => {
@@ -469,6 +536,10 @@ export function createSessionManager(
     inventory() {
       return agentInventory()
     },
+
+    discoverySnapshot,
+
+    invalidateRuntimeDiscovery,
 
     autoSuspend(maxActive: number, keepSessionId?: string) {
       const limit = Math.max(1, Math.floor(maxActive))
@@ -539,6 +610,7 @@ export function createSessionManager(
     },
 
     adopt(nodeId: string, backend: TerminalBackend, runtimeName: string) {
+      invalidateRuntimeDiscovery()
       const adapter = adapterFor(backend)
       if (!runtimeName.startsWith('muxmap') || !adapter.exists(runtimeName)) throw new Error('MuxMap terminal session not found')
       assertNotSelfHosting(backend, runtimeName)
@@ -560,8 +632,7 @@ export function createSessionManager(
       })
     },
 
-    reconcile(activeSessionIds = new Set<string>()) {
-      const live = runtimeSnapshot()
+    reconcile(activeSessionIds = new Set<string>(), live = runtimeSnapshot()) {
       for (const session of store.listSessions()) {
         const running = live.get(session.backend)?.has(session.runtimeName)
         const status = running
