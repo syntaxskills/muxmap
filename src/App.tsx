@@ -6,6 +6,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -21,7 +22,7 @@ import { readViewState, writeViewState } from './viewState.ts'
 import { agentStatusText } from './agentStatus.ts'
 import { IN_PAGE_NOTIFICATION_LIFETIME_MS, mergeAgentNotifications, routeAgentNotifications, scanAgentNotifications, type AgentNotification } from './agentNotifications.ts'
 import { dragIntent, dropPositionAt, pointerReleaseIntent } from './nodeReorderInteraction.ts'
-import { contextMenuConfirmationText, duplicateNodeInput, type ContextMenuConfirmation } from './nodeContextMenu.ts'
+import { clampMenuPosition, contextMenuConfirmationText, duplicateNodeInput, type ContextMenuConfirmation } from './nodeContextMenu.ts'
 import { AgentIcon } from './AgentIcon.tsx'
 import { SettingsPanel } from './SettingsPanel.tsx'
 import { ArchivePanel } from './ArchivePanel.tsx'
@@ -40,7 +41,7 @@ import { clearHoveredNodeAfterGrace, containsPoint, inflateRect, NODE_HOVER_LEAV
 import { defaultNodeStepDefinitions, nodeStepperModel, nodeStepSummary, type NodeStepperItem } from './nodeSteps.ts'
 import { parseWorkspacePayloadIfChanged } from './workspacePolling.ts'
 import { ArchiveIcon, BoxIcon, CheckboxIcon, CheckCircledIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, DrawingPinIcon, EyeOpenIcon, GearIcon, Link2Icon, OpenInNewWindowIcon, PauseIcon, Pencil2Icon, PlayIcon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
-import { autoUpdate, flip, offset, safePolygon, shift, useDismiss, useFloating, useFocus, useHover, useInteractions } from '@floating-ui/react'
+import { autoUpdate, flip, offset, safePolygon, useDismiss, useFloating, useFocus, useHover, useInteractions } from '@floating-ui/react'
 import {
   closeTerminal,
   floatTerminal,
@@ -207,6 +208,7 @@ function App() {
   const [busy, setBusy] = useState(false)
   const workspaceRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
   const nodeElementRefs = useRef(new Map<string, HTMLElement>())
   const searchRef = useRef<HTMLInputElement>(null)
   const centeredOnce = useRef(false)
@@ -224,15 +226,9 @@ function App() {
   const settingsPlatformRef = useRef(clientPlatform)
   const keyboardOwnerRef = useRef<KeyboardOwner>('mindmap')
   const workspacePayloadRef = useRef<string | null>(demoMode ? JSON.stringify(demoWorkspaceGraph) : null)
+  const [contextMenuPosition, setContextMenuPosition] = useState<{ nodeId: string; rawX: number; rawY: number; x: number; y: number } | null>(null)
   const { rightPanel, terminalSessionId, terminalFloating } = surface
   const inPageNotificationsEnabled = notificationDeliveryTargets(settings['notifications.delivery']).inPage
-  const contextMenuFloating = useFloating({
-    open: Boolean(contextMenu),
-    placement: 'bottom-start',
-    strategy: 'fixed',
-    middleware: [flip(), shift({ padding: 8 })],
-    whileElementsMounted: autoUpdate,
-  })
 
   const loadWorkspace = useCallback(async () => {
     setError('')
@@ -263,21 +259,25 @@ function App() {
     workspacePayloadRef.current = null
   }, [demoMode])
 
-  useEffect(() => {
-    if (!contextMenu) return
-    contextMenuFloating.refs.setPositionReference({
-      getBoundingClientRect: () => ({
-        x: contextMenu.x,
-        y: contextMenu.y,
-        top: contextMenu.y,
-        right: contextMenu.x,
-        bottom: contextMenu.y,
-        left: contextMenu.x,
-        width: 0,
-        height: 0,
-      }),
+  useLayoutEffect(() => {
+    if (!contextMenu) {
+      setContextMenuPosition(null)
+      return
+    }
+    const menu = contextMenuRef.current
+    if (!menu) return
+    const next = clampMenuPosition(contextMenu.x, contextMenu.y, menu.offsetWidth, menu.offsetHeight, window.innerWidth, window.innerHeight)
+    setContextMenuPosition((current) => {
+      if (
+        current?.nodeId === contextMenu.nodeId
+        && current.rawX === contextMenu.x
+        && current.rawY === contextMenu.y
+        && current.x === next.x
+        && current.y === next.y
+      ) return current
+      return { nodeId: contextMenu.nodeId, rawX: contextMenu.x, rawY: contextMenu.y, x: next.x, y: next.y }
     })
-  }, [contextMenu, contextMenuFloating.refs])
+  }, [contextMenu])
 
   useEffect(() => { void loadWorkspace() }, [loadWorkspace])
   useEffect(() => () => {
@@ -1504,8 +1504,11 @@ function App() {
             const agentSession = graph.sessions.find((item) => item.nodeId === node.id && item.agent && item.agent.kind !== 'ssh')
             const confirmingArchive = contextMenu.confirm === 'archive'
             const confirmingDelete = contextMenu.confirm === 'delete'
+            const menuPosition = contextMenuPosition?.nodeId === node.id && contextMenuPosition.rawX === contextMenu.x && contextMenuPosition.rawY === contextMenu.y
+              ? contextMenuPosition
+              : contextMenu
             return (
-              <div className="node-context-menu" role="menu" aria-label={`Actions for ${node.title}`} ref={contextMenuFloating.refs.setFloating} style={contextMenuFloating.floatingStyles} onContextMenu={(event) => event.preventDefault()}>
+              <div className="node-context-menu" role="menu" aria-label={`Actions for ${node.title}`} ref={contextMenuRef} style={{ left: menuPosition.x, top: menuPosition.y }} onContextMenu={(event) => event.preventDefault()}>
                 <div className="node-context-menu-title"><span>{node.title}</span><small>{typeLabels[node.type]}</small></div>
                 <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void addChild(node) }}><PlusIcon />Add child</button>
                 <button type="button" role="menuitem" onClick={() => { setContextMenu(null); startRename(node) }}><Pencil2Icon />Rename</button>

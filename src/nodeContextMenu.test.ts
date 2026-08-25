@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { contextMenuConfirmationText, contextMenuPosition, duplicateNodeInput } from './nodeContextMenu.ts'
+import { clampMenuPosition, contextMenuConfirmationText, duplicateNodeInput } from './nodeContextMenu.ts'
 import type { WorkNode } from './model.ts'
 
 const node: WorkNode = {
@@ -34,17 +34,33 @@ test('duplicating a node copies editable metadata but no identity or runtime sta
   assert.equal(duplicateNodeInput({ ...node, parentId: null }), null)
 })
 
-test('context menus stay inside the viewport margin', () => {
-  assert.deepEqual(contextMenuPosition(900, 700, 1000, 800), { x: 792, y: 572 })
-  assert.deepEqual(contextMenuPosition(-20, -30, 1000, 800), { x: 8, y: 8 })
+test('context menu clamp keeps a fitting menu at the click point', () => {
+  assert.deepEqual(clampMenuPosition(120, 140, 200, 220, 1000, 800), { x: 120, y: 140 })
 })
 
-test('node context menu is positioned by Floating UI from the click point', () => {
+test('context menu clamp flips upward when it overflows the bottom edge', () => {
+  assert.deepEqual(clampMenuPosition(120, 700, 200, 220, 1000, 800), { x: 120, y: 480 })
+})
+
+test('context menu clamp moves left when it overflows the right edge', () => {
+  assert.deepEqual(clampMenuPosition(900, 140, 200, 220, 1000, 800), { x: 792, y: 140 })
+})
+
+test('context menu clamp adjusts both axes near the bottom-right corner', () => {
+  assert.deepEqual(clampMenuPosition(980, 790, 200, 220, 1000, 800), { x: 792, y: 570 })
+})
+
+test('context menu clamp never returns negative coordinates', () => {
+  assert.deepEqual(clampMenuPosition(6, 12, 200, 220, 160, 180), { x: 8, y: 8 })
+})
+
+test('node context menu uses measured fixed positioning instead of Floating UI', () => {
   const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
-  assert.match(app, /useFloating\(\{[\s\S]*placement:\s*'bottom-start'[\s\S]*shift\(\{\s*padding:\s*8\s*\}\)/)
-  assert.match(app, /setPositionReference\(\{[\s\S]*getBoundingClientRect/)
-  assert.match(app, /ref=\{contextMenuFloating\.refs\.setFloating\}/)
-  assert.doesNotMatch(app, /style=\{\{ left: contextMenu\.x, top: contextMenu\.y \}\}/)
+  assert.match(app, /useLayoutEffect\(\(\) => \{[\s\S]*clampMenuPosition/)
+  assert.match(app, /ref=\{contextMenuRef\}/)
+  assert.match(app, /style=\{\{ left: menuPosition\.x, top: menuPosition\.y \}\}/)
+  assert.doesNotMatch(app, /contextMenuFloating/)
+  assert.doesNotMatch(app, /setPositionReference/)
 })
 
 test('context menu destructive actions confirm in place', () => {

@@ -1,14 +1,22 @@
 import type { WorkNode } from './model.ts'
 
-const MENU_WIDTH = 200
-const MENU_HEIGHT = 220
-const VIEWPORT_MARGIN = 8
 export type ContextMenuConfirmation = 'archive' | 'delete'
 
-export function contextMenuPosition(x: number, y: number, viewportWidth: number, viewportHeight: number) {
+export function clampMenuPosition(
+  x: number,
+  y: number,
+  menuWidth: number,
+  menuHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  padding = 8,
+) {
+  const maxX = Math.max(padding, viewportWidth - menuWidth - padding)
+  const maxY = Math.max(padding, viewportHeight - menuHeight - padding)
+  const preferredY = y + menuHeight > viewportHeight - padding ? y - menuHeight : y
   return {
-    x: Math.max(VIEWPORT_MARGIN, Math.min(x, viewportWidth - MENU_WIDTH - VIEWPORT_MARGIN)),
-    y: Math.max(VIEWPORT_MARGIN, Math.min(y, viewportHeight - MENU_HEIGHT - VIEWPORT_MARGIN)),
+    x: Math.max(padding, Math.min(x, maxX)),
+    y: Math.max(padding, Math.min(preferredY, maxY)),
   }
 }
 
