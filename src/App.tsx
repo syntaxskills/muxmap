@@ -19,7 +19,7 @@ import type { NodeStepDefinition, NodeType, TerminalBackend, TerminalSession, Wo
 import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { normalizeTerminalOpacity, normalizeTerminalSplit } from './terminalInteraction.ts'
 import { readViewState, writeViewState } from './viewState.ts'
-import { agentStatusText } from './agentStatus.ts'
+import { agentStatusText, agentStatusTooltip } from './agentStatus.ts'
 import { IN_PAGE_NOTIFICATION_LIFETIME_MS, mergeAgentNotifications, routeAgentNotifications, scanAgentNotifications, type AgentNotification } from './agentNotifications.ts'
 import { dragIntent, dropPositionAt, pointerReleaseIntent } from './nodeReorderInteraction.ts'
 import { clampMenuPosition, contextMenuConfirmationText, duplicateNodeInput, type ContextMenuConfirmation } from './nodeContextMenu.ts'
@@ -55,7 +55,7 @@ import { NODE_WIDTH } from './nodeDimensions.ts'
 const NODE_HEIGHT = 42
 const WORKSPACE_POLL_MS = 5000
 type NodePatch = Partial<Omit<WorkNode, 'doneAt'>> & { doneAt?: string | null }
-type AgentStatusOverride = 'working' | 'delegated' | 'completed' | 'read'
+type AgentStatusOverride = 'working' | 'delegated' | 'standby' | 'completed' | 'read'
 const TerminalPanel = lazy(() => import('./TerminalPanel.tsx'))
 
 const typeLabels: Record<NodeType, string> = {
@@ -129,6 +129,7 @@ function AgentStatusSubmenu({ nodeTitle, sessionId, onSetStatus }: AgentStatusSu
       >
         <button type="button" role="menuitem" onClick={() => void onSetStatus(sessionId, 'working')}><PlayIcon />Working</button>
         <button type="button" role="menuitem" onClick={() => void onSetStatus(sessionId, 'delegated')}><GearIcon />Background</button>
+        <button type="button" role="menuitem" onClick={() => void onSetStatus(sessionId, 'standby')}><PauseIcon />Waiting on you</button>
         <button type="button" role="menuitem" onClick={() => void onSetStatus(sessionId, 'completed')}><CheckCircledIcon />Completed</button>
         <button type="button" role="menuitem" onClick={() => void onSetStatus(sessionId, 'read')}><EyeOpenIcon />Read</button>
       </div>
@@ -428,7 +429,7 @@ function App() {
     if (restored.nodeId !== selectedId) {
       setSelectedId(restored.nodeId)
     }
-    if (restored.agent?.state === 'completed') {
+    if (restored.agent && ['completed', 'standby'].includes(restored.agent.state)) {
       setGraph((current) => current ? {
         ...current,
         sessions: current.sessions.map((item) => item.id === restored.id && item.agent ? { ...item, agent: { ...item.agent, state: 'read' } } : item),
@@ -1504,7 +1505,7 @@ function App() {
                               {node.jiraKey && <span><b>Ticket</b><span title={node.jiraKey}>{node.jiraKey}</span></span>}
                               {node.repoPath && <span className="is-wide is-path"><b>Path</b><code title={node.repoPath}>{compactPath(node.repoPath)}</code></span>}
                               {node.note && <span className="is-wide is-note"><b>Note</b><em title={node.note}>{node.note}</em></span>}
-                              {visibleAgent && <span className="is-wide"><b>Agent</b><span title={agentStatusText(visibleAgent)}>{agentStatusText(visibleAgent)}{nodeSession && activityTimestamp ? ` · ${activityAge === 'NOW' ? activityAge : `${activityAge} ago`}` : ''}</span></span>}
+                              {visibleAgent && <span className="is-wide"><b>Agent</b><span title={agentStatusTooltip(visibleAgent)}>{agentStatusText(visibleAgent)}{nodeSession && activityTimestamp ? ` · ${activityAge === 'NOW' ? activityAge : `${activityAge} ago`}` : ''}</span></span>}
                               {nodeSession && !visibleAgent && <span><b>Activity</b><time dateTime={activityTimestamp}>{activityAge === 'NOW' ? activityAge : `${activityAge} ago`}</time></span>}
                               {stepSummary && <span className="is-wide node-step-summary"><b>Steps</b><span title={`${stepSummary.completed}/${stepSummary.total} · ${stepSummary.label}`}><i aria-hidden="true">{stepSummary.dots}</i>{stepSummary.label}</span></span>}
                               {archivedChildCount > 0 && <span><b>Archived</b><span>{archivedChildCount} {archivedChildCount === 1 ? 'child' : 'children'}</span></span>}
@@ -1513,7 +1514,7 @@ function App() {
                           )}
                         </span>
                         {childCount > 0 && <span className="child-count">{collapsed.has(node.id) ? '+' : childCount}</span>}
-                        {nodeSession && <span className="node-runtime" title={`Last activity ${new Date(activityTimestamp!).toLocaleString()}`}><time className="node-last-activity" dateTime={activityTimestamp}>{activityAge}</time><span className={`terminal-badge is-${nodeSession.status} ${badgeAgent ? `is-${badgeAgent.state}` : ''}`} title={badgeAgent ? agentStatusText(badgeAgent) : nodeSession.runtimeExists === false ? 'Terminal runtime missing' : `Terminal ${nodeSession.status}`}>{badgeAgent ? <AgentIcon kind={badgeAgent.kind} /> : '>_'}</span></span>}
+                        {nodeSession && <span className="node-runtime" title={`Last activity ${new Date(activityTimestamp!).toLocaleString()}`}><time className="node-last-activity" dateTime={activityTimestamp}>{activityAge}</time><span className={`terminal-badge is-${nodeSession.status} ${badgeAgent ? `is-${badgeAgent.state}` : ''}`} title={badgeAgent ? agentStatusTooltip(badgeAgent) : nodeSession.runtimeExists === false ? 'Terminal runtime missing' : `Terminal ${nodeSession.status}`}>{badgeAgent ? <AgentIcon kind={badgeAgent.kind} /> : '>_'}</span></span>}
                       </button>
                       {hasOpenTodo && <span className="node-todo-marker" aria-label="Todo open" title="Todo" />}
                       {channelNodeIds.has(node.id) && <span className="node-channel-marker" aria-label="Agent channel linked" title="Agent channel linked"><Link2Icon /></span>}

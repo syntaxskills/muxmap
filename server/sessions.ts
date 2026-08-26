@@ -727,14 +727,14 @@ export function createSessionManager(
       const session = store.getSession(id)
       if (!session) throw new Error('Session not found')
       const activity = store.getAgentActivity(session.runtimeName)
-      if (!activity || activity.state !== 'completed') return activity
+      if (!activity || !['completed', 'standby'].includes(activity.state)) return activity
       const now = new Date().toISOString()
       const next = store.upsertAgentActivity(session.runtimeName, { ...activity, state: 'read' })
       if (next.kind !== 'ssh') store.recordAgentEvent(session.runtimeName, next.kind, { type: 'manual_status', state: 'read' }, next.state, now)
       return next
     },
 
-    setAgentStatus(id: string, state: 'working' | 'delegated' | 'completed' | 'read', now = new Date().toISOString()) {
+    setAgentStatus(id: string, state: 'working' | 'delegated' | 'standby' | 'completed' | 'read', now = new Date().toISOString()) {
       const session = store.getSession(id)
       if (!session) throw new Error('Session not found')
       const current = agentFor(session.runtimeName, agentInventory())

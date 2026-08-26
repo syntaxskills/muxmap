@@ -48,6 +48,7 @@ test('Codex and Claude lifecycle hooks map to working, input, and completed stat
   const idlePrompt = agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, '2026-08-07T10:05:00.000Z')
   assert.equal(idlePrompt!.state, 'completed')
   assert.equal(shouldPreserveAgentState({ kind: 'claude', state: 'delegated', since: '2026-08-07T10:00:00.000Z' }, { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, idlePrompt), true)
+  assert.equal(shouldPreserveAgentState({ kind: 'claude', state: 'standby', since: '2026-08-07T10:00:00.000Z' }, { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, idlePrompt), true)
   assert.equal(shouldPreserveAgentState({ kind: 'claude', state: 'working', since: '2026-08-07T10:00:00.000Z' }, { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, idlePrompt), false)
   assert.equal(shouldPreserveAgentState({ kind: 'claude', state: 'needs_input', since: '2026-08-07T10:00:00.000Z' }, { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, idlePrompt), true)
   assert.equal(shouldPreserveAgentState({ kind: 'claude', state: 'read', since: '2026-08-07T10:00:00.000Z' }, { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, idlePrompt), true)
@@ -65,7 +66,7 @@ test('Claude PreToolUse clears permission prompts by marking the node working', 
   assert.equal(agentActivityFromEvent('claude', { payload: { hookEventName: 'Notification', notificationType: 'agent_needs_input' } })!.state, 'needs_input')
 })
 
-test('Claude Stop becomes delegated when Claude reports active background work', () => {
+test('Claude Stop distinguishes compute delegation from passive monitor standby', () => {
   assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'Stop',
     last_assistant_message: 'I handed this off to a sub-agent earlier and all work is now done.',
@@ -76,6 +77,23 @@ test('Claude Stop becomes delegated when Claude reports active background work',
     hook_event_name: 'Stop',
     last_assistant_message: 'I am handing this off to a sub-agent and will continue when it returns.',
     background_tasks: [{ id: 'task-1' }],
+  })!.state, 'delegated')
+  const standby = agentActivityFromEvent('claude', {
+    hook_event_name: 'Stop',
+    background_tasks: [{ id: 'artifact-1', type: 'monitor', description: 'live updates for artifact demo (auto-armed on publish)' }],
+  }, '2026-08-07T10:04:00.000Z')
+  assert.deepEqual(standby, {
+    kind: 'claude',
+    state: 'standby',
+    since: '2026-08-07T10:04:00.000Z',
+    standbyReason: 'live updates for artifact demo (auto-armed on publish)',
+  })
+  assert.equal(agentActivityFromEvent('claude', {
+    hook_event_name: 'Stop',
+    background_tasks: [
+      { id: 'artifact-1', type: 'monitor', description: 'live updates for artifact demo' },
+      { id: 'task-1', type: 'subagent', description: 'continue implementation' },
+    ],
   })!.state, 'delegated')
   assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'Stop',

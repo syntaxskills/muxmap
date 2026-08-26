@@ -93,10 +93,38 @@ function hasItems(value: unknown) {
   return Array.isArray(value) && value.length > 0
 }
 
-function hasActiveDelegatedWork(input: Record<string, unknown>) {
-  if (hasItems(input.background_tasks) || hasItems(input.session_crons)) return true
-  if (['SubagentStart', 'TaskCreated'].includes(eventField(input, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? '')) return true
-  return false
+function arrayField(input: Record<string, unknown>, keys: string[]) {
+  const payload = input.payload && typeof input.payload === 'object' ? input.payload as Record<string, unknown> : undefined
+  for (const key of keys) {
+    const value = input[key]
+    if (Array.isArray(value)) return value
+  }
+  if (payload) {
+    for (const key of keys) {
+      const value = payload[key]
+      if (Array.isArray(value)) return value
+    }
+  }
+  return []
+}
+
+function taskDescription(task: unknown) {
+  if (!task || typeof task !== 'object') return undefined
+  const record = task as Record<string, unknown>
+  const value = record.description ?? record.task_subject ?? record.subject ?? record.name ?? record.id
+  return typeof value === 'string' && value.trim() ? value.trim().replace(/\s+/g, ' ').slice(0, 200) : undefined
+}
+
+function claudeStopBackgroundState(input: Record<string, unknown>): Pick<AgentActivity, 'state' | 'standbyReason'> | undefined {
+  const backgroundTasks = arrayField(input, ['background_tasks', 'backgroundTasks'])
+  const sessionCrons = arrayField(input, ['session_crons', 'sessionCrons'])
+  if (hasItems(sessionCrons)) return { state: 'delegated' }
+  if (!hasItems(backgroundTasks)) return undefined
+  const onlyMonitors = backgroundTasks.every((task) => (
+    task && typeof task === 'object' && (task as Record<string, unknown>).type === 'monitor'
+  ))
+  if (!onlyMonitors) return { state: 'delegated' }
+  return { state: 'standby', standbyReason: backgroundTasks.map(taskDescription).find(Boolean) }
 }
 
 function stringField(input: Record<string, unknown>, keys: string[]) {
@@ -140,21 +168,22 @@ export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: R
   if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'before_agent_start' || event === 'agent_start' || event === 'SubagentStart' || event === 'TaskCreated') state = 'working'
   if (event === 'Stop' || event === 'StopFailure' || event === 'agent_end' || notification === 'agent_completed') state = 'completed'
   if (event === 'Notification' && notification === 'idle_prompt') state = 'completed'
-  if (kind === 'claude' && event === 'Stop' && hasActiveDelegatedWork(input)) state = 'delegated'
+  const claudeStopBackground = kind === 'claude' && event === 'Stop' ? claudeStopBackgroundState(input) : undefined
+  if (claudeStopBackground) state = claudeStopBackground.state
   if (event === 'PermissionRequest' || (event === 'Notification' && /permission_prompt|agent_needs_input|elicitation_dialog|elicitation_url_dialog/.test(notification))) state = 'needs_input'
   if (event === 'Stop' && asksForInput(input.last_assistant_message)) state = 'needs_input'
   if (!state && event === 'SessionStart') state = 'read'
   if (!state) return null
-  return { kind, state, since: now, ...agentSessionInfoFromEvent(input) }
+  return { kind, state, since: now, ...(claudeStopBackground?.standbyReason ? { standbyReason: claudeStopBackground.standbyReason } : {}), ...agentSessionInfoFromEvent(input) }
 }
 
 export function shouldPreserveAgentState(current: AgentActivity | undefined, event: Record<string, unknown>, next: AgentActivity | null) {
   const eventName = eventField(event, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? ''
   const notification = eventField(event, ['notification_type', 'notificationType']) ?? ''
   if (!next) return true
-  if (eventName === 'Notification' && notification === 'idle_prompt' && current && ['delegated', 'needs_input', 'completed', 'read'].includes(current.state)) return true
+  if (eventName === 'Notification' && notification === 'idle_prompt' && current && ['delegated', 'standby', 'needs_input', 'completed', 'read'].includes(current.state)) return true
   if (next.state !== 'working') return false
-  if (!current || !['completed', 'read', 'needs_input', 'delegated'].includes(current.state)) return false
+  if (!current || !['completed', 'read', 'needs_input', 'delegated', 'standby'].includes(current.state)) return false
   return ['SubagentStop', 'TaskCompleted'].includes(eventName)
 }
 
@@ -165,6 +194,7 @@ function mergeActivity(current: AgentActivity | undefined, next: AgentActivity) 
     externalSessionId: next.externalSessionId ?? current?.externalSessionId,
     externalSessionPath: next.externalSessionPath ?? current?.externalSessionPath,
     externalCwd: next.externalCwd ?? current?.externalCwd,
+    standbyReason: next.standbyReason ?? current?.standbyReason,
   }
 }
 
@@ -176,7 +206,7 @@ export function agentActivityFromRecordedEvent(
   current?: AgentActivity,
 ) {
   const event = eventField(input, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? ''
-  const manualState = event === 'manual_status' && ['working', 'completed', 'read', 'delegated'].includes(recordedState) ? recordedState : undefined
+  const manualState = event === 'manual_status' && ['working', 'completed', 'read', 'delegated', 'standby'].includes(recordedState) ? recordedState : undefined
   const next = manualState
     ? { kind, state: manualState, since: manualState === 'read' ? current?.since ?? createdAt : createdAt, ...agentSessionInfoFromEvent(input) }
     : agentActivityFromEvent(kind, input, createdAt)

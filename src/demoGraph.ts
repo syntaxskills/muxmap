@@ -122,6 +122,17 @@ export const demoWorkspaceGraph: WorkspaceGraph = {
       note: 'Read state is intentionally quiet after the user has opened the completed agent once.',
       sortOrder: 1,
     }),
+    node({
+      id: 'demo-standby',
+      parentId: 'demo-observability',
+      title: 'Published preview waiting for human review',
+      type: 'terminal',
+      color: '#7b9c68',
+      project: 'Infra',
+      repoPath: '/Users/example/dev/infrastructure-tools/packages/local-observer/previews/artifact-monitor',
+      note: 'Standby means Claude left a passive artifact monitor armed and is waiting for a human action, not running compute.',
+      sortOrder: 2,
+    }),
 
     node({ id: 'demo-notes', parentId: 'demo-research', title: 'Terminal UX research clips and scrollback notes', type: 'feature', color: '#a46bb4', project: 'Research', repoPath: '/Users/example/dev/research-notebooks/terminal-ux/scrollback', sortOrder: 0 }),
     node({
@@ -199,6 +210,18 @@ export const demoWorkspaceGraph: WorkspaceGraph = {
       agent: { kind: 'codex', state: 'read', since: '2026-08-18T17:42:00.000Z', externalSessionId: '0198-demo-read' },
       agentEvents: [
         event('muxmap-demo-codex-read', 'codex', 'manual_status', 'read', '2026-08-18T18:20:00.000Z', 'User already reviewed this completed work.'),
+      ],
+    }),
+    session({
+      id: 'demo-session-standby',
+      nodeId: 'demo-standby',
+      runtimeName: 'muxmap-demo-claude-standby',
+      cwd: '/Users/example/dev/infrastructure-tools/packages/local-observer/previews/artifact-monitor',
+      status: 'detached',
+      lastActivityAt: '2026-08-19T09:20:00.000Z',
+      agent: { kind: 'claude', state: 'standby', since: '2026-08-19T09:20:00.000Z', standbyReason: 'live updates for artifact preview (auto-armed on publish)', externalSessionId: 'claude-demo-standby-2026' },
+      agentEvents: [
+        event('muxmap-demo-claude-standby', 'claude', 'Stop', 'standby', '2026-08-19T09:20:00.000Z', 'live updates for artifact preview (auto-armed on publish)'),
       ],
     }),
     session({

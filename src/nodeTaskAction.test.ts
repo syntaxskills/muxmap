@@ -27,6 +27,7 @@ test('agent sessions expose a right-click status submenu', () => {
   assert.match(app, /Set agent status/)
   assert.match(app, /onSetStatus\(sessionId, 'working'\)/)
   assert.match(app, /onSetStatus\(sessionId, 'delegated'\)/)
+  assert.match(app, /onSetStatus\(sessionId, 'standby'\)/)
   assert.match(app, /onSetStatus\(sessionId, 'completed'\)/)
   assert.match(app, /onSetStatus\(sessionId, 'read'\)/)
   assert.match(app, /<AgentStatusSubmenu nodeTitle=\{node\.title\} sessionId=\{agentSession\.id\} onSetStatus=\{setAgentStatus\} \/>/)

@@ -97,6 +97,21 @@ test('stale delegated agents render as completed without mutating stored state',
   assert.deepEqual(visibleAgentForSession(threeHourDelegated, now), { kind: 'claude', state: 'completed', since: '2026-08-07T09:00:00.000Z' })
   assert.equal(threeHourDelegated.agent.state, 'delegated')
 
+  const oneHourStandby = {
+    status: 'running',
+    runtimeExists: true,
+    agent: { kind: 'claude' as const, state: 'standby' as const, since: '2026-08-07T11:00:00.000Z', standbyReason: 'live updates for artifact demo' },
+  }
+  assert.deepEqual(visibleAgentForSession(oneHourStandby, now), oneHourStandby.agent)
+
+  const threeHourStandby = {
+    status: 'running',
+    runtimeExists: true,
+    agent: { kind: 'claude' as const, state: 'standby' as const, since: '2026-08-07T09:00:00.000Z', standbyReason: 'live updates for artifact demo' },
+  }
+  assert.deepEqual(visibleAgentForSession(threeHourStandby, now), { kind: 'claude', state: 'completed', since: '2026-08-07T09:00:00.000Z', standbyReason: 'live updates for artifact demo' })
+  assert.equal(threeHourStandby.agent.state, 'standby')
+
   assert.equal(visibleAgentForSession({
     status: 'running',
     runtimeExists: true,

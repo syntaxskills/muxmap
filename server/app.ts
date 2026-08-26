@@ -702,8 +702,8 @@ export function createMuxMapServer(options: ServerOptions) {
         const agentStatusMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/agent\/status$/)
         if (request.method === 'POST' && agentStatusMatch) {
           const body = await readJson(request)
-          if (!['working', 'delegated', 'completed', 'read'].includes(String(body.state))) throw new Error('state must be working, delegated, completed, or read')
-          return sendJson(response, 200, { activity: sessions.setAgentStatus(agentStatusMatch[1], body.state as 'working' | 'delegated' | 'completed' | 'read') })
+          if (!['working', 'delegated', 'standby', 'completed', 'read'].includes(String(body.state))) throw new Error('state must be working, delegated, standby, completed, or read')
+          return sendJson(response, 200, { activity: sessions.setAgentStatus(agentStatusMatch[1], body.state as 'working' | 'delegated' | 'standby' | 'completed' | 'read') })
         }
 
         return sendJson(response, 404, { error: 'Not found' })

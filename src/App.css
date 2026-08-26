@@ -1,6 +1,7 @@
 .app-shell {
   --agent-working-color: #e2ad58;
   --agent-delegated-color: #8aa18f;
+  --agent-standby-color: #9aa69c;
   --agent-completed-color: #f4efe3;
   height: 100dvh;
   min-height: 100dvh;
@@ -536,6 +537,7 @@ kbd {
 
 .map-node.is-agent-working .node-select,
 .map-node.is-agent-delegated .node-select,
+.map-node.is-agent-standby .node-select,
 .map-node.is-agent-completed .node-select {
   position: relative;
   overflow: hidden;
@@ -584,6 +586,21 @@ kbd {
   transform: translateX(-112%);
   animation: agent-delegated-sweep 2.55s cubic-bezier(.22, .8, .3, 1) infinite;
   will-change: transform;
+}
+
+.map-node.is-agent-standby .node-select {
+  border-color: color-mix(in srgb, var(--agent-standby-color) 34%, var(--line-strong));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-standby-color) 12%, transparent), 0 5px 14px var(--shadow-soft);
+}
+
+.map-node.is-agent-standby .node-select::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--agent-standby-color) 8%, transparent), transparent 62%);
+  opacity: .24;
 }
 
 .map-node.is-agent-completed .node-select {
@@ -1216,6 +1233,16 @@ kbd {
 .terminal-badge.is-delegated > .agent-icon {
   z-index: 1;
   filter: saturate(.75) opacity(.78);
+}
+
+.terminal-badge.is-standby,
+.runtime-state.is-standby,
+.agent-line.is-standby {
+  color: var(--agent-standby-color);
+}
+
+.terminal-badge.is-standby {
+  opacity: .78;
 }
 
 .terminal-badge.is-needs_input,
@@ -2241,6 +2268,10 @@ kbd {
 
 .agent-event-list li.is-delegated {
   border-left-color: #8aa18f;
+}
+
+.agent-event-list li.is-standby {
+  border-left-color: var(--agent-standby-color);
 }
 
 .agent-event-list li.is-needs_input {

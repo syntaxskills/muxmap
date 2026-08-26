@@ -5,7 +5,7 @@ import { demoWorkspaceGraph } from './demoGraph.ts'
 
 test('agent demo graph covers long metadata and all visible agent states', () => {
   const states = new Set(demoWorkspaceGraph.sessions.flatMap((session) => session.agent?.state ?? []))
-  assert.deepEqual([...states].sort(), ['completed', 'delegated', 'needs_input', 'read', 'unavailable', 'working'])
+  assert.deepEqual([...states].sort(), ['completed', 'delegated', 'needs_input', 'read', 'standby', 'unavailable', 'working'])
   assert.ok(demoWorkspaceGraph.nodes.some((node) => (node.repoPath?.length ?? 0) > 100))
   assert.ok(demoWorkspaceGraph.nodes.some((node) => (node.note?.length ?? 0) > 130))
   assert.ok(demoWorkspaceGraph.nodes.some((node) => node.type === 'todo' && !node.doneAt))
