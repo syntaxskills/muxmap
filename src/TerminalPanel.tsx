@@ -1,12 +1,14 @@
 import { type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { api } from './api.ts'
 import type { NodeType, TerminalInputHistoryItem, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
-import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
+import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
+import { loadAddonWithFallback } from './terminalRenderer.ts'
 import { agentStatusText, agentStatusTooltip } from './agentStatus.ts'
 import { AgentIcon } from './AgentIcon.tsx'
 import { createTerminalLinkProvider } from './terminalLinks.ts'
@@ -89,7 +91,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       cursorBlink,
       fontFamily: 'SFMono-Regular, Consolas, Liberation Mono, monospace',
       fontSize,
-      scrollback,
+      scrollback: terminalScrollbackLimit(scrollback),
       lineHeight: 1.25,
       macOptionClickForcesSelection: true,
       theme: { background: '#101311', foreground: '#d8ddd7', cursor: '#d49a4d', selectionBackground: '#4b3d29' },
@@ -97,6 +99,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     const fit = new FitAddon()
     terminal.loadAddon(fit)
     terminal.open(container.current)
+    const webglRenderer = loadAddonWithFallback(terminal, () => new WebglAddon())
     const links = terminal.registerLinkProvider(createTerminalLinkProvider(terminal, { cwd: session.cwd, sessionId: session.id }))
     const applicationInteractive = () => terminal.modes.mouseTrackingMode !== 'none' || terminal.buffer.active.type === 'alternate'
     const forceSelection = (event: MouseEvent) => forceTerminalTextSelection(event, terminal.modes.mouseTrackingMode !== 'none')
@@ -120,11 +123,19 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     }
     let wheelRemainder = 0
     let pendingScroll = 0
+    let pendingSgrWheelLines = 0
+    let sgrWheelFrame: number | undefined
     let scrollTimer: number | undefined
     const flushScroll = () => {
       scrollTimer = undefined
       if (pendingScroll && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'scroll', lines: pendingScroll }))
       pendingScroll = 0
+    }
+    const flushSgrWheel = () => {
+      sgrWheelFrame = undefined
+      const data = terminalSgrWheelReports(pendingSgrWheelLines)
+      pendingSgrWheelLines = 0
+      if (data && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))
     }
     const scroll = (event: WheelEvent) => {
       event.preventDefault()
@@ -138,8 +149,8 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       wheelRemainder = intent.remainder
       if (!intent.lines) return
       if (terminalWheelHandledByApplication(applicationInteractive(), wheelMode)) {
-        const data = terminalSgrWheelReports(intent.lines)
-        if (data && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))
+        pendingSgrWheelLines = coalesceTerminalSgrWheelLines(pendingSgrWheelLines, intent.lines)
+        sgrWheelFrame ??= window.requestAnimationFrame(flushSgrWheel)
         return
       }
       pendingScroll = Math.max(-200, Math.min(200, pendingScroll + intent.lines))
@@ -211,9 +222,11 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       terminal.element?.removeEventListener('mousedown', forceSelection, true)
       terminal.element?.removeEventListener('wheel', scroll, true)
       if (scrollTimer !== undefined) window.clearTimeout(scrollTimer)
+      if (sgrWheelFrame !== undefined) window.cancelAnimationFrame(sgrWheelFrame)
       if (outputFrame !== undefined) window.cancelAnimationFrame(outputFrame)
       socket.close()
       if (socketRef.current === socket) socketRef.current = null
+      webglRenderer?.dispose()
       terminal.dispose()
     }
   }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, onStatus, precisionScrollMultiplier, scrollback, session.cwd, session.id, wheelMode])

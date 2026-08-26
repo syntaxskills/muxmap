@@ -5,6 +5,7 @@ export type RecentTerminalInput = { data: string; at: number }
 export type TerminalScrollMultipliers = { precision: number; discrete: number }
 export const COMMAND_DOUBLE_ENTER_MS = 900
 export const COMMAND_SUBMIT_ENTER_DELAY_MS = 150
+export const MAX_BROWSER_TERMINAL_SCROLLBACK = 2000
 
 export function terminalShortcutData(event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'altKey'>) {
   if (event.metaKey && (event.key === 'Backspace' || event.key === 'Delete')) return '\x15'
@@ -52,6 +53,20 @@ export function terminalSgrWheelReports(lines: number) {
   const count = Math.min(200, Math.abs(Math.trunc(lines)))
   if (!count) return ''
   return `\x1b[<${lines < 0 ? 64 : 65};1;1M`.repeat(count)
+}
+
+export function coalesceTerminalSgrWheelLines(currentLines: number, nextLines: number) {
+  return Math.max(-200, Math.min(200, Math.trunc(currentLines + nextLines)))
+}
+
+export function terminalSgrWheelBatchReports(lines: readonly number[]) {
+  return terminalSgrWheelReports(lines.reduce((total, line) => coalesceTerminalSgrWheelLines(total, line), 0))
+}
+
+export function terminalScrollbackLimit(value: unknown) {
+  const lines = Number(value)
+  if (!Number.isFinite(lines)) return MAX_BROWSER_TERMINAL_SCROLLBACK
+  return Math.max(0, Math.min(MAX_BROWSER_TERMINAL_SCROLLBACK, Math.trunc(lines)))
 }
 
 export function forceTerminalTextSelection(event: TerminalSelectionEvent, mouseTracking: boolean) {

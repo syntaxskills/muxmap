@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication } from './terminalInteraction.ts'
+import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, MAX_BROWSER_TERMINAL_SCROLLBACK, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelBatchReports, terminalSgrWheelReports, terminalWheelHandledByApplication } from './terminalInteraction.ts'
 
 test('terminal dragging follows the pointer without changing its starting offset', () => {
   assert.deepEqual(dragOffset({ x: 20, y: -10 }, { x: 100, y: 80 }, { x: 145, y: 55 }), { x: 65, y: -35 })
@@ -67,6 +67,24 @@ test('terminal wheel reports can be sent as proportional SGR mouse input', () =>
   assert.equal(terminalSgrWheelReports(-2), '\x1b[<64;1;1M\x1b[<64;1;1M')
   assert.equal(terminalSgrWheelReports(3), '\x1b[<65;1;1M\x1b[<65;1;1M\x1b[<65;1;1M')
   assert.equal(terminalSgrWheelReports(250).split('\x1b[<65;1;1M').length - 1, 200)
+})
+
+test('terminal wheel SGR reports coalesce into one frame payload', () => {
+  assert.equal(coalesceTerminalSgrWheelLines(0, 12), 12)
+  assert.equal(coalesceTerminalSgrWheelLines(12, 8), 20)
+  assert.equal(coalesceTerminalSgrWheelLines(190, 40), 200)
+  assert.equal(coalesceTerminalSgrWheelLines(-190, -40), -200)
+  assert.equal(terminalSgrWheelBatchReports([2, 3, 4]), '\x1b[<65;1;1M'.repeat(9))
+  assert.equal(terminalSgrWheelBatchReports([5, -2]), '\x1b[<65;1;1M'.repeat(3))
+})
+
+test('browser terminal scrollback is capped to reduce renderer and GC pressure', () => {
+  assert.equal(MAX_BROWSER_TERMINAL_SCROLLBACK, 2000)
+  assert.equal(terminalScrollbackLimit(undefined), 2000)
+  assert.equal(terminalScrollbackLimit(1000), 1000)
+  assert.equal(terminalScrollbackLimit(50000), 2000)
+  assert.equal(terminalScrollbackLimit('2500'), 2000)
+  assert.equal(terminalScrollbackLimit('bad'), 2000)
 })
 
 test('terminal mouse tracking cannot steal a primary-button text selection', () => {
