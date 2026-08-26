@@ -13,7 +13,7 @@ import {
 } from 'react'
 import './App.css'
 import { api, apiText } from './api.ts'
-import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, effectiveArchivedNodeIds, expandedNodeHeight, expandedNodeWidth, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canBulkRecoverAgentSession, canRecoverAgentSession, effectiveArchivedNodeIds, expandedNodeHeight, expandedNodeWidth, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
 import { centerPan, dragPan, gridBackground, isCanvasBlankTarget, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
 import type { NodeStepDefinition, NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
@@ -204,6 +204,8 @@ function App() {
   const [agentAlerts, setAgentAlerts] = useState<AgentNotification[]>([])
   const [deleteNodeId, setDeleteNodeId] = useState<string | null>(null)
   const [confirmStopSession, setConfirmStopSession] = useState<string | null>(null)
+  const [confirmRecoverAllAgents, setConfirmRecoverAllAgents] = useState(false)
+  const [bulkRecoveryToast, setBulkRecoveryToast] = useState<{ title: string; body: string } | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const workspaceRef = useRef<HTMLElement>(null)
@@ -497,6 +499,7 @@ function App() {
   const activeTerminalNode = activeGraphNodes.find((node) => node.id === activeTerminal?.nodeId)
   const orphans = graph?.orphans ?? []
   const selfHosting = graph?.selfHosting ?? []
+  const bulkRecoverableAgentCount = useMemo(() => graph?.sessions.filter(canBulkRecoverAgentSession).length ?? 0, [graph?.sessions])
   const channels = useMemo(() => graph?.channels ?? [], [graph?.channels])
   const channelNodeIds = useMemo(() => new Set(channels.flatMap((channel) => [channel.sourceNodeId, channel.targetNodeId])), [channels])
   const selectedChannels = useMemo(() => channels.filter((channel) => selectedId && (channel.sourceNodeId === selectedId || channel.targetNodeId === selectedId)), [channels, selectedId])
@@ -1073,6 +1076,28 @@ function App() {
     }
   }
 
+  async function recoverAllAgents() {
+    if (!graph || bulkRecoverableAgentCount < 2) return
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api<{ recovered: string[]; failed: Array<{ sessionId: string; error: string }> }>(`/api/workspaces/${graph.workspace.id}/recover-agents`, {
+        method: 'POST',
+        body: '{}',
+      })
+      setConfirmRecoverAllAgents(false)
+      setBulkRecoveryToast({
+        title: 'Agent recovery finished',
+        body: `Recovered ${result.recovered.length}, failed ${result.failed.length}`,
+      })
+      await loadWorkspace()
+    } catch (recoverError) {
+      setError(recoverError instanceof Error ? recoverError.message : 'Unable to recover agent sessions')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function stopOrphan(backend: TerminalBackend, runtimeName: string) {
     setBusy(true)
     setError('')
@@ -1338,6 +1363,13 @@ function App() {
               <button className="agent-alert-dismiss" type="button" onClick={() => setAgentAlerts((current) => current.filter((item) => item.sessionId !== alert.sessionId || item.key !== alert.key))} aria-label={`Dismiss ${alert.title}`} title="Dismiss"><Cross2Icon /></button>
             </article>
           ))}
+        </div>
+      )}
+
+      {bulkRecoveryToast && (
+        <div className="bulk-recovery-toast" role="status">
+          <div><strong>{bulkRecoveryToast.title}</strong><span>{bulkRecoveryToast.body}</span></div>
+          <button type="button" onClick={() => setBulkRecoveryToast(null)} aria-label="Dismiss recovery summary" title="Dismiss"><Cross2Icon /></button>
         </div>
       )}
 
@@ -1649,6 +1681,25 @@ function App() {
               <div><span>Runtime inventory</span><h2>MuxMap sessions</h2></div>
               <button className="side-panel-close" type="button" onClick={() => setSurface((current) => ({ ...current, rightPanel: null }))} aria-label="Close session manager" title="Close panel"><Cross2Icon /></button>
             </header>
+
+            {bulkRecoverableAgentCount >= 2 && (
+              <section className="bulk-recovery-card" aria-label="Recover all agents">
+                <div>
+                  <strong>Recover all agents</strong>
+                  <span>Resume {bulkRecoverableAgentCount} missing agent sessions sequentially. Stopped and suspended sessions are skipped.</span>
+                </div>
+                <div className="session-row-actions">
+                  {confirmRecoverAllAgents ? (
+                    <>
+                      <button className="danger-button" type="button" onClick={() => void recoverAllAgents()} disabled={busy}>Confirm recover all ({bulkRecoverableAgentCount})</button>
+                      <button type="button" onClick={() => setConfirmRecoverAllAgents(false)} disabled={busy}>Cancel</button>
+                    </>
+                  ) : (
+                    <button type="button" onClick={() => setConfirmRecoverAllAgents(true)} disabled={busy}>Recover all ({bulkRecoverableAgentCount})</button>
+                  )}
+                </div>
+              </section>
+            )}
 
             <section>
               <h3>Linked <span>{graph.sessions.length}</span></h3>

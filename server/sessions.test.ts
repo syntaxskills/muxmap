@@ -651,9 +651,11 @@ test('working Codex activity is recoverable when its tmux runtime is missing', (
     manager.reconcile()
 
     const decorated = manager.decorate([store.getSession(session.id)!])[0]
+    assert.equal(store.getSession(session.id)?.status, 'running')
     assert.equal(decorated.agent?.state, 'working')
     assert.equal(decorated.runtimeExists, false)
     assert.equal(decorated.canRecoverCodex, true)
+    assert.equal(decorated.canBulkRecoverAgent, true)
   } finally {
     store.close()
     rmSync(directory, { recursive: true, force: true })

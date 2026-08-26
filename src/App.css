@@ -227,6 +227,61 @@ kbd {
   outline-offset: -2px;
 }
 
+.bulk-recovery-toast {
+  position: fixed;
+  top: 68px;
+  right: 14px;
+  z-index: 26;
+  width: min(340px, calc(100vw - 28px));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  border: 1px solid var(--line-strong);
+  border-left: 4px solid var(--text-strong);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--surface-elevated) 96%, transparent);
+  color: var(--text);
+  box-shadow: 0 16px 38px var(--shadow);
+  backdrop-filter: blur(14px);
+}
+
+.bulk-recovery-toast div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 11px 12px;
+}
+
+.bulk-recovery-toast strong,
+.bulk-recovery-toast span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bulk-recovery-toast strong {
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.bulk-recovery-toast span {
+  color: var(--text-muted);
+  font: 10px/1.3 var(--mono);
+}
+
+.bulk-recovery-toast button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.bulk-recovery-toast button:hover {
+  background: var(--surface-hover);
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -2890,6 +2945,27 @@ kbd {
 .session-manager > section {
   padding: 18px 22px;
   border-bottom: 1px solid var(--line);
+}
+
+.bulk-recovery-card {
+  display: grid;
+  gap: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.bulk-recovery-card > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.bulk-recovery-card strong {
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.bulk-recovery-card span {
+  color: var(--text-muted);
+  font: 10px/1.45 var(--mono);
 }
 
 .session-manager h3 {

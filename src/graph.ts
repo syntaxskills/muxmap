@@ -146,6 +146,11 @@ export function canRecoverAgentSession(session: RecoverableSession) {
   return false
 }
 
+export function canBulkRecoverAgentSession(session: RecoverableSession & { canBulkRecoverAgent?: boolean }) {
+  if (session.status === 'stopped' || session.status === 'suspended') return false
+  return canRecoverAgentSession(session)
+}
+
 export function canRecoverCodexSession(session: RecoverableSession) {
   return session.agent?.kind === 'codex' && canRecoverAgentSession(session)
 }

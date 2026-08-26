@@ -1316,13 +1316,13 @@ test('Codex recovery recreates a missing tracked tmux session with codex resume'
       body: JSON.stringify({ kind: 'codex', tmuxPane: '%12', event: { hook_event_name: 'UserPromptSubmit', session_id: '019fd54a-12a9-72c2-8a66-ee62fc1c546e' } }),
     })
     tmux.live.clear()
-    const stoppedGraph = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
-    const stoppedSession = stoppedGraph.sessions.find((item) => item.id === attached.session.id)
-    assert.equal(stoppedSession?.status, 'stopped')
-    assert.equal(stoppedSession?.agent?.state, 'working')
-    assert.equal(stoppedSession?.runtimeExists, false)
-    assert.equal(stoppedSession?.canRecoverCodex, true)
-    assert.equal(stoppedSession?.canRecoverAgent, true)
+    const missingGraph = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
+    const missingSession = missingGraph.sessions.find((item) => item.id === attached.session.id)
+    assert.equal(missingSession?.status, 'running')
+    assert.equal(missingSession?.agent?.state, 'working')
+    assert.equal(missingSession?.runtimeExists, false)
+    assert.equal(missingSession?.canRecoverCodex, true)
+    assert.equal(missingSession?.canRecoverAgent, true)
 
     const recovered = await fetch(`${base}/api/sessions/${attached.session.id}/recover-agent`, {
       method: 'POST',
@@ -1331,6 +1331,99 @@ test('Codex recovery recreates a missing tracked tmux session with codex resume'
     }).then((response) => response.json()) as { session: TerminalSession }
     assert.equal(recovered.session.status, 'running')
     assert.deepEqual(tmux.createCommands.at(-1), ['codex', 'resume', '019fd54a-12a9-72c2-8a66-ee62fc1c546e'])
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('bulk agent recovery resumes only missing active sessions sequentially', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-bulk-recover-api-')))
+  const tmux = fakeTmux()
+  const sequence: string[] = []
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    tmux,
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+    recoverAgentsDelayMs: 17,
+    recoverAgentsDelay: async (milliseconds) => {
+      sequence.push(`delay:${milliseconds}`)
+    },
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const auth = await fetch(`${base}/api/auth`)
+    const cookie = auth.headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const createTrackedSession = async (title: string) => {
+      const node = await fetch(`${base}/api/workspaces/default/nodes`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ parentId: 'workspace', title, type: 'terminal', repoPath: root }),
+      }).then((response) => response.json()) as { id: string }
+      const attached = await fetch(`${base}/api/nodes/${node.id}/session`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ backend: 'tmux', cwd: root }),
+      }).then((response) => response.json()) as { session: TerminalSession }
+      return attached.session
+    }
+
+    const first = await createTrackedSession('Recover first')
+    const failing = await createTrackedSession('Recover failing')
+    const second = await createTrackedSession('Recover second')
+    const stopped = await createTrackedSession('Intentionally stopped')
+    const suspended = await createTrackedSession('Intentionally suspended')
+
+    server.store.upsertAgentActivity(first.runtimeName, { kind: 'claude', state: 'working', externalSessionId: 'claude-first' })
+    server.store.upsertAgentActivity(failing.runtimeName, { kind: 'codex', state: 'working', externalSessionId: 'codex-failing' })
+    server.store.upsertAgentActivity(second.runtimeName, { kind: 'pi', state: 'completed', externalSessionPath: '/tmp/pi-second.jsonl' })
+    server.store.upsertAgentActivity(stopped.runtimeName, { kind: 'claude', state: 'completed', externalSessionId: 'claude-stopped' })
+    server.store.upsertAgentActivity(suspended.runtimeName, { kind: 'codex', state: 'completed', externalSessionId: 'codex-suspended' })
+    server.store.updateSessionStatus(second.id, 'detached')
+    await fetch(`${base}/api/sessions/${stopped.id}/stop`, { method: 'POST', headers, body: '{}' })
+    await fetch(`${base}/api/sessions/${suspended.id}/suspend`, { method: 'POST', headers, body: '{}' })
+
+    tmux.live.clear()
+    const originalCreate = tmux.create.bind(tmux)
+    tmux.create = function create(name, cwd, command) {
+      sequence.push(`create:${name}:${command?.join(' ') ?? ''}`)
+      if (name === failing.runtimeName) throw new Error('resume failed')
+      originalCreate(name, cwd, command)
+    }
+
+    const missingGraph = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
+    const byId = new Map(missingGraph.sessions.map((session) => [session.id, session]))
+    assert.equal(byId.get(first.id)?.status, 'running')
+    assert.equal(byId.get(second.id)?.status, 'detached')
+    assert.equal(byId.get(stopped.id)?.canRecoverAgent, true)
+    assert.equal(byId.get(stopped.id)?.canBulkRecoverAgent, false)
+    assert.equal(byId.get(suspended.id)?.canRecoverAgent, true)
+    assert.equal(byId.get(suspended.id)?.canBulkRecoverAgent, false)
+
+    const recovered = await fetch(`${base}/api/workspaces/default/recover-agents`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    })
+    assert.equal(recovered.status, 200)
+    const result = await recovered.json() as { recovered: string[]; failed: Array<{ sessionId: string; error: string }> }
+    assert.deepEqual(result.recovered, [first.id, second.id])
+    assert.deepEqual(result.failed, [{ sessionId: failing.id, error: 'resume failed' }])
+    assert.deepEqual(sequence, [
+      `create:${first.runtimeName}:claude --resume claude-first`,
+      'delay:17',
+      `create:${failing.runtimeName}:codex resume codex-failing`,
+      'delay:17',
+      `create:${second.runtimeName}:pi --session /tmp/pi-second.jsonl`,
+    ])
+    assert.equal(tmux.live.has(stopped.runtimeName), false)
+    assert.equal(tmux.live.has(suspended.runtimeName), false)
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })

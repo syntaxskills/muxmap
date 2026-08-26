@@ -525,7 +525,8 @@ export function createSessionManager(
         const agent = agentFor(session.runtimeName, inventory)
         const exists = runtimeExistsInSnapshot(session, live)
         const agentEvents = compactAgentEvents(store.listAgentEvents(session.runtimeName, 5))
-        return { ...session, ...(agent ? { agent } : {}), ...(agentEvents.length > 0 ? { agentEvents } : {}), runtimeExists: exists, canRecoverCodex: agent?.kind === 'codex' && canRecoverAgent(session, agent, exists), canRecoverAgent: canRecoverAgent(session, agent, exists) }
+        const recoverableAgent = canRecoverAgent(session, agent, exists)
+        return { ...session, ...(agent ? { agent } : {}), ...(agentEvents.length > 0 ? { agentEvents } : {}), runtimeExists: exists, canRecoverCodex: agent?.kind === 'codex' && recoverableAgent, canRecoverAgent: recoverableAgent, canBulkRecoverAgent: recoverableAgent && session.status !== 'stopped' && session.status !== 'suspended' }
       })
     },
 
@@ -650,10 +651,16 @@ export function createSessionManager(
     },
 
     reconcile(activeSessionIds = new Set<string>(), live = runtimeSnapshot()) {
+      const inventory = agentInventory()
       for (const session of store.listSessions()) {
         const running = live.get(session.backend)?.has(session.runtimeName)
+        const recoverableMissing = !running
+          && session.status !== 'stopped'
+          && session.status !== 'suspended'
+          && canRecoverAgent(session, agentFor(session.runtimeName, inventory), false)
         const status = running
           ? activeSessionIds.has(session.id) ? 'running' : 'detached'
+          : recoverableMissing ? session.status
           : session.status === 'suspended' ? 'suspended'
             : runtimePlatform === 'win32' && session.backend === 'zellij' && session.status !== 'stopped' ? 'detached' : 'stopped'
         store.updateSessionStatus(session.id, status)

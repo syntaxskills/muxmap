@@ -26,6 +26,7 @@ import { createStore, StoreValidationError } from './store.ts'
 import type { ProcessInfo } from './agents.ts'
 import { terminalBackendsForPlatform, type RuntimePlatform } from '../src/settings.ts'
 import { defaultNodeStepDefinitions } from '../src/nodeSteps.ts'
+import { canBulkRecoverAgentSession } from '../src/graph.ts'
 
 export type PtyHandle = {
   onData(listener: (data: string) => void): void
@@ -58,6 +59,8 @@ type ServerOptions = {
   attachmentsDirectory?: string
   nodeStepDefinitions?: NodeStepDefinition[]
   initialResizeDelayMs?: number
+  recoverAgentsDelayMs?: number
+  recoverAgentsDelay?: (milliseconds: number) => Promise<void>
 }
 
 const mimeTypes: Record<string, string> = {
@@ -336,6 +339,8 @@ export function createMuxMapServer(options: ServerOptions) {
   const activityWriteIntervalMs = options.activityWriteIntervalMs ?? 5_000
   const outputFlushIntervalMs = options.outputFlushIntervalMs ?? 16
   const initialResizeDelayMs = options.initialResizeDelayMs ?? 300
+  const recoverAgentsDelayMs = options.recoverAgentsDelayMs ?? 1_500
+  const recoverAgentsDelay = options.recoverAgentsDelay ?? ((milliseconds: number) => new Promise<void>((resolveDelay) => setTimeout(resolveDelay, milliseconds)))
   const attachmentsDirectory = attachmentDirectory(options.databasePath, options.attachmentsDirectory)
   let closing = false
 
@@ -440,6 +445,27 @@ export function createMuxMapServer(options: ServerOptions) {
           const live = sessions.reconcile(new Set(clients.keys()), snapshot.live)
           const graph = store.getWorkspace(workspaceMatch[1])
           return sendJson(response, 200, { ...graph, sessions: sessions.decorate(graph.sessions, snapshot.inventory, live), orphans: sessions.listOrphans(snapshot.inventory, live, snapshot.selfHosting), selfHosting: sessions.listSelfHosting(snapshot.inventory, live, snapshot.selfHosting), runtime: { platform, terminalBackends: terminalBackendsForPlatform(platform) } })
+        }
+
+        const recoverWorkspaceAgentsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/recover-agents$/)
+        if (request.method === 'POST' && recoverWorkspaceAgentsMatch) {
+          const snapshot = sessions.discoverySnapshot()
+          const live = sessions.reconcile(new Set(clients.keys()), snapshot.live)
+          const graph = store.getWorkspace(recoverWorkspaceAgentsMatch[1])
+          const eligible = sessions.decorate(graph.sessions, snapshot.inventory, live).filter(canBulkRecoverAgentSession)
+          const recovered: string[] = []
+          const failed: Array<{ sessionId: string; error: string }> = []
+          for (let index = 0; index < eligible.length; index++) {
+            const session = eligible[index]
+            try {
+              sessions.recoverAgent(session.id)
+              recovered.push(session.id)
+            } catch (recoverError) {
+              failed.push({ sessionId: session.id, error: recoverError instanceof Error ? recoverError.message : 'Unable to recover agent session' })
+            }
+            if (index < eligible.length - 1) await recoverAgentsDelay(recoverAgentsDelayMs)
+          }
+          return sendJson(response, 200, { recovered, failed })
         }
 
         if (request.method === 'GET' && url.pathname === '/api/node-step-definitions') {

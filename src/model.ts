@@ -96,6 +96,7 @@ export type TerminalSession = {
   runtimeExists?: boolean
   canRecoverCodex?: boolean
   canRecoverAgent?: boolean
+  canBulkRecoverAgent?: boolean
 }
 
 export type AgentChannel = {

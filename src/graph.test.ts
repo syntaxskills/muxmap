@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canRecoverAgentSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, expandedNodeWidth, liveSessionIdForNode, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, visibleAgentForSession, visibleNodes } from './graph.ts'
+import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canBulkRecoverAgentSession, canRecoverAgentSession, canRecoverCodexSession, effectiveArchivedNodeIds, expandedNodeHeight, expandedNodeWidth, liveSessionIdForNode, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, visibleAgentForSession, visibleNodes } from './graph.ts'
 import type { WorkNode } from './model.ts'
 
 const base = {
@@ -128,6 +128,37 @@ test('agent recovery supports Claude and Pi metadata on missing tmux runtimes', 
   }), false)
   assert.equal(recoverableAgentLabel({ backend: 'tmux', status: 'stopped', agent: { kind: 'claude' } }), 'Claude Code')
   assert.equal(recoverableAgentLabel({ backend: 'tmux', status: 'stopped', agent: { kind: 'pi' } }), 'Pi')
+})
+
+test('bulk agent recovery uses the strict missing-but-not-stopped filter', () => {
+  assert.equal(canBulkRecoverAgentSession({
+    backend: 'tmux',
+    status: 'detached',
+    runtimeExists: false,
+    agent: { kind: 'claude', externalSessionId: 'claude-session' },
+  }), true)
+  assert.equal(canBulkRecoverAgentSession({
+    backend: 'tmux',
+    status: 'running',
+    runtimeExists: false,
+    agent: { kind: 'pi', externalSessionPath: '/tmp/pi.jsonl' },
+  }), true)
+  assert.equal(canBulkRecoverAgentSession({
+    backend: 'tmux',
+    status: 'stopped',
+    agent: { kind: 'claude', externalSessionId: 'claude-session' },
+  }), false)
+  assert.equal(canBulkRecoverAgentSession({
+    backend: 'tmux',
+    status: 'suspended',
+    runtimeExists: false,
+    agent: { kind: 'codex', externalSessionId: 'codex-session' },
+  }), false)
+  assert.equal(canBulkRecoverAgentSession({
+    backend: 'tmux',
+    status: 'stopped',
+    canBulkRecoverAgent: true,
+  }), false)
 })
 
 test('reordering moves nodes only within their existing sibling group', () => {
