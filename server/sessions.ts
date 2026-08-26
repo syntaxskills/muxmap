@@ -3,10 +3,10 @@ import { homedir, tmpdir } from 'node:os'
 import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { accessSync, constants, readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import type { AgentActivity, AgentEventLogEntry, AgentEventSummary, AgentKind, TerminalBackend, TerminalSession } from '../src/model.ts'
 import type { WorkspaceStore } from './store.ts'
-import { agentActivityFromEvent, detectAgentKind, detectMuxMapHost, readProcesses, shouldPreserveAgentState, type ProcessInfo } from './agents.ts'
+import { agentActivityFromEvent, detectAgentKind, detectMuxMapHost, readProcesses, readProcessesAsync, shouldPreserveAgentState, type ProcessInfo } from './agents.ts'
 import { platformLabel, terminalBackendsForPlatform, type RuntimePlatform } from '../src/settings.ts'
 
 export type MultiplexerPane = { runtimeName: string; paneId: string; pid: number }
@@ -15,10 +15,12 @@ export type MultiplexerAdapter = {
   backend: TerminalBackend
   exists(name: string): boolean
   list(): string[]
+  listAsync?(): Promise<string[]>
   create(name: string, cwd: string, command?: string[], sessionEnv?: Record<string, string>): void
   stop(name: string): void
   currentWorkingDirectory?(name: string): string | undefined
   panes?(): MultiplexerPane[]
+  panesAsync?(): Promise<MultiplexerPane[]>
 }
 
 export type TmuxAdapter = Omit<MultiplexerAdapter, 'backend'> & { backend?: 'tmux' }
@@ -45,6 +47,51 @@ export function createShortTtlCache<T>(load: () => T, ttlMs: number, clock: () =
     },
     invalidate() {
       cached = undefined
+    },
+  }
+}
+
+export function createStaleWhileRevalidateCache<T>(load: () => Promise<T>, initialValue: T, ttlMs: number, clock: () => number = () => Date.now()) {
+  let cached = { value: initialValue, expiresAt: 0 }
+  let inFlight: Promise<T> | undefined
+
+  const refresh = () => {
+    if (inFlight) return inFlight
+    inFlight = Promise.resolve()
+      .then(load)
+      .then((value) => {
+        cached = { value, expiresAt: clock() + ttlMs }
+        return value
+      })
+      .finally(() => {
+        inFlight = undefined
+      })
+    return inFlight
+  }
+
+  const triggerRefresh = () => {
+    void refresh().catch(() => {
+      // Keep serving the last completed snapshot if discovery fails.
+    })
+  }
+
+  return {
+    get() {
+      if (clock() >= cached.expiresAt) triggerRefresh()
+      return cached.value
+    },
+    peekFresh() {
+      return clock() < cached.expiresAt ? cached.value : undefined
+    },
+    peek() {
+      return cached.value
+    },
+    refresh,
+    invalidate() {
+      cached = { ...cached, expiresAt: 0 }
+    },
+    inFlight() {
+      return inFlight
     },
   }
 }
@@ -95,6 +142,27 @@ export function tmuxNewSessionArgs(name: string, cwd: string, command?: string[]
   return defaultTmuxArgs('new-session', '-d', '-s', name, '-c', cwd, ...envArgs, ...(command ?? []))
 }
 
+function spawnText(command: string, args: string[], options: { env?: NodeJS.ProcessEnv; cwd?: string } = {}) {
+  return new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
+    const child = spawn(command, args, { cwd: options.cwd, env: options.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    child.on('error', () => resolve({ status: 1, stdout, stderr }))
+    child.on('close', (status) => resolve({ status, stdout, stderr }))
+  })
+}
+
+function parseTmuxPanes(output: string) {
+  return output.trim().split('\n').filter(Boolean).flatMap((line) => {
+    const [runtimeName, paneId, pid] = line.split('\t')
+    return runtimeName && paneId && Number(pid) ? [{ runtimeName, paneId, pid: Number(pid) }] : []
+  })
+}
+
 export const realTmux: MultiplexerAdapter = {
   backend: 'tmux',
   exists(name) {
@@ -102,6 +170,10 @@ export const realTmux: MultiplexerAdapter = {
   },
   list() {
     const result = spawnSync(tmuxExecutable(), defaultTmuxArgs('list-sessions', '-F', '#S'), { encoding: 'utf8', env: defaultTmuxEnv() })
+    return result.status === 0 ? result.stdout.trim().split('\n').filter(Boolean) : []
+  },
+  async listAsync() {
+    const result = await spawnText(tmuxExecutable(), defaultTmuxArgs('list-sessions', '-F', '#S'), { env: defaultTmuxEnv() })
     return result.status === 0 ? result.stdout.trim().split('\n').filter(Boolean) : []
   },
   create(name, cwd, command, sessionEnv) {
@@ -119,10 +191,11 @@ export const realTmux: MultiplexerAdapter = {
   panes() {
     const result = spawnSync(tmuxExecutable(), defaultTmuxArgs('list-panes', '-a', '-F', '#{session_name}\t#{pane_id}\t#{pane_pid}'), { encoding: 'utf8', env: defaultTmuxEnv() })
     if (result.status !== 0) return []
-    return result.stdout.trim().split('\n').filter(Boolean).flatMap((line) => {
-      const [runtimeName, paneId, pid] = line.split('\t')
-      return runtimeName && paneId && Number(pid) ? [{ runtimeName, paneId, pid: Number(pid) }] : []
-    })
+    return parseTmuxPanes(result.stdout)
+  },
+  async panesAsync() {
+    const result = await spawnText(tmuxExecutable(), defaultTmuxArgs('list-panes', '-a', '-F', '#{session_name}\t#{pane_id}\t#{pane_pid}'), { env: defaultTmuxEnv() })
+    return result.status === 0 ? parseTmuxPanes(result.stdout) : []
   },
 }
 
@@ -165,6 +238,11 @@ export const realZellij: MultiplexerAdapter = {
   list() {
     if (process.platform === 'win32') return windowsZellijSessions()
     const result = spawnSync(zellijExecutable(), ['list-sessions', '--short', '--no-formatting'], { encoding: 'utf8', env: defaultZellijEnv() })
+    return result.status === 0 ? parseZellijSessions(result.stdout) : []
+  },
+  async listAsync() {
+    if (process.platform === 'win32') return windowsZellijSessions()
+    const result = await spawnText(zellijExecutable(), ['list-sessions', '--short', '--no-formatting'], { env: defaultZellijEnv() })
     return result.status === 0 ? parseZellijSessions(result.stdout) : []
   },
   create(name, cwd) {
@@ -244,7 +322,7 @@ export function createSessionManager(
   processReader: () => ProcessInfo[] = readProcesses,
   defaultBackend?: TerminalBackend,
   platform?: RuntimePlatform,
-  options: { muxMapUrl?: string | (() => string) } = {},
+  options: { muxMapUrl?: string | (() => string); processReaderAsync?: () => Promise<ProcessInfo[]>; clock?: () => number } = {},
 ) {
   const runtimePlatform = platform ?? ('exists' in input ? 'linux' : process.platform)
   const adapters = normalizeAdapters(input)
@@ -256,10 +334,21 @@ export function createSessionManager(
     return adapter
   }
 
+  const emptyDiscoverySnapshot = (): RuntimeDiscoverySnapshot => ({ inventory: new Map(), selfHosting: new Set(), live: new Map() })
+  const asyncDiscoveryAvailable = Boolean(options.processReaderAsync) || Object.values(adapters).some((adapter) => adapter?.listAsync || adapter?.panesAsync)
+  const processReaderForDiscovery = options.processReaderAsync ?? (processReader === readProcesses ? readProcessesAsync : async () => processReader())
+
   function uncachedRuntimeSnapshot() {
     return new Map(Object.values(adapters)
       .filter((adapter): adapter is MultiplexerAdapter => Boolean(adapter))
       .map((adapter) => [adapter.backend, new Set(adapter.list())]))
+  }
+
+  async function uncachedRuntimeSnapshotAsync() {
+    const entries = await Promise.all(Object.values(adapters)
+      .filter((adapter): adapter is MultiplexerAdapter => Boolean(adapter))
+      .map(async (adapter) => [adapter.backend, new Set(adapter.listAsync ? await adapter.listAsync() : adapter.list())] as const))
+    return new Map(entries)
   }
 
   function buildRuntimeDiscoverySnapshot(): RuntimeDiscoverySnapshot {
@@ -277,11 +366,43 @@ export function createSessionManager(
     return { inventory, selfHosting, live: uncachedRuntimeSnapshot() }
   }
 
-  const runtimeDiscovery = createShortTtlCache(buildRuntimeDiscoverySnapshot, 2500)
-  const invalidateRuntimeDiscovery = () => runtimeDiscovery.invalidate()
+  async function buildRuntimeDiscoverySnapshotAsync(): Promise<RuntimeDiscoverySnapshot> {
+    const processesPromise = processReaderForDiscovery()
+    const panesPromise = Promise.all(Object.values(adapters).map(async (adapter) => adapter
+      ? (adapter.panesAsync ? await adapter.panesAsync() : adapter.panes?.() ?? []).map((pane) => ({ ...pane, backend: adapter.backend }))
+      : []))
+    const livePromise = uncachedRuntimeSnapshotAsync()
+    const [processes, panesByAdapter, live] = await Promise.all([processesPromise, panesPromise, livePromise])
+    const panes = panesByAdapter.flat()
+    const inventory = new Map(panes.flatMap((pane) => {
+      const kind = detectAgentKind(pane.pid, processes)
+      return kind ? [[pane.runtimeName, kind] as const] : []
+    }))
+    const selfHosting = new Set(panes
+      .filter((pane) => pane.runtimeName.startsWith('muxmap') && detectMuxMapHost(pane.pid, processes))
+      .map((pane) => `${pane.backend}:${pane.runtimeName}`))
+    return { inventory, selfHosting, live }
+  }
 
-  function discoverySnapshot() {
-    return runtimeDiscovery.get()
+  const asyncRuntimeDiscovery = asyncDiscoveryAvailable
+    ? createStaleWhileRevalidateCache(buildRuntimeDiscoverySnapshotAsync, emptyDiscoverySnapshot(), 2500, options.clock)
+    : undefined
+  const syncRuntimeDiscovery = asyncDiscoveryAvailable
+    ? undefined
+    : createShortTtlCache(buildRuntimeDiscoverySnapshot, 2500, options.clock)
+  const invalidateRuntimeDiscovery = () => {
+    asyncRuntimeDiscovery?.invalidate()
+    syncRuntimeDiscovery?.invalidate()
+  }
+
+  function discoverySnapshot(): RuntimeDiscoverySnapshot {
+    return asyncRuntimeDiscovery?.get() ?? syncRuntimeDiscovery!.get()
+  }
+
+  async function refreshRuntimeDiscovery(): Promise<RuntimeDiscoverySnapshot> {
+    if (asyncRuntimeDiscovery) return asyncRuntimeDiscovery.refresh()
+    syncRuntimeDiscovery!.invalidate()
+    return syncRuntimeDiscovery!.get()
   }
 
   function agentInventory() {
@@ -317,7 +438,7 @@ export function createSessionManager(
   }
 
   function runtimeExistsInCachedSnapshot(session: TerminalSession) {
-    const snapshot = runtimeDiscovery.peek()
+    const snapshot = asyncRuntimeDiscovery?.peekFresh() ?? syncRuntimeDiscovery?.peek()
     return snapshot ? runtimeExistsInSnapshot(session, snapshot.live) : undefined
   }
 
@@ -556,6 +677,8 @@ export function createSessionManager(
     },
 
     discoverySnapshot,
+
+    refreshRuntimeDiscovery,
 
     invalidateRuntimeDiscovery,
 

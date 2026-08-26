@@ -116,6 +116,8 @@ Open Settings from the top bar. Every setting is editable through the UI or the 
 
 Terminal suspension is also configurable. `terminal.autoSuspend` can stop the oldest quiet live runtimes once `terminal.maxActiveSessions` is exceeded. This releases memory; it preserves MuxMap metadata, not arbitrary shell process state.
 
+Runtime discovery is non-blocking after startup. MuxMap does one initial tmux/Zellij/process scan before listening, then workspace polls use the latest completed snapshot while the next scan refreshes in the background.
+
 ## Verify
 
 ```bash

@@ -3,8 +3,9 @@ import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import test from 'node:test'
-import { agentResumeCommand, createSessionManager, createShortTtlCache, defaultTerminalBackend, parseZellijSessions, tmuxExecutable, tmuxNewSessionArgs, type MultiplexerAdapter, type TmuxAdapter } from './sessions.ts'
+import { agentResumeCommand, createSessionManager, createShortTtlCache, createStaleWhileRevalidateCache, defaultTerminalBackend, parseZellijSessions, tmuxExecutable, tmuxNewSessionArgs, type MultiplexerAdapter, type TmuxAdapter } from './sessions.ts'
 import { createStore } from './store.ts'
+import type { ProcessInfo } from './agents.ts'
 
 function fakeTmux(): TmuxAdapter & { created: string[]; createCommands: Array<string[] | undefined>; createEnvs: Array<Record<string, string> | undefined>; stopped: string[]; live: Set<string> } {
   const live = new Set<string>()
@@ -53,6 +54,46 @@ test('short TTL cache invalidates immediately on mutation', () => {
   assert.equal(cache.get(), 1)
   cache.invalidate()
   assert.equal(cache.get(), 2)
+})
+
+test('stale runtime cache serves the last snapshot while refreshing in the background', async () => {
+  let now = 1000
+  let loads = 0
+  let releaseRefresh: ((value: { value: number }) => void) | undefined
+  const cache = createStaleWhileRevalidateCache(() => new Promise<{ value: number }>((resolve) => {
+    loads++
+    releaseRefresh = resolve
+  }), { value: 0 }, 2500, () => now)
+
+  assert.deepEqual(cache.get(), { value: 0 })
+  await Promise.resolve()
+  assert.equal(loads, 1)
+  assert.deepEqual(cache.get(), { value: 0 })
+  const inFlight = cache.inFlight()
+  releaseRefresh?.({ value: 1 })
+  assert.deepEqual(await inFlight, { value: 1 })
+  assert.deepEqual(cache.get(), { value: 1 })
+
+  now += 2500
+  assert.deepEqual(cache.get(), { value: 1 })
+  assert.deepEqual(cache.get(), { value: 1 })
+  await Promise.resolve()
+  assert.equal(loads, 2)
+})
+
+test('stale runtime cache coalesces concurrent forced refreshes', async () => {
+  let loads = 0
+  const cache = createStaleWhileRevalidateCache(async () => {
+    loads++
+    return { value: loads }
+  }, { value: 0 }, 2500)
+
+  const [first, second, third] = await Promise.all([cache.refresh(), cache.refresh(), cache.refresh()])
+
+  assert.deepEqual(first, { value: 1 })
+  assert.deepEqual(second, { value: 1 })
+  assert.deepEqual(third, { value: 1 })
+  assert.equal(loads, 1)
 })
 
 test('attaching reuses a deterministic tmux session and stopping is explicit', () => {
@@ -173,6 +214,75 @@ test('runtime discovery snapshot is shared within the TTL and invalidated by ter
     assert.equal(processReads, 2)
     assert.equal(paneReads, 2)
     assert.equal(listReads, 2)
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('async runtime discovery returns stale snapshots during in-flight refresh and force-refreshes after invalidation', async () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-async-discovery-cache-')))
+  const store = createStore(':memory:')
+  let now = 1000
+  let listReads = 0
+  let paneReads = 0
+  let processReads = 0
+  const live = new Set(['muxmap-old'])
+  let releaseProcesses: ((processes: ProcessInfo[]) => void) | undefined
+  const adapter = {
+    ...fakeTmux(),
+    live,
+    async listAsync() {
+      listReads++
+      return [...live]
+    },
+    async panesAsync() {
+      paneReads++
+      return [...live].map((runtimeName, index) => ({ runtimeName, paneId: `%${index + 1}`, pid: 1000 + index }))
+    },
+  }
+  const manager = createSessionManager(store, adapter, [directory], () => [], undefined, undefined, {
+    clock: () => now,
+    processReaderAsync: () => new Promise((resolve) => {
+      processReads++
+      releaseProcesses = resolve
+    }),
+  })
+
+  try {
+    const initialRefresh = manager.refreshRuntimeDiscovery()
+    await Promise.resolve()
+    releaseProcesses?.([])
+    assert.deepEqual([...(await initialRefresh).live.get('tmux') ?? []], ['muxmap-old'])
+
+    live.clear()
+    live.add('muxmap-new')
+    now += 2500
+    assert.deepEqual([...manager.discoverySnapshot().live.get('tmux') ?? []], ['muxmap-old'])
+    assert.deepEqual([...manager.discoverySnapshot().live.get('tmux') ?? []], ['muxmap-old'])
+    await Promise.resolve()
+    assert.equal(processReads, 2)
+    assert.equal(listReads, 2)
+    assert.equal(paneReads, 2)
+
+    const refresh = manager.refreshRuntimeDiscovery()
+    await Promise.resolve()
+    releaseProcesses?.([])
+    assert.deepEqual([...(await refresh).live.get('tmux') ?? []], ['muxmap-new'])
+    assert.equal(processReads, 2)
+    assert.equal(listReads, 2)
+    assert.equal(paneReads, 2)
+
+    live.clear()
+    live.add('muxmap-forced')
+    manager.invalidateRuntimeDiscovery()
+    const forced = manager.refreshRuntimeDiscovery()
+    await Promise.resolve()
+    releaseProcesses?.([])
+    assert.deepEqual([...(await forced).live.get('tmux') ?? []], ['muxmap-forced'])
+    assert.equal(processReads, 3)
+    assert.equal(listReads, 3)
+    assert.equal(paneReads, 3)
   } finally {
     store.close()
     rmSync(directory, { recursive: true, force: true })

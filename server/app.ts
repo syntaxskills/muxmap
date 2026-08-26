@@ -53,6 +53,7 @@ type ServerOptions = {
   staticDirectory?: string
   allowedOrigins?: string[]
   processReader?: () => ProcessInfo[]
+  processReaderAsync?: () => Promise<ProcessInfo[]>
   platform?: RuntimePlatform
   activityWriteIntervalMs?: number
   outputFlushIntervalMs?: number
@@ -328,6 +329,7 @@ export function createMuxMapServer(options: ServerOptions) {
   let boundPort = Number(process.env.PORT ?? 4782)
   const sessions = createSessionManager(store, multiplexers, options.allowedRoots, options.processReader, options.defaultBackend ?? defaultTerminalBackend(platform), platform, {
     muxMapUrl: () => `http://127.0.0.1:${boundPort}`,
+    processReaderAsync: options.processReaderAsync,
   })
   const ptyFactory = options.ptyFactory ?? defaultPtyFactory
   const staticDirectory = resolve(options.staticDirectory ?? 'dist')
@@ -356,8 +358,6 @@ export function createMuxMapServer(options: ServerOptions) {
     for (const pty of ptys.get(sessionId) ?? []) pty.kill()
     ptys.delete(sessionId)
   }
-
-  sessions.reconcile()
 
   const http = createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`)
@@ -449,7 +449,7 @@ export function createMuxMapServer(options: ServerOptions) {
 
         const recoverWorkspaceAgentsMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/recover-agents$/)
         if (request.method === 'POST' && recoverWorkspaceAgentsMatch) {
-          const snapshot = sessions.discoverySnapshot()
+          const snapshot = await sessions.refreshRuntimeDiscovery()
           const live = sessions.reconcile(new Set(clients.keys()), snapshot.live)
           const graph = store.getWorkspace(recoverWorkspaceAgentsMatch[1])
           const eligible = sessions.decorate(graph.sessions, snapshot.inventory, live).filter(canBulkRecoverAgentSession)
@@ -855,7 +855,9 @@ export function createMuxMapServer(options: ServerOptions) {
 
   return {
     store,
-    listen(port: number, host = '127.0.0.1') {
+    async listen(port: number, host = '127.0.0.1') {
+      const snapshot = await sessions.refreshRuntimeDiscovery()
+      sessions.reconcile(new Set(clients.keys()), snapshot.live)
       return new Promise<AddressInfo>((resolveListen, reject) => {
         http.once('error', reject)
         http.listen(port, host, () => {

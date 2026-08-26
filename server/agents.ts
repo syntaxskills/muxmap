@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import type { AgentActivity, AgentKind } from '../src/model.ts'
 
 export type ProcessInfo = { pid: number; ppid: number; command: string }
@@ -6,7 +6,31 @@ export type ProcessInfo = { pid: number; ppid: number; command: string }
 export function readProcesses(): ProcessInfo[] {
   const result = spawnSync('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' })
   if (result.status !== 0) return []
-  return result.stdout.split('\n').flatMap((line) => {
+  return parseProcessList(result.stdout)
+}
+
+function spawnText(command: string, args: string[], options: { env?: NodeJS.ProcessEnv } = {}) {
+  return new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
+    const child = spawn(command, args, { env: options.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    child.on('error', () => resolve({ status: 1, stdout, stderr }))
+    child.on('close', (status) => resolve({ status, stdout, stderr }))
+  })
+}
+
+export async function readProcessesAsync(): Promise<ProcessInfo[]> {
+  const result = await spawnText('ps', ['-axo', 'pid=,ppid=,command='])
+  if (result.status !== 0) return []
+  return parseProcessList(result.stdout)
+}
+
+function parseProcessList(output: string): ProcessInfo[] {
+  return output.split('\n').flatMap((line) => {
     const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/)
     return match ? [{ pid: Number(match[1]), ppid: Number(match[2]), command: match[3] }] : []
   })
