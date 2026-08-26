@@ -128,7 +128,7 @@ export function shouldPreserveAgentState(current: AgentActivity | undefined, eve
   const eventName = eventField(event, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? ''
   const notification = eventField(event, ['notification_type', 'notificationType']) ?? ''
   if (!next) return true
-  if (eventName === 'Notification' && notification === 'idle_prompt' && current && ['needs_input', 'completed', 'read'].includes(current.state)) return true
+  if (eventName === 'Notification' && notification === 'idle_prompt' && current && ['delegated', 'needs_input', 'completed', 'read'].includes(current.state)) return true
   if (next.state !== 'working') return false
   if (!current || !['completed', 'read', 'needs_input', 'delegated'].includes(current.state)) return false
   return ['SubagentStop', 'TaskCompleted'].includes(eventName)

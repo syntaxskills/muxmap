@@ -47,7 +47,7 @@ test('Codex and Claude lifecycle hooks map to working, input, and completed stat
   assert.equal(agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'agent_needs_input' }, '2026-08-07T10:05:00.000Z')!.state, 'needs_input')
   const idlePrompt = agentActivityFromEvent('claude', { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, '2026-08-07T10:05:00.000Z')
   assert.equal(idlePrompt!.state, 'completed')
-  assert.equal(shouldPreserveAgentState({ kind: 'claude', state: 'delegated', since: '2026-08-07T10:00:00.000Z' }, { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, idlePrompt), false)
+  assert.equal(shouldPreserveAgentState({ kind: 'claude', state: 'delegated', since: '2026-08-07T10:00:00.000Z' }, { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, idlePrompt), true)
   assert.equal(shouldPreserveAgentState({ kind: 'claude', state: 'working', since: '2026-08-07T10:00:00.000Z' }, { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, idlePrompt), false)
   assert.equal(shouldPreserveAgentState({ kind: 'claude', state: 'needs_input', since: '2026-08-07T10:00:00.000Z' }, { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, idlePrompt), true)
   assert.equal(shouldPreserveAgentState({ kind: 'claude', state: 'read', since: '2026-08-07T10:00:00.000Z' }, { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, idlePrompt), true)

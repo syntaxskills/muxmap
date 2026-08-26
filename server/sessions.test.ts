@@ -721,6 +721,8 @@ test('Claude idle prompts downgrade stuck states but preserve needs input', () =
     assert.equal(manager.decorate([session])[0].agent?.state, 'delegated')
     manager.acknowledge(session.id)
     assert.equal(manager.decorate([session])[0].agent?.state, 'delegated')
+    manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'Notification', notification_type: 'idle_prompt' }, '2026-08-07T10:05:15.000Z')
+    assert.equal(manager.decorate([session])[0].agent?.state, 'delegated')
     manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'Stop', background_tasks: [{ id: 'task-1', description: 'Run mvn test' }] }, '2026-08-07T10:05:30.000Z')
     assert.equal(manager.decorate([session])[0].agent?.state, 'delegated')
     manager.recordAgentEvent({ backend: 'tmux', paneId: '%21' }, 'claude', { hook_event_name: 'TaskCompleted', task_id: 'task-1' }, '2026-08-07T10:06:00.000Z')
