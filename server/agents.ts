@@ -1,7 +1,16 @@
 import { spawn, spawnSync } from 'node:child_process'
+import { readdirSync, statSync } from 'node:fs'
+import path from 'node:path'
 import type { AgentActivity, AgentKind } from '../src/model.ts'
 
 export type ProcessInfo = { pid: number; ppid: number; command: string }
+export type AgentTranscriptFs = {
+  readdirSync: (dir: string) => string[]
+  statSync: (file: string) => { mtimeMs: number }
+}
+
+const realTranscriptFs: AgentTranscriptFs = { readdirSync, statSync }
+const TEAMMATE_STALE_MS = 30 * 60 * 1000
 
 export function readProcesses(): ProcessInfo[] {
   const result = spawnSync('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' })
@@ -115,14 +124,64 @@ function taskDescription(task: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim().replace(/\s+/g, ' ').slice(0, 200) : undefined
 }
 
-function claudeStopBackgroundState(input: Record<string, unknown>): Pick<AgentActivity, 'state' | 'standbyReason'> | undefined {
+function taskType(task: unknown) {
+  if (!task || typeof task !== 'object') return undefined
+  const value = (task as Record<string, unknown>).type
+  return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : undefined
+}
+
+function isMonitorTask(task: unknown) {
+  return taskType(task) === 'monitor'
+}
+
+function isTeammateTask(task: unknown) {
+  const type = taskType(task)
+  return !type || ['agent', 'background_task', 'subagent', 'task', 'teammate'].includes(type)
+}
+
+function transcriptPathFromEvent(input: Record<string, unknown>) {
+  return eventField(input, ['transcript_path', 'transcriptPath', 'agent_transcript_path', 'agentTranscriptPath'])
+}
+
+function subagentTranscriptDir(transcriptPath: string) {
+  const parsed = path.parse(transcriptPath)
+  const sessionId = parsed.name
+  if (!sessionId) return undefined
+  return path.join(parsed.dir, sessionId, 'subagents')
+}
+
+function hasFreshSubagentTranscript(input: Record<string, unknown>, nowMs: number, fs: AgentTranscriptFs) {
+  const transcriptPath = transcriptPathFromEvent(input)
+  const dir = transcriptPath ? subagentTranscriptDir(transcriptPath) : undefined
+  if (!dir) return undefined
+  try {
+    const files = fs.readdirSync(dir).filter((file) => file.endsWith('.jsonl'))
+    for (const file of files) {
+      try {
+        const stat = fs.statSync(path.join(dir, file))
+        if (nowMs - stat.mtimeMs <= TEAMMATE_STALE_MS) return true
+      } catch {
+        // A transcript can disappear while Claude is rotating/writing files.
+      }
+    }
+    return false
+  } catch {
+    return undefined
+  }
+}
+
+function claudeStopBackgroundState(input: Record<string, unknown>, nowMs: number, fs: AgentTranscriptFs): Pick<AgentActivity, 'state' | 'standbyReason' | 'staleTeammate'> | undefined {
   const backgroundTasks = arrayField(input, ['background_tasks', 'backgroundTasks'])
   const sessionCrons = arrayField(input, ['session_crons', 'sessionCrons'])
   if (hasItems(sessionCrons)) return { state: 'delegated' }
   if (!hasItems(backgroundTasks)) return undefined
-  const onlyMonitors = backgroundTasks.every((task) => (
-    task && typeof task === 'object' && (task as Record<string, unknown>).type === 'monitor'
-  ))
+  const nonMonitorTasks = backgroundTasks.filter((task) => !isMonitorTask(task))
+  if (nonMonitorTasks.length > 0 && nonMonitorTasks.every(isTeammateTask)) {
+    const live = hasFreshSubagentTranscript(input, nowMs, fs)
+    if (live === false) return { state: 'completed', staleTeammate: true }
+    return { state: 'delegated' }
+  }
+  const onlyMonitors = nonMonitorTasks.length === 0
   if (!onlyMonitors) return { state: 'delegated' }
   return { state: 'standby', standbyReason: backgroundTasks.map(taskDescription).find(Boolean) }
 }
@@ -161,20 +220,25 @@ export function agentSessionInfoFromEvent(input: Record<string, unknown>) {
   }
 }
 
-export function agentActivityFromEvent(kind: Exclude<AgentKind, 'ssh'>, input: Record<string, unknown>, now = new Date().toISOString()): AgentActivity | null {
+export function agentActivityFromEvent(
+  kind: Exclude<AgentKind, 'ssh'>,
+  input: Record<string, unknown>,
+  now = new Date().toISOString(),
+  options: { fs?: AgentTranscriptFs } = {},
+): AgentActivity | null {
   const event = eventField(input, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? ''
   const notification = eventField(input, ['notification_type', 'notificationType']) ?? ''
   let state: AgentActivity['state'] | undefined
   if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'before_agent_start' || event === 'agent_start' || event === 'SubagentStart' || event === 'TaskCreated') state = 'working'
   if (event === 'Stop' || event === 'StopFailure' || event === 'agent_end' || notification === 'agent_completed') state = 'completed'
   if (event === 'Notification' && notification === 'idle_prompt') state = 'completed'
-  const claudeStopBackground = kind === 'claude' && event === 'Stop' ? claudeStopBackgroundState(input) : undefined
+  const claudeStopBackground = kind === 'claude' && event === 'Stop' ? claudeStopBackgroundState(input, Date.parse(now), options.fs ?? realTranscriptFs) : undefined
   if (claudeStopBackground) state = claudeStopBackground.state
   if (event === 'PermissionRequest' || (event === 'Notification' && /permission_prompt|agent_needs_input|elicitation_dialog|elicitation_url_dialog/.test(notification))) state = 'needs_input'
   if (event === 'Stop' && asksForInput(input.last_assistant_message)) state = 'needs_input'
   if (!state && event === 'SessionStart') state = 'read'
   if (!state) return null
-  return { kind, state, since: now, ...(claudeStopBackground?.standbyReason ? { standbyReason: claudeStopBackground.standbyReason } : {}), ...agentSessionInfoFromEvent(input) }
+  return { kind, state, since: now, ...(claudeStopBackground?.standbyReason ? { standbyReason: claudeStopBackground.standbyReason } : {}), ...(claudeStopBackground?.staleTeammate ? { staleTeammate: true } : {}), ...agentSessionInfoFromEvent(input) }
 }
 
 export function shouldPreserveAgentState(current: AgentActivity | undefined, event: Record<string, unknown>, next: AgentActivity | null) {
@@ -195,6 +259,7 @@ function mergeActivity(current: AgentActivity | undefined, next: AgentActivity) 
     externalSessionPath: next.externalSessionPath ?? current?.externalSessionPath,
     externalCwd: next.externalCwd ?? current?.externalCwd,
     standbyReason: next.standbyReason ?? current?.standbyReason,
+    staleTeammate: next.staleTeammate ? true : undefined,
   }
 }
 

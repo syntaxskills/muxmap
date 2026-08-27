@@ -160,13 +160,14 @@ function rebuildAgentActivityFromEvents(database: DatabaseSync) {
   if (latest.size === 0) return
   const upsert = database.prepare(`
     INSERT INTO agent_activity (
-      tmux_name, kind, state, since, standby_reason, external_session_id, external_session_path, external_cwd, messaging_protocol, messaging_socket
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      tmux_name, kind, state, since, standby_reason, stale_teammate, external_session_id, external_session_path, external_cwd, messaging_protocol, messaging_socket
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(tmux_name) DO UPDATE SET
       kind = excluded.kind,
       state = excluded.state,
       since = excluded.since,
       standby_reason = excluded.standby_reason,
+      stale_teammate = excluded.stale_teammate,
       external_session_id = COALESCE(excluded.external_session_id, agent_activity.external_session_id),
       external_session_path = COALESCE(excluded.external_session_path, agent_activity.external_session_path),
       external_cwd = COALESCE(excluded.external_cwd, agent_activity.external_cwd),
@@ -177,6 +178,7 @@ function rebuildAgentActivityFromEvents(database: DatabaseSync) {
     upsert.run(
       runtimeName, activity.kind, activity.state, activity.since ?? new Date().toISOString(),
       activity.standbyReason ?? null,
+      activity.staleTeammate ? 1 : 0,
       activity.externalSessionId ?? null, activity.externalSessionPath ?? null, activity.externalCwd ?? null,
       activity.messagingProtocol ?? null, activity.messagingSocket ?? null,
     )
@@ -261,6 +263,7 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
       state TEXT NOT NULL,
       since TEXT NOT NULL,
       standby_reason TEXT,
+      stale_teammate INTEGER NOT NULL DEFAULT 0,
       external_session_id TEXT,
       external_session_path TEXT,
       external_cwd TEXT,
@@ -348,7 +351,7 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
   database.prepare("UPDATE agent_activity SET state = 'read' WHERE state = 'idle'").run()
 
   const agentColumns = database.prepare('PRAGMA table_info(agent_activity)').all() as Array<{ name: string }>
-  for (const [column, type] of [['standby_reason', 'TEXT'], ['external_session_id', 'TEXT'], ['external_session_path', 'TEXT'], ['external_cwd', 'TEXT'], ['messaging_protocol', 'TEXT'], ['messaging_socket', 'TEXT']] as const) {
+  for (const [column, type] of [['standby_reason', 'TEXT'], ['stale_teammate', 'INTEGER NOT NULL DEFAULT 0'], ['external_session_id', 'TEXT'], ['external_session_path', 'TEXT'], ['external_cwd', 'TEXT'], ['messaging_protocol', 'TEXT'], ['messaging_socket', 'TEXT']] as const) {
     if (!agentColumns.some((item) => item.name === column)) database.exec(`ALTER TABLE agent_activity ADD COLUMN ${column} ${type}`)
   }
 
@@ -496,6 +499,7 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
       state: String(row.state) as AgentActivity['state'],
       since: String(row.since),
       standbyReason: row.standby_reason ? String(row.standby_reason) : undefined,
+      staleTeammate: row.stale_teammate ? true : undefined,
       externalSessionId: row.external_session_id ? String(row.external_session_id) : undefined,
       externalSessionPath: row.external_session_path ? String(row.external_session_path) : undefined,
       externalCwd: row.external_cwd ? String(row.external_cwd) : undefined,
@@ -921,14 +925,15 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
     upsertAgentActivity(runtimeName: string, activity: AgentActivity) {
       database.prepare(`
         INSERT INTO agent_activity (
-          tmux_name, kind, state, since, standby_reason, external_session_id, external_session_path,
+          tmux_name, kind, state, since, standby_reason, stale_teammate, external_session_id, external_session_path,
           external_cwd, messaging_protocol, messaging_socket
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(tmux_name) DO UPDATE SET
           kind = excluded.kind,
           state = excluded.state,
           since = excluded.since,
           standby_reason = excluded.standby_reason,
+          stale_teammate = excluded.stale_teammate,
           external_session_id = COALESCE(excluded.external_session_id, agent_activity.external_session_id),
           external_session_path = COALESCE(excluded.external_session_path, agent_activity.external_session_path),
           external_cwd = COALESCE(excluded.external_cwd, agent_activity.external_cwd),
@@ -937,6 +942,7 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
       `).run(
         runtimeName, activity.kind, activity.state, activity.since ?? new Date().toISOString(),
         activity.standbyReason ?? null,
+        activity.staleTeammate ? 1 : 0,
         activity.externalSessionId ?? null, activity.externalSessionPath ?? null, activity.externalCwd ?? null,
         activity.messagingProtocol ?? null, activity.messagingSocket ?? null,
       )

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
-import { addCommandHooks, agentActivityFromEvent, agentSessionInfoFromEvent, detectAgentKind, detectMuxMapHost, isMuxMapAgentHookCommand, shouldPreserveAgentState, type ProcessInfo } from './agents.ts'
+import { addCommandHooks, agentActivityFromEvent, agentSessionInfoFromEvent, detectAgentKind, detectMuxMapHost, isMuxMapAgentHookCommand, shouldPreserveAgentState, type AgentTranscriptFs, type ProcessInfo } from './agents.ts'
 
 const processes: ProcessInfo[] = [
   { pid: 10, ppid: 1, command: 'bash' },
@@ -16,6 +16,22 @@ const processes: ProcessInfo[] = [
   { pid: 50, ppid: 1, command: 'node server/index.ts' },
   { pid: 51, ppid: 50, command: 'rg codex claude pi ssh' },
 ]
+
+function transcriptFs(mtimeMsByPath: Record<string, number>, unreadable = false): AgentTranscriptFs {
+  return {
+    readdirSync(dir: string) {
+      if (unreadable) throw new Error('unreadable')
+      return Object.keys(mtimeMsByPath)
+        .filter((file) => file.startsWith(`${dir}/`))
+        .map((file) => file.slice(dir.length + 1))
+    },
+    statSync(file: string) {
+      const mtimeMs = mtimeMsByPath[file]
+      if (mtimeMs === undefined) throw new Error('missing')
+      return { mtimeMs }
+    },
+  }
+}
 
 test('agent kind is detected from tmux pane descendants without false node matches', () => {
   assert.equal(detectAgentKind(10, processes), 'codex')
@@ -99,6 +115,53 @@ test('Claude Stop distinguishes compute delegation from passive monitor standby'
     hook_event_name: 'Stop',
     session_crons: [{ id: 'cron-1' }],
     last_assistant_message: 'The implementation agent will wake this session later.',
+  })!.state, 'delegated')
+})
+
+test('Claude Stop verifies teammate delegation against subagent transcript liveness', () => {
+  const now = '2026-08-07T12:00:00.000Z'
+  const nowMs = Date.parse(now)
+  const transcriptPath = '/home/user/.claude/projects/muxmap/session-123.jsonl'
+  const subagentDir = '/home/user/.claude/projects/muxmap/session-123/subagents'
+  const task = { id: 'teammate-1', type: 'teammate', description: 'continue implementation' }
+
+  assert.equal(agentActivityFromEvent('claude', {
+    hook_event_name: 'Stop',
+    transcript_path: transcriptPath,
+    background_tasks: [task],
+  }, now, {
+    fs: transcriptFs({ [`${subagentDir}/teammate-1.jsonl`]: nowMs - 5 * 60_000 }),
+  })!.state, 'delegated')
+
+  const stale = agentActivityFromEvent('claude', {
+    hook_event_name: 'Stop',
+    transcript_path: transcriptPath,
+    background_tasks: [task],
+  }, now, {
+    fs: transcriptFs({ [`${subagentDir}/teammate-1.jsonl`]: nowMs - 10 * 60 * 60_000 }),
+  })
+  assert.deepEqual(stale, {
+    kind: 'claude',
+    state: 'completed',
+    since: now,
+    staleTeammate: true,
+    externalSessionPath: transcriptPath,
+  })
+
+  assert.equal(agentActivityFromEvent('claude', {
+    hook_event_name: 'Stop',
+    transcript_path: transcriptPath,
+    background_tasks: [task],
+  }, now, {
+    fs: transcriptFs({}, true),
+  })!.state, 'delegated')
+
+  assert.equal(agentActivityFromEvent('claude', {
+    hook_event_name: 'Stop',
+    transcript_path: transcriptPath,
+    background_tasks: [{ id: 'tool-1', type: 'workflow', description: 'run integration suite' }],
+  }, now, {
+    fs: transcriptFs({ [`${subagentDir}/tool-1.jsonl`]: nowMs - 10 * 60 * 60_000 }),
   })!.state, 'delegated')
 })
 

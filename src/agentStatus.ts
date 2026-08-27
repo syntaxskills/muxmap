@@ -13,5 +13,6 @@ export function agentStatusText(agent: AgentActivity, now = Date.now()) {
 
 export function agentStatusTooltip(agent: AgentActivity, now = Date.now()) {
   const text = agentStatusText(agent, now)
+  if (agent.staleTeammate) return `${text} — background teammate looked stale; marked completed`
   return agent.state === 'standby' && agent.standbyReason ? `${text} — ${agent.standbyReason}` : text
 }

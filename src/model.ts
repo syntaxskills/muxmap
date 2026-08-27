@@ -56,6 +56,7 @@ export type AgentActivity = {
   state: 'unavailable' | 'working' | 'delegated' | 'standby' | 'needs_input' | 'completed' | 'read'
   since?: string
   standbyReason?: string
+  staleTeammate?: boolean
   externalSessionId?: string
   externalSessionPath?: string
   externalCwd?: string
