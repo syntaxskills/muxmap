@@ -8,6 +8,7 @@ import type { AgentActivity, AgentEventLogEntry, AgentEventSummary, AgentKind, T
 import type { WorkspaceStore } from './store.ts'
 import { agentActivityFromEvent, detectAgentKind, detectMuxMapHost, readProcesses, readProcessesAsync, shouldPreserveAgentState, type ProcessInfo } from './agents.ts'
 import { platformLabel, terminalBackendsForPlatform, type RuntimePlatform } from '../src/settings.ts'
+import { canAcknowledgeAgentOnOpen } from '../src/agentStaleness.ts'
 
 export type MultiplexerPane = { runtimeName: string; paneId: string; pid: number }
 
@@ -723,12 +724,11 @@ export function createSessionManager(
       return store.upsertAgentActivity(runtimeName, activity)
     },
 
-    acknowledge(id: string) {
+    acknowledge(id: string, now = new Date().toISOString()) {
       const session = store.getSession(id)
       if (!session) throw new Error('Session not found')
       const activity = store.getAgentActivity(session.runtimeName)
-      if (!activity || !['completed', 'standby'].includes(activity.state)) return activity
-      const now = new Date().toISOString()
+      if (!activity || !canAcknowledgeAgentOnOpen(activity, Date.parse(now))) return activity
       const next = store.upsertAgentActivity(session.runtimeName, { ...activity, state: 'read' })
       if (next.kind !== 'ssh') store.recordAgentEvent(session.runtimeName, next.kind, { type: 'manual_status', state: 'read' }, next.state, now)
       return next

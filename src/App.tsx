@@ -20,6 +20,7 @@ import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { normalizeTerminalOpacity, normalizeTerminalSplit } from './terminalInteraction.ts'
 import { readViewState, writeViewState } from './viewState.ts'
 import { agentStatusText, agentStatusTooltip } from './agentStatus.ts'
+import { canAcknowledgeAgentOnOpen } from './agentStaleness.ts'
 import { IN_PAGE_NOTIFICATION_LIFETIME_MS, mergeAgentNotifications, routeAgentNotifications, scanAgentNotifications, type AgentNotification } from './agentNotifications.ts'
 import { dragIntent, dropPositionAt, pointerReleaseIntent } from './nodeReorderInteraction.ts'
 import { clampMenuPosition, contextMenuConfirmationText, duplicateNodeInput, type ContextMenuConfirmation } from './nodeContextMenu.ts'
@@ -429,7 +430,7 @@ function App() {
     if (restored.nodeId !== selectedId) {
       setSelectedId(restored.nodeId)
     }
-    if (restored.agent && ['completed', 'standby'].includes(restored.agent.state)) {
+    if (canAcknowledgeAgentOnOpen(restored.agent)) {
       setGraph((current) => current ? {
         ...current,
         sessions: current.sessions.map((item) => item.id === restored.id && item.agent ? { ...item, agent: { ...item.agent, state: 'read' } } : item),

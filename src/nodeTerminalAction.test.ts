@@ -13,7 +13,7 @@ test('a terminal-enabled node has no duplicate open-terminal button', () => {
 test('opening completed or standby terminal acknowledges it without dismissing delegated background work', () => {
   const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
 
-  assert.match(app, /\['completed', 'standby'\]\.includes\(restored\.agent\.state\)/)
+  assert.match(app, /canAcknowledgeAgentOnOpen\(restored\.agent\)/)
   assert.doesNotMatch(app, /\['completed', 'delegated', 'standby'\]\.includes\(restored\.agent\.state\)/)
   assert.match(app, /\/api\/sessions\/\$\{restored\.id\}\/agent\/read/)
 })

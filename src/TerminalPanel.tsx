@@ -10,6 +10,7 @@ import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, coalesceTermina
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { loadAddonWithFallback } from './terminalRenderer.ts'
 import { agentStatusText, agentStatusTooltip } from './agentStatus.ts'
+import { visibleAgentForSession } from './graph.ts'
 import { AgentIcon } from './AgentIcon.tsx'
 import { createTerminalLinkProvider } from './terminalLinks.ts'
 import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachment } from './imageAttachments.ts'
@@ -322,13 +323,14 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     '--accent-soft': `color-mix(in srgb, ${node.color} 20%, transparent)`,
     opacity: opacity / 100,
   } as CSSProperties
+  const visibleAgent = visibleAgentForSession(session)
 
   return (
     <section className={`terminal terminal-window ${floating ? 'is-floating' : 'is-docked'} ${isFullscreen ? 'is-fullscreen' : ''}`} role="dialog" aria-label={`Terminal for ${node.title}`} style={style}>
       <div className={`terminal-header ${showNodeEditor ? 'has-node-editor' : ''} ${stopConfirming ? 'has-stop-confirm' : ''}`} onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
         <button className="terminal-title" type="button" onClick={() => setShowNodeEditor((value) => !value)} aria-expanded={showNodeEditor} title={[node.type, node.project, node.jiraKey, node.repoPath, node.note].filter(Boolean).join('\n')}><span className="terminal-node-link"><Link2Icon /> linked</span><strong>{node.title}</strong><span className="terminal-session-name">{session.runtimeName}</span><span className="terminal-details-hint">Details <ChevronDownIcon aria-hidden="true" /></span></button>
         <div className="terminal-actions">
-          <span className={`runtime-state ${session.agent ? `is-${session.agent.state}` : `is-${status}`}`} title={session.agent ? `${agentStatusTooltip(session.agent)} · detected from this ${session.backend} session` : `Terminal ${status}`}>{session.agent && <AgentIcon kind={session.agent.kind} />}{session.agent ? agentStatusText(session.agent) : status}</span>
+          <span className={`runtime-state ${visibleAgent ? `is-${visibleAgent.state}` : `is-${status}`}`} title={visibleAgent ? `${agentStatusTooltip(visibleAgent)} · detected from this ${session.backend} session` : `Terminal ${status}`}>{visibleAgent && <AgentIcon kind={visibleAgent.kind} />}{visibleAgent ? agentStatusText(visibleAgent) : status}</span>
           <span className="terminal-action-divider" aria-hidden="true" />
           <button className="terminal-icon-button is-danger" type="button" onClick={requestStop} disabled={disabled} aria-expanded={stopConfirming} aria-label="Stop terminal session" title="Stop terminal session"><StopIcon /></button>
           <button className="terminal-icon-button terminal-float-action" type="button" onClick={onToggleFloating} aria-label={floating ? 'Dock terminal' : 'Float terminal'} title={floating ? 'Dock terminal' : 'Float terminal'}>{floating ? <DrawingPinIcon /> : <OpenInNewWindowIcon />}</button>
@@ -341,7 +343,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
           <div><button type="button" onClick={() => setStopConfirming(false)} autoFocus>Cancel</button><button className="is-danger" type="button" onClick={requestStop} disabled={disabled}>Stop session</button></div>
         </div>}
         {showNodeEditor && <div className="terminal-node-editor">
-          <SessionBindingCard session={session} statusLabel={session.agent ? agentStatusText(session.agent) : status} className="terminal-agent-session is-wide" />
+          <SessionBindingCard session={session} statusLabel={visibleAgent ? agentStatusText(visibleAgent) : status} className="terminal-agent-session is-wide" />
           <div className="is-wide"><AgentEventList events={session.agentEvents} sessionId={session.id} /></div>
           <label className="is-wide">Title<input defaultValue={node.title} onBlur={(event) => { if (event.target.value !== node.title) onUpdate({ title: event.target.value }) }} /></label>
           <label>Type<select value={node.type} onChange={(event) => onUpdate({ type: event.target.value as NodeType })}>{nodeTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
