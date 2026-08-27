@@ -18,15 +18,18 @@ const processes: ProcessInfo[] = [
 ]
 
 function transcriptFs(mtimeMsByPath: Record<string, number>, unreadable = false): AgentTranscriptFs {
+  const normalize = (value: string) => value.replace(/\\/g, '/')
+  const normalized = new Map(Object.entries(mtimeMsByPath).map(([file, mtimeMs]) => [normalize(file), mtimeMs]))
   return {
     readdirSync(dir: string) {
       if (unreadable) throw new Error('unreadable')
-      return Object.keys(mtimeMsByPath)
-        .filter((file) => file.startsWith(`${dir}/`))
-        .map((file) => file.slice(dir.length + 1))
+      const prefix = `${normalize(dir)}/`
+      return [...normalized.keys()]
+        .filter((file) => file.startsWith(prefix))
+        .map((file) => file.slice(prefix.length))
     },
     statSync(file: string) {
-      const mtimeMs = mtimeMsByPath[file]
+      const mtimeMs = normalized.get(normalize(file))
       if (mtimeMs === undefined) throw new Error('missing')
       return { mtimeMs }
     },
