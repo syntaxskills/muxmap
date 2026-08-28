@@ -22,22 +22,30 @@ function eventMeta(event: AgentEventLogEntry | AgentEventSummary) {
 }
 
 export function AgentEventList({ events = [], sessionId }: Props) {
+  const [open, setOpen] = useState(false)
   const [loadedEvents, setLoadedEvents] = useState<Array<AgentEventLogEntry | AgentEventSummary> | null>(null)
+
+  useEffect(() => {
+    setOpen(false)
+    setLoadedEvents(null)
+  }, [sessionId])
+
   useEffect(() => {
     if (!sessionId) {
       setLoadedEvents(null)
       return
     }
+    if (!open) return
     let disposed = false
     setLoadedEvents(null)
     void api<{ events: AgentEventLogEntry[] }>(`/api/sessions/${sessionId}/agent-events`)
       .then((response) => { if (!disposed) setLoadedEvents(response.events) })
       .catch(() => { if (!disposed) setLoadedEvents(null) })
     return () => { disposed = true }
-  }, [sessionId])
+  }, [open, sessionId])
   const visibleEvents = loadedEvents ?? events
   return (
-    <details className="agent-event-list" open>
+    <details className="agent-event-list" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary><span>Agent event log</span><small>{visibleEvents.length ? `${visibleEvents.length} recent` : 'No hooks yet'}</small></summary>
       {visibleEvents.length === 0 ? <p>No hook events have been received for this terminal yet.</p> : (
         <ol>
