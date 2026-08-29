@@ -573,7 +573,7 @@ test('websocket detaches safely and workspace refresh surfaces a missing tmux se
     })
     const { session } = await sessionResponse.json() as { session: { id: string } }
 
-    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/sessions/${session.id}/attach?cols=84&rows=27`, {
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/sessions/${session.id}/attach`, {
       headers: { cookie, origin: base },
     })
     await new Promise<void>((resolve, reject) => {
