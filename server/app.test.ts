@@ -678,6 +678,70 @@ test('websocket attaches at the current pane size and resizes after first output
   }
 })
 
+test('dead pty resize errors from the deferred initial resize do not crash the server', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-ws-dead-resize-')))
+  const tmux = fakeTmux()
+  let emitData: ((data: string) => void) | undefined
+  const warnings: string[] = []
+  const originalWarn = console.warn
+  console.warn = (message?: unknown, ...optional: unknown[]) => {
+    warnings.push(String(message))
+    if (optional.length) warnings.push(optional.map(String).join(' '))
+  }
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    tmux,
+    outputFlushIntervalMs: 1,
+    initialResizeDelayMs: 1,
+    ptyFactory: () => ({
+      onData(listener) { emitData = listener },
+      onExit() {},
+      write() {},
+      scroll() {},
+      resize() {
+        const error = new Error('ioctl(2) failed, EBADF')
+        ;(error as NodeJS.ErrnoException).code = 'EBADF'
+        throw error
+      },
+      kill() {},
+    }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const cookie = (await fetch(`${base}/api/auth`)).headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const node = await fetch(`${base}/api/workspaces/default/nodes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ parentId: 'workspace', title: 'Fragile shell', type: 'terminal', repoPath: root }),
+    }).then((response) => response.json()) as { id: string }
+    const { session } = await fetch(`${base}/api/nodes/${node.id}/session`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ backend: 'tmux', cwd: root }),
+    }).then((response) => response.json()) as { session: TerminalSession }
+
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/sessions/${session.id}/attach?cols=84&rows=27`, { headers: { cookie, origin: base } })
+    await new Promise<void>((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject) })
+    emitData?.('buffered screen')
+    await eventually(() => warnings.some((message) => message.includes('EBADF')))
+
+    const workspace = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } })
+    assert.equal(workspace.status, 200)
+    ws.close()
+    await new Promise((resolve) => ws.once('close', resolve))
+  } finally {
+    console.warn = originalWarn
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('stopped node session API can start a new runtime instead of resuming the old one', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-api-start-new-')))
   const tmux = fakeTmux()

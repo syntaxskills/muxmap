@@ -345,6 +345,30 @@ export function createMuxMapServer(options: ServerOptions) {
   const recoverAgentsDelay = options.recoverAgentsDelay ?? ((milliseconds: number) => new Promise<void>((resolveDelay) => setTimeout(resolveDelay, milliseconds)))
   const attachmentsDirectory = attachmentDirectory(options.databasePath, options.attachmentsDirectory)
   let closing = false
+  let loggedPtyLifecycleError = false
+
+  const logPtyLifecycleErrorOnce = (operation: 'resize' | 'kill', error: unknown) => {
+    if (loggedPtyLifecycleError) return
+    loggedPtyLifecycleError = true
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`MuxMap ignored pty ${operation} failure: ${message}`)
+  }
+
+  const safePtyResize = (pty: PtyHandle, cols: number, rows: number) => {
+    try {
+      pty.resize(cols, rows)
+    } catch (error) {
+      logPtyLifecycleErrorOnce('resize', error)
+    }
+  }
+
+  const safePtyKill = (pty: PtyHandle) => {
+    try {
+      pty.kill()
+    } catch (error) {
+      logPtyLifecycleErrorOnce('kill', error)
+    }
+  }
 
   const recordSessionActivity = (sessionId: string) => {
     if (closing) return
@@ -355,7 +379,7 @@ export function createMuxMapServer(options: ServerOptions) {
   }
 
   const killSessionPtys = (sessionId: string) => {
-    for (const pty of ptys.get(sessionId) ?? []) pty.kill()
+    for (const pty of ptys.get(sessionId) ?? []) safePtyKill(pty)
     ptys.delete(sessionId)
   }
 
@@ -582,7 +606,7 @@ export function createMuxMapServer(options: ServerOptions) {
           const nodeIds = branchNodeIds(graph.nodes, existing.id)
           const archivedSessionNames: string[] = []
           for (const session of graph.sessions.filter((session) => nodeIds.has(session.nodeId) && session.status !== 'stopped')) {
-            for (const pty of ptys.get(session.id) ?? []) pty.kill()
+            for (const pty of ptys.get(session.id) ?? []) safePtyKill(pty)
             ptys.delete(session.id)
             sessions.stop(session.id)
             archivedSessionNames.push(session.runtimeName)
@@ -620,7 +644,7 @@ export function createMuxMapServer(options: ServerOptions) {
           const branchSessions = graph.sessions.filter((session) => nodeIds.has(session.nodeId))
           if (body.stopSession) {
             for (const session of branchSessions) {
-              for (const pty of ptys.get(session.id) ?? []) pty.kill()
+              for (const pty of ptys.get(session.id) ?? []) safePtyKill(pty)
               ptys.delete(session.id)
               sessions.stopRuntime(session.backend, session.runtimeName)
             }
@@ -775,13 +799,18 @@ export function createMuxMapServer(options: ServerOptions) {
     let outputTimer: ReturnType<typeof setTimeout> | undefined
     let initialResizeTimer: ReturnType<typeof setTimeout> | undefined
     let initialResizeApplied = false
+    const clearInitialResizeTimer = () => {
+      if (!initialResizeTimer) return
+      clearTimeout(initialResizeTimer)
+      initialResizeTimer = undefined
+    }
     const applyInitialResizeSoon = () => {
       if (initialResizeApplied || initialResizeTimer || !requestedSize) return
       initialResizeTimer = setTimeout(() => {
         initialResizeTimer = undefined
         if (!requestedSize) return
         initialResizeApplied = true
-        pty.resize(requestedSize.cols, requestedSize.rows)
+        safePtyResize(pty, requestedSize.cols, requestedSize.rows)
       }, initialResizeDelayMs)
     }
     const flushOutput = () => {
@@ -807,6 +836,7 @@ export function createMuxMapServer(options: ServerOptions) {
     })
     pty.onExit(() => {
       if (outputTimer) clearTimeout(outputTimer)
+      clearInitialResizeTimer()
       flushOutput()
       send({ type: 'status', status: 'detached' })
     })
@@ -826,7 +856,7 @@ export function createMuxMapServer(options: ServerOptions) {
           const rows = Number(message.rows)
           if (Number.isInteger(cols) && Number.isInteger(rows) && cols >= 2 && rows >= 1 && cols <= 500 && rows <= 200) {
             requestedSize = { cols, rows }
-            if (initialResizeApplied) pty.resize(cols, rows)
+            if (initialResizeApplied) safePtyResize(pty, cols, rows)
           }
         } else if (message.type === 'ping') {
           send({ type: 'status', status: 'running' })
@@ -838,8 +868,8 @@ export function createMuxMapServer(options: ServerOptions) {
 
     webSocket.on('close', () => {
       if (outputTimer) clearTimeout(outputTimer)
-      if (initialResizeTimer) clearTimeout(initialResizeTimer)
-      pty.kill()
+      clearInitialResizeTimer()
+      safePtyKill(pty)
       handles.delete(pty)
       if (handles.size === 0) ptys.delete(session.id)
       if (closing) return
@@ -869,7 +899,7 @@ export function createMuxMapServer(options: ServerOptions) {
     },
     close() {
       closing = true
-      for (const handles of ptys.values()) for (const pty of handles) pty.kill()
+      for (const handles of ptys.values()) for (const pty of handles) safePtyKill(pty)
       for (const client of webSockets.clients) client.close()
       return new Promise<void>((resolveClose, reject) => {
         http.close((error) => {
