@@ -545,7 +545,7 @@ test('archive stops branch terminal sessions while restore keeps them stopped', 
 test('websocket detaches safely and workspace refresh surfaces a missing tmux session', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-ws-')))
   const tmux = fakeTmux()
-  const ptyRecord = { writes: [] as string[], resizes: [] as number[][], kills: [] as number[], starts: [] as number[][], scrolls: [] as number[] }
+  const ptyRecord = { writes: [] as string[], resizes: [] as number[][], kills: [] as number[], starts: [] as number[][], scrolls: [] as number[], autoReady: false }
   const server = createMuxMapServer({
     databasePath: ':memory:',
     allowedRoots: [root],
