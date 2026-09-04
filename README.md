@@ -59,6 +59,10 @@ npm start
 
 Open <http://127.0.0.1:4782>.
 
+## File previews
+
+Terminal file links open in a MuxMap browser preview. Markdown is rendered with `markdown-it`; HTML files open in a sandboxed preview with a MuxMap header. The preview header can copy the path/content or open the file in Zed or VS Code when their CLI commands are installed.
+
 ## Agent hooks
 
 Agent hooks are optional. They let MuxMap mark agent sessions as working, completed, read, unavailable, or needing input.

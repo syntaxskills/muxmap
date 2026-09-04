@@ -1,11 +1,12 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { homedir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { spawn as spawnPty, type IPtyForkOptions, type IWindowsPtyForkOptions } from 'node-pty'
+import MarkdownIt from 'markdown-it'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { NodeStepDefinition, TerminalBackend, TerminalSession } from '../src/model.ts'
 import {
@@ -62,7 +63,10 @@ type ServerOptions = {
   initialResizeDelayMs?: number
   recoverAgentsDelayMs?: number
   recoverAgentsDelay?: (milliseconds: number) => Promise<void>
+  fileEditorLauncher?: (editor: FileEditor, target: string, line?: number, column?: number) => Promise<void>
 }
+
+type FileEditor = 'vscode' | 'zed'
 
 const mimeTypes: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -214,6 +218,10 @@ function htmlEscape(value: string) {
     .replace(/"/g, '&quot;')
 }
 
+function jsLiteral(value: unknown) {
+  return JSON.stringify(value).replace(/</g, '\\u003c')
+}
+
 function expandHome(path: string) {
   return path === '~' || path.startsWith('~/') || path.startsWith('~\\')
     ? join(homedir(), path.slice(2))
@@ -254,21 +262,110 @@ function safeFilePath(inputPath: string | null, inputCwd: string | null | Array<
   throw new Error(errors.find((message) => /outside allowed roots/i.test(message)) ?? errors[0] ?? 'Unable to open file')
 }
 
-function filePreviewHtml(path: string, content: string, line: number | undefined, column: number | undefined) {
+const markdown = new MarkdownIt({ html: false, linkify: true, typographer: true })
+markdown.renderer.rules.link_open = (tokens, index, options, _env, self) => {
+  const token = tokens[index]
+  token.attrSet('target', '_blank')
+  token.attrSet('rel', 'noopener noreferrer')
+  return self.renderToken(tokens, index, options)
+}
+
+function fileHeaderHtml(path: string, content: string, line: number | undefined, column: number | undefined, sourceHref?: string) {
+  const metadata = {
+    path,
+    line,
+    column,
+  }
+  return `<header><div><strong>${htmlEscape(basename(path))}</strong><span>${htmlEscape(path)}${line ? `:${line}${column ? `:${column}` : ''}` : ''}</span></div><nav>
+${sourceHref ? `<a href="${htmlEscape(sourceHref)}">Source</a>` : ''}
+<button type="button" data-copy="path">Copy path</button>
+<button type="button" data-copy="content">Copy content</button>
+<button type="button" data-editor="zed">Open in Zed</button>
+<button type="button" data-editor="vscode">Open in VS Code</button>
+</nav></header><textarea id="muxmap-file-content" hidden>${htmlEscape(content)}</textarea><script>
+const muxmapFile = ${jsLiteral(metadata)};
+const status = document.createElement('span');
+status.className = 'muxmap-file-status';
+document.querySelector('header nav')?.append(status);
+async function copyText(value) {
+  await navigator.clipboard.writeText(value);
+  status.textContent = 'Copied';
+  setTimeout(() => { status.textContent = ''; }, 1400);
+}
+document.addEventListener('click', async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  try {
+    if (target.dataset.copy === 'path') await copyText(muxmapFile.path);
+    if (target.dataset.copy === 'content') await copyText(document.getElementById('muxmap-file-content')?.value ?? '');
+    if (target.dataset.editor) {
+      const response = await fetch('/api/files/action', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...muxmapFile, action: target.dataset.editor }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || 'Unable to open editor');
+      status.textContent = 'Opened';
+      setTimeout(() => { status.textContent = ''; }, 1400);
+    }
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : 'Action failed';
+  }
+});
+</script>`
+}
+
+function filePreviewStyles(extra = '') {
+  return `<style>
+:root{color-scheme:dark light}body{margin:0;background:#111411;color:#dce2db;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+header{position:sticky;top:0;z-index:2;display:flex;gap:16px;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(25,29,24,.96);border-bottom:1px solid #2d352c;color:#aeb8ad;backdrop-filter:blur(10px)}
+header strong{display:block;color:#f0f4ef;font-size:14px}header span{font-size:12px;word-break:break-all}header nav{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+button,a{border:1px solid #3d483b;border-radius:9px;background:#20261f;color:#edf3eb;padding:5px 8px;font:12px ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer}
+button:hover,a:hover{background:#2a3328;border-color:#596756}.muxmap-file-status{min-width:72px;color:#bde68b;font:12px ui-sans-serif,system-ui,sans-serif}
+@media (prefers-color-scheme:light){body{background:#f7f8f5;color:#20251f}header{background:rgba(247,248,245,.96);border-bottom-color:#d9dfd5;color:#657064}header strong{color:#111411}button,a{background:#fff;color:#20251f;border-color:#ccd5c8}button:hover,a:hover{background:#f0f5ed}.muxmap-file-status{color:#426a1c}}
+${extra}</style>`
+}
+
+function fileSourcePreviewHtml(path: string, content: string, line: number | undefined, column: number | undefined) {
   const rows = content.split(/\r?\n/).map((row, index) => {
     const number = index + 1
     const selected = line === number
     return `<tr id="L${number}"${selected ? ' class="is-selected"' : ''}><th>${number}</th><td><code>${htmlEscape(row || ' ')}</code></td></tr>`
   }).join('')
-  const escapedPath = htmlEscape(path)
   const script = line ? `<script>document.getElementById('L${line}')?.scrollIntoView({block:'center'});</script>` : ''
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(basename(path))}</title><style>
-body{margin:0;background:#111411;color:#dce2db;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-header{position:sticky;top:0;z-index:1;padding:10px 14px;background:#191d18;border-bottom:1px solid #2d352c;color:#aeb8ad}
-header strong{display:block;color:#f0f4ef;font-size:14px}header span{font-size:12px}
-table{border-collapse:collapse;width:100%}th{width:1%;padding:0 12px;color:#657064;text-align:right;user-select:none;border-right:1px solid #262d25}
-td{padding:0 14px;white-space:pre}tr.is-selected{background:#31401f}tr.is-selected th{color:#d8ef9a}
-</style></head><body><header><strong>${htmlEscape(basename(path))}</strong><span>${escapedPath}${line ? `:${line}${column ? `:${column}` : ''}` : ''}</span></header><table>${rows}</table>${script}</body></html>`
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`table{border-collapse:collapse;width:100%}th{width:1%;padding:0 12px;color:#657064;text-align:right;user-select:none;border-right:1px solid #262d25}
+td{padding:0 14px;white-space:pre}tr.is-selected{background:#31401f}tr.is-selected th{color:#d8ef9a}`)}</head><body>${fileHeaderHtml(path, content, line, column)}<table>${rows}</table>${script}</body></html>`
+}
+
+function markdownPreviewHtml(path: string, content: string, line: number | undefined, column: number | undefined) {
+  const rendered = markdown.render(content)
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`main{box-sizing:border-box;max-width:920px;margin:0 auto;padding:28px 22px 64px;font:15px/1.68 ui-sans-serif,system-ui,sans-serif}.markdown-body h1,.markdown-body h2,.markdown-body h3{line-height:1.2;color:#f4f7f2}.markdown-body h1{font-size:32px}.markdown-body h2{font-size:23px;border-top:1px solid #2d352c;padding-top:24px}.markdown-body a{all:unset;color:#bde68b;text-decoration:underline;cursor:pointer}.markdown-body code{border-radius:5px;background:#20261f;padding:2px 5px;font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.markdown-body pre{overflow:auto;border:1px solid #2d352c;border-radius:14px;background:#0b0d0b;padding:14px}.markdown-body pre code{background:transparent;padding:0}.markdown-body blockquote{margin-left:0;border-left:3px solid #586b3f;padding-left:14px;color:#b7c0b4}.markdown-body img{max-width:100%;border-radius:12px}@media (prefers-color-scheme:light){.markdown-body h1,.markdown-body h2,.markdown-body h3{color:#111411}.markdown-body h2{border-top-color:#d9dfd5}.markdown-body a{color:#426a1c}.markdown-body code{background:#eef2ea}.markdown-body pre{background:#fff;border-color:#d9dfd5}.markdown-body blockquote{color:#586155}}`)}</head><body>${fileHeaderHtml(path, content, line, column, '?renderer=source')}<main class="markdown-body">${rendered}</main></body></html>`
+}
+
+function htmlDocumentPreview(path: string, content: string, line: number | undefined, column: number | undefined) {
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`iframe{display:block;width:100%;height:calc(100vh - 57px);border:0;background:white}`)}</head><body>${fileHeaderHtml(path, content, line, column, '?renderer=source')}<iframe sandbox="allow-same-origin" srcdoc="${htmlEscape(content)}"></iframe></body></html>`
+}
+
+export function editorTarget(path: string, line?: number, column?: number) {
+  return `${path}${line ? `:${line}${column ? `:${column}` : ''}` : ''}`
+}
+
+export function editorCommand(editor: FileEditor, path: string, line?: number, column?: number) {
+  const target = editorTarget(path, line, column)
+  return editor === 'vscode' ? { command: 'code', args: ['--goto', target] } : { command: 'zed', args: [target] }
+}
+
+async function launchEditor(editor: FileEditor, path: string, line: number | undefined, column: number | undefined) {
+  const { command, args } = editorCommand(editor, path, line, column)
+  await new Promise<void>((resolveLaunch, rejectLaunch) => {
+    const child = spawn(command, args, { detached: true, stdio: 'ignore' })
+    child.once('error', (error) => rejectLaunch(new Error(`Unable to launch ${editor === 'vscode' ? 'VS Code' : 'Zed'}: ${error.message}`)))
+    child.once('spawn', () => {
+      child.unref()
+      resolveLaunch()
+    })
+  })
 }
 
 async function readJson(request: IncomingMessage, maxBytes = 64 * 1024) {
@@ -298,6 +395,11 @@ function decodeImageDataUrl(dataUrl: unknown, type: unknown) {
   if (data.length === 0) throw new Error('Image data is empty')
   if (data.length > 8 * 1024 * 1024) throw new Error('Image is too large')
   return { data, extension }
+}
+
+function positiveInteger(value: unknown) {
+  const number = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  return Number.isInteger(number) && number > 0 ? number : undefined
 }
 
 function attachmentContentType(name: string) {
@@ -429,13 +531,38 @@ export function createMuxMapServer(options: ServerOptions) {
           if (!textPreviewExtensions.has(extension) && file.size > 1024 * 1024) throw new Error('File is too large to preview')
           const line = Number(url.searchParams.get('line'))
           const column = Number(url.searchParams.get('column'))
+          const content = readFileSync(file.path, 'utf8')
+          const renderer = url.searchParams.get('renderer')
           response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-          return response.end(filePreviewHtml(
+          if ((extension === '.md' || extension === '.mdx') && renderer !== 'source') return response.end(markdownPreviewHtml(
             file.path,
-            readFileSync(file.path, 'utf8'),
+            content,
             Number.isInteger(line) && line > 0 ? line : undefined,
             Number.isInteger(column) && column > 0 ? column : undefined,
           ))
+          if (extension === '.html' && renderer !== 'source') return response.end(htmlDocumentPreview(
+            file.path,
+            content,
+            Number.isInteger(line) && line > 0 ? line : undefined,
+            Number.isInteger(column) && column > 0 ? column : undefined,
+          ))
+          return response.end(fileSourcePreviewHtml(
+            file.path,
+            content,
+            Number.isInteger(line) && line > 0 ? line : undefined,
+            Number.isInteger(column) && column > 0 ? column : undefined,
+          ))
+        }
+
+        if (request.method === 'POST' && url.pathname === '/api/files/action') {
+          const body = await readJson(request)
+          if (!['vscode', 'zed'].includes(String(body.action))) throw new Error('action must be vscode or zed')
+          const sessionCwd = typeof body.sessionId === 'string' ? sessions.currentWorkingDirectory(body.sessionId) : undefined
+          const file = safeFilePath(typeof body.path === 'string' ? body.path : null, [sessionCwd, typeof body.cwd === 'string' ? body.cwd : undefined], options.allowedRoots)
+          const line = positiveInteger(body.line)
+          const column = positiveInteger(body.column)
+          await (options.fileEditorLauncher ?? launchEditor)(body.action as FileEditor, file.path, line, column)
+          return sendJson(response, 200, { opened: true, editor: body.action, path: file.path })
         }
 
         if (request.method === 'POST' && url.pathname === '/api/attachments') {

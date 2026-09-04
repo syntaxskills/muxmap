@@ -395,6 +395,100 @@ test('file preview API opens files inside allowed roots and rejects outside path
   }
 })
 
+test('file preview API renders markdown and html with MuxMap actions', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-rendered-files-')))
+  writeFileSync(join(root, 'README.md'), '# Title\n\n[Local](http://localhost:4782)\n\n<script>alert(1)</script>\n')
+  writeFileSync(join(root, 'page.html'), '<!doctype html><h1>Preview me</h1>')
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    tmux: fakeTmux(),
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const cookie = (await fetch(`${base}/api/auth`)).headers.get('set-cookie')?.split(';')[0] ?? ''
+    const markdown = await fetch(`${base}/api/files/open?path=${encodeURIComponent('README.md')}&cwd=${encodeURIComponent(root)}`, { headers: { cookie } })
+    assert.equal(markdown.status, 200)
+    const markdownHtml = await markdown.text()
+    assert.match(markdownHtml, /<main class="markdown-body"><h1>Title<\/h1>/)
+    assert.match(markdownHtml, /Open in Zed/)
+    assert.match(markdownHtml, /Open in VS Code/)
+    assert.match(markdownHtml, /Copy content/)
+    assert.match(markdownHtml, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/)
+
+    const source = await fetch(`${base}/api/files/open?path=${encodeURIComponent('README.md')}&cwd=${encodeURIComponent(root)}&renderer=source`, { headers: { cookie } })
+    assert.match(await source.text(), /<table>/)
+
+    const html = await fetch(`${base}/api/files/open?path=${encodeURIComponent('page.html')}&cwd=${encodeURIComponent(root)}`, { headers: { cookie } })
+    const htmlPreview = await html.text()
+    assert.match(htmlPreview, /<iframe sandbox="allow-same-origin"/)
+    assert.match(htmlPreview, /Preview me/)
+    assert.match(htmlPreview, /\?renderer=source/)
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('file action API opens files in local editors after allowed-root validation', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-editor-files-')))
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-editor-outside-')))
+  const file = join(root, 'src.ts')
+  writeFileSync(file, 'const value = 1\n')
+  writeFileSync(join(outside, 'secret.ts'), 'secret\n')
+  const opened: Array<{ editor: string; target: string; line?: number; column?: number }> = []
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [root],
+    platform: 'linux',
+    token: 'test-token',
+    tmux: fakeTmux(),
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+    fileEditorLauncher: async (editor, target, line, column) => {
+      opened.push({ editor, target, line, column })
+    },
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const cookie = (await fetch(`${base}/api/auth`)).headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const vscode = await fetch(`${base}/api/files/action`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action: 'vscode', path: 'src.ts', cwd: root, line: 3, column: 2 }),
+    })
+    assert.equal(vscode.status, 200)
+    assert.deepEqual(opened, [{ editor: 'vscode', target: file, line: 3, column: 2 }])
+
+    const zed = await fetch(`${base}/api/files/action`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action: 'zed', path: 'src.ts', cwd: root }),
+    })
+    assert.equal(zed.status, 200)
+    assert.equal(opened.at(-1)?.editor, 'zed')
+
+    const denied = await fetch(`${base}/api/files/action`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action: 'zed', path: join(outside, 'secret.ts') }),
+    })
+    assert.equal(denied.status, 400)
+    assert.deepEqual(await denied.json(), { error: 'File path is outside allowed roots' })
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+    rmSync(outside, { recursive: true, force: true })
+  }
+})
+
 test('file preview API resolves terminal relative links against the live tmux pane cwd', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-live-cwd-files-')))
   const initialCwd = join(root, 'initial')
