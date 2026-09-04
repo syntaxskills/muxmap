@@ -102,7 +102,9 @@ export function expandedNodeHeight(node: WorkNode, hasAgent: boolean, archivedCh
     hasActivity && !hasAgent ? 1 : 0,
     hasActivity || hasAgent ? 0 : 1,
   ].reduce((sum, row) => sum + row, 0)
-  return Math.max(106, 64 + rows * 13)
+  const noteRows = Math.min(node.notes?.length ?? 0, 3)
+  const notesHeight = noteRows > 0 ? 36 + noteRows * 23 : 0
+  return Math.max(106, 64 + rows * 13 + notesHeight)
 }
 
 export function expandedNodeWidth(_node: WorkNode, _hasAgent: boolean) {

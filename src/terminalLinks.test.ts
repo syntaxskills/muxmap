@@ -57,6 +57,7 @@ test('terminal links stop local dev URLs before adjacent terminal text', () => {
 
 test('terminal link provider opens the clicked link in a browser tab', async () => {
   const opened: string[] = []
+  const activated: Array<{ text: string; url: string }> = []
   const terminal = {
     buffer: {
       active: {
@@ -67,13 +68,14 @@ test('terminal link provider opens the clicked link in a browser tab', async () 
       },
     },
   }
-  const provider = createTerminalLinkProvider(terminal as never, undefined, (url) => opened.push(url))
+  const provider = createTerminalLinkProvider(terminal as never, undefined, (url) => opened.push(url), (link) => activated.push(link))
   const links = await new Promise<unknown[]>((resolve) => provider.provideLinks(3, (items) => resolve(items ?? [])))
 
   assert.equal(links.length, 1)
   assert.deepEqual((links[0] as { range: unknown }).range, { start: { x: 7, y: 3 }, end: { x: 26, y: 3 } })
   ;(links[0] as { activate: () => void }).activate()
   assert.deepEqual(opened, ['https://www.example.com/docs'])
+  assert.deepEqual(activated, [{ text: 'www.example.com/docs', url: 'https://www.example.com/docs' }])
 })
 
 test('terminal link provider opens source file links in a browser tab', async () => {

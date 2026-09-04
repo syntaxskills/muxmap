@@ -9,6 +9,9 @@ import {
   type AgentChannelMessage,
   type AgentEventLogEntry,
   type NodeLifecycleStep,
+  type NodeNoteEntry,
+  type NodeNoteKind,
+  type NodeNoteProvider,
   type NodeStepDefinition,
   type NodeStepKey,
   type NodeStepStatus,
@@ -42,12 +45,77 @@ type SessionInput = Omit<TerminalSession, 'createdAt' | 'updatedAt'>
 type CreateAgentChannelInput = { sourceNodeId: string; targetNodeId: string; title?: string }
 type CreateAgentChannelMessageInput = { authorNodeId: string; body: string; createdAt?: string; tokenCount?: number }
 type UpdateNodeStepInput = { status?: unknown; ref?: unknown; url?: unknown; note?: unknown }
+type NodeNoteInput = { kind?: unknown; label?: unknown; body?: unknown; url?: unknown }
 
 const nodeTypes: NodeType[] = ['workspace', 'repo', 'feature', 'ticket', 'note', 'todo', 'terminal']
 const agentKinds: AgentEventLogEntry['kind'][] = ['codex', 'claude', 'pi']
 const agentStates: AgentActivity['state'][] = ['unavailable', 'working', 'delegated', 'standby', 'needs_input', 'completed', 'read']
 const nodeStepStatuses: NodeStepStatus[] = ['pending', 'done']
 const nodeStepInputFields = ['status', 'ref', 'url', 'note'] as const
+const nodeNoteKinds: NodeNoteKind[] = ['text', 'link', 'file', 'message']
+const nodeNoteInputFields = ['kind', 'label', 'body', 'url'] as const
+
+export function nodeNoteProvider(kind: NodeNoteKind, label?: string, url?: string): NodeNoteProvider {
+  if (kind === 'file' || url?.startsWith('/api/files/open?')) return 'file'
+  if (kind === 'message') return 'agent'
+  if (!url) return 'note'
+  let hostname = ''
+  let pathname = ''
+  try {
+    const parsed = new URL(url)
+    hostname = parsed.hostname.toLowerCase()
+    pathname = parsed.pathname.toLowerCase()
+  } catch {
+    return kind === 'link' ? 'web' : 'note'
+  }
+  const text = `${label ?? ''} ${pathname}`
+  if (hostname.includes('atlassian') || hostname.includes('jira') || /\b[A-Z][A-Z0-9]+-\d+\b/.test(label ?? '') || pathname.includes('/browse/')) return 'jira'
+  if (hostname === 'github.com' || hostname.endsWith('.github.com') || hostname.includes('github')) return 'github'
+  if (hostname === 'gitlab.com' || hostname.endsWith('.gitlab.com') || hostname.includes('gitlab') || text.includes('/merge_requests/')) return 'gitlab'
+  if (hostname.includes('larksuite') || hostname.includes('larkoffice') || hostname.endsWith('feishu.cn')) return 'lark'
+  return 'web'
+}
+
+function validateNodeNoteInput(input: NodeNoteInput, partial = false) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new StoreValidationError('Node note body must be an object')
+  for (const key of Object.keys(input)) {
+    if (!(nodeNoteInputFields as readonly string[]).includes(key)) throw new StoreValidationError(`Unknown node note field: ${key}`)
+  }
+  const output: { kind?: NodeNoteKind; label?: string; body?: string; url?: string } = {}
+  if (input.kind !== undefined) {
+    if (!nodeNoteKinds.includes(input.kind as NodeNoteKind)) throw new StoreValidationError('kind must be text, link, file, or message')
+    output.kind = input.kind as NodeNoteKind
+  } else if (!partial) {
+    output.kind = input.url ? (String(input.url).startsWith('/api/files/open?') ? 'file' : 'link') : 'text'
+  }
+  if (input.label !== undefined) {
+    if (typeof input.label !== 'string') throw new StoreValidationError('label must be a string')
+    const label = input.label.trim()
+    if (label.length > 160) throw new StoreValidationError('label must be 160 characters or fewer')
+    if (label) output.label = label
+  }
+  if (input.body !== undefined) {
+    if (typeof input.body !== 'string') throw new StoreValidationError('body must be a string')
+    const body = input.body.trim()
+    if (body.length > 4000) throw new StoreValidationError('body must be 4000 characters or fewer')
+    if (body) output.body = body
+  }
+  if (input.url !== undefined) {
+    if (typeof input.url !== 'string') throw new StoreValidationError('url must be a string')
+    const url = input.url.trim()
+    if (url.length > 2048) throw new StoreValidationError('url must be 2048 characters or fewer')
+    if (url) {
+      if (!url.startsWith('/api/files/open?')) {
+        let parsed: URL
+        try { parsed = new URL(url) } catch { throw new StoreValidationError('url must be an http(s) URL or MuxMap file preview') }
+        if (!['http:', 'https:'].includes(parsed.protocol)) throw new StoreValidationError('url must be an http(s) URL or MuxMap file preview')
+      }
+      output.url = url
+    }
+  }
+  if (!partial && !output.body && !output.url) throw new StoreValidationError('Node note needs body or url')
+  return output
+}
 
 export class StoreValidationError extends Error {
   statusCode: number
@@ -243,6 +311,20 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
       updated_by TEXT NOT NULL,
       PRIMARY KEY (node_id, step_key)
     );
+    CREATE TABLE IF NOT EXISTS node_notes (
+      id TEXT PRIMARY KEY,
+      node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      label TEXT,
+      body TEXT,
+      url TEXT,
+      created_by TEXT NOT NULL,
+      updated_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS node_notes_node_updated ON node_notes(node_id, updated_at DESC);
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -441,6 +523,32 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
     }
   }
 
+  function mapNodeNote(row: Record<string, unknown>): NodeNoteEntry {
+    return {
+      id: String(row.id),
+      nodeId: String(row.node_id),
+      kind: String(row.kind) as NodeNoteKind,
+      provider: String(row.provider) as NodeNoteProvider,
+      label: row.label ? String(row.label) : undefined,
+      body: row.body ? String(row.body) : undefined,
+      url: row.url ? String(row.url) : undefined,
+      createdBy: String(row.created_by),
+      updatedBy: String(row.updated_by),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    }
+  }
+
+  function listNodeNotesForNode(nodeId: string, limit = 100) {
+    return (database.prepare('SELECT * FROM node_notes WHERE node_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT ?').all(nodeId, limit) as Record<string, unknown>[]).map(mapNodeNote)
+  }
+
+  function nodeNotesByNodeId(nodeIds: string[], limit = 6) {
+    const notes = new Map<string, NodeNoteEntry[]>()
+    for (const nodeId of nodeIds) notes.set(nodeId, listNodeNotesForNode(nodeId, limit))
+    return notes
+  }
+
   function nodeStepsFromRows(rows: Record<string, unknown>[]): NodeLifecycleStep[] {
     return normalizedNodeSteps(rows.map(mapNodeStep), nodeStepDefinitions)
   }
@@ -632,7 +740,8 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
       const channels = database.prepare('SELECT * FROM agent_channels WHERE workspace_id = ? AND status = ? ORDER BY created_at').all(id, 'open') as Record<string, unknown>[]
       const mappedNodes = nodes.map(mapNode)
       const steps = nodeStepsByNodeId(mappedNodes.map((node) => node.id))
-      return { workspace: mapWorkspace(row), nodes: mappedNodes.map((node) => ({ ...node, steps: steps.get(node.id) })), sessions: sessions.map(mapSession), nodeStepDefinitions: [...nodeStepDefinitions], channels: channels.map(mapAgentChannel) }
+      const notes = nodeNotesByNodeId(mappedNodes.map((node) => node.id))
+      return { workspace: mapWorkspace(row), nodes: mappedNodes.map((node) => ({ ...node, steps: steps.get(node.id), notes: notes.get(node.id) })), sessions: sessions.map(mapSession), nodeStepDefinitions: [...nodeStepDefinitions], channels: channels.map(mapAgentChannel) }
     },
 
     createAgentChannel(workspaceId: string, input: CreateAgentChannelInput) {
@@ -766,6 +875,70 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
       )
       database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, node.workspaceId)
       return listNodeStepsForNode(node.id)
+    },
+
+    listNodeNotes(id: string, limit = 100) {
+      if (!this.getNode(id)) throw new StoreValidationError('Node not found', 404)
+      return listNodeNotesForNode(id, Math.max(1, Math.min(200, Math.trunc(limit))))
+    },
+
+    createNodeNote(id: string, input: NodeNoteInput, createdBy = 'human') {
+      const node = this.getNode(id)
+      if (!node) throw new StoreValidationError('Node not found', 404)
+      const valid = validateNodeNoteInput(input)
+      const kind = valid.kind!
+      const provider = nodeNoteProvider(kind, valid.label, valid.url)
+      const now = new Date().toISOString()
+      if (createdBy.startsWith('terminal:') && valid.url) {
+        const existing = database.prepare('SELECT * FROM node_notes WHERE node_id = ? AND url = ? AND created_by LIKE ? ORDER BY updated_at DESC LIMIT 1').get(id, valid.url, 'terminal:%') as Record<string, unknown> | undefined
+        if (existing) {
+          const existingId = String(existing.id)
+          database.prepare('UPDATE node_notes SET kind = ?, provider = ?, label = ?, body = ?, updated_by = ?, updated_at = ? WHERE id = ?').run(
+            kind, provider, valid.label ?? (existing.label ? String(existing.label) : null), valid.body ?? (existing.body ? String(existing.body) : null), createdBy, now, existingId,
+          )
+          database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, node.workspaceId)
+          return mapNodeNote(database.prepare('SELECT * FROM node_notes WHERE id = ?').get(existingId) as Record<string, unknown>)
+        }
+      }
+      const note: NodeNoteEntry = {
+        id: randomUUID(), nodeId: id, kind, provider,
+        label: valid.label, body: valid.body, url: valid.url,
+        createdBy: createdBy.trim() || 'human', updatedBy: createdBy.trim() || 'human', createdAt: now, updatedAt: now,
+      }
+      database.prepare('INSERT INTO node_notes (id, node_id, kind, provider, label, body, url, created_by, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+        note.id, note.nodeId, note.kind, note.provider, note.label ?? null, note.body ?? null, note.url ?? null, note.createdBy, note.updatedBy, note.createdAt, note.updatedAt,
+      )
+      database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, node.workspaceId)
+      return note
+    },
+
+    updateNodeNote(nodeId: string, noteId: string, input: NodeNoteInput, updatedBy = 'human') {
+      const node = this.getNode(nodeId)
+      if (!node) throw new StoreValidationError('Node not found', 404)
+      const existingRow = database.prepare('SELECT * FROM node_notes WHERE id = ? AND node_id = ?').get(noteId, nodeId) as Record<string, unknown> | undefined
+      if (!existingRow) throw new StoreValidationError('Node note not found', 404)
+      const existing = mapNodeNote(existingRow)
+      const valid = validateNodeNoteInput(input, true)
+      const kind = valid.kind ?? existing.kind
+      const label = input.label === undefined ? existing.label : valid.label
+      const body = input.body === undefined ? existing.body : valid.body
+      const url = input.url === undefined ? existing.url : valid.url
+      if (!body && !url) throw new StoreValidationError('Node note needs body or url')
+      const now = new Date().toISOString()
+      database.prepare('UPDATE node_notes SET kind = ?, provider = ?, label = ?, body = ?, url = ?, updated_by = ?, updated_at = ? WHERE id = ?').run(
+        kind, nodeNoteProvider(kind, label, url), label ?? null, body ?? null, url ?? null, updatedBy.trim() || 'human', now, noteId,
+      )
+      database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, node.workspaceId)
+      return mapNodeNote(database.prepare('SELECT * FROM node_notes WHERE id = ?').get(noteId) as Record<string, unknown>)
+    },
+
+    deleteNodeNote(nodeId: string, noteId: string) {
+      const node = this.getNode(nodeId)
+      if (!node) throw new StoreValidationError('Node not found', 404)
+      const result = database.prepare('DELETE FROM node_notes WHERE id = ? AND node_id = ?').run(noteId, nodeId)
+      if (!result.changes) throw new StoreValidationError('Node note not found', 404)
+      database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), node.workspaceId)
+      return true
     },
 
     createNode(workspaceId: string, input: CreateNodeInput) {

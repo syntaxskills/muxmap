@@ -6,6 +6,9 @@ All notable changes to MuxMap are documented here.
 
 ### Changed
 
+- Replaced fixed lifecycle stages as the default workflow with per-node Notes & artifacts streams. Terminal-opened links and files are captured automatically, agents can append context through MCP, and humans can add, edit, or delete each entry.
+- Added special node-note presentation for Jira, GitHub, GitLab, Lark, local files, web links, and AI messages while retaining legacy lifecycle storage and tools for compatibility.
+- Added Mermaid rendering to Markdown file previews with a safe fallback when the renderer is unavailable.
 - Added a right-click Agent status submenu for manually setting linked Agent sessions to Working, Completed, or Read.
 - Added arrow-key mindmap navigation that hops to the nearest visible node while leaving arrow keys untouched inside terminals and form controls.
 - Moved right-click Archive/Delete confirmation into the context menu itself for faster destructive actions.

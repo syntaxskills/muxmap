@@ -130,6 +130,34 @@ test('secured workspace and node APIs return persisted graph data', async () => 
     const missingNodeSteps = await fetch(`${base}/api/nodes/missing-node/steps`, { headers: { cookie } })
     assert.equal(missingNodeSteps.status, 404)
 
+    const createdNoteResponse = await fetch(`${base}/api/nodes/${createdNode.id}/notes`, {
+      method: 'POST',
+      headers: { cookie, origin: base, 'content-type': 'application/json', 'x-muxmap-updated-by': 'terminal:test-session' },
+      body: JSON.stringify({ kind: 'link', label: 'MR !42', url: 'https://gitlab.example/group/repo/-/merge_requests/42' }),
+    })
+    assert.equal(createdNoteResponse.status, 201)
+    const createdNote = (await createdNoteResponse.json()) as { note: { id: string; provider: string; createdBy: string } }
+    assert.equal(createdNote.note.provider, 'gitlab')
+    assert.equal(createdNote.note.createdBy, 'terminal:test-session')
+
+    const editedNoteResponse = await fetch(`${base}/api/nodes/${createdNode.id}/notes/${createdNote.note.id}`, {
+      method: 'PATCH',
+      headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'MR !42 ready', body: 'Review requested.' }),
+    })
+    assert.equal(editedNoteResponse.status, 200)
+    assert.equal(((await editedNoteResponse.json()) as { note: { label: string; body: string } }).note.label, 'MR !42 ready')
+
+    const notesResponse = await fetch(`${base}/api/nodes/${createdNode.id}/notes`, { headers: { cookie } })
+    assert.equal(notesResponse.status, 200)
+    assert.equal(((await notesResponse.json()) as { notes: Array<{ body?: string }> }).notes[0]?.body, 'Review requested.')
+
+    const unsafeNote = await fetch(`${base}/api/nodes/${createdNode.id}/notes`, {
+      method: 'POST', headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: 'link', url: 'javascript:alert(1)' }),
+    })
+    assert.equal(unsafeNote.status, 400)
+
     const renamed = await fetch(`${base}/api/nodes/${createdNode.id}`, {
       method: 'PATCH',
       headers: { cookie, origin: base, 'content-type': 'application/json' },
@@ -165,14 +193,21 @@ test('secured workspace and node APIs return persisted graph data', async () => 
     assert.deepEqual(reorderedNodes.nodes.filter((node) => node.id === createdNode.id || node.id === secondNode.id).map((node) => node.id), [secondNode.id, createdNode.id])
 
     const workspace = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } })
-    const graph = await workspace.json() as { nodes: Array<{ id: string; title: string; type: string; doneAt?: string; steps?: Array<{ key: string; ref?: string }> }>; runtime: { platform: string; terminalBackends: string[] } }
+    const graph = await workspace.json() as { nodes: Array<{ id: string; title: string; type: string; doneAt?: string; steps?: Array<{ key: string; ref?: string }>; notes?: Array<{ id: string }> }>; runtime: { platform: string; terminalBackends: string[] } }
     assert.equal(graph.nodes.some((node) => node.id === createdNode.id), true)
     assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.title, 'Renamed in place')
     assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.type, 'todo')
     assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.doneAt, undefined)
     assert.equal(graph.nodes.find((node) => node.id === createdNode.id)?.steps?.find((step) => step.key === 'ticket_created')?.ref, 'DEV-2830')
+    assert.deepEqual(graph.nodes.find((node) => node.id === createdNode.id)?.notes?.map((note) => note.id), [createdNote.note.id])
     assert.equal(graph.runtime.platform, 'linux')
     assert.equal(graph.runtime.terminalBackends.includes('tmux'), true)
+
+    const deletedNote = await fetch(`${base}/api/nodes/${createdNode.id}/notes/${createdNote.note.id}`, {
+      method: 'DELETE', headers: { cookie, origin: base },
+    })
+    assert.equal(deletedNote.status, 200)
+    assert.equal(((await deletedNote.json()) as { deleted: boolean }).deleted, true)
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })
@@ -397,7 +432,7 @@ test('file preview API opens files inside allowed roots and rejects outside path
 
 test('file preview API renders markdown and html with MuxMap actions', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-rendered-files-')))
-  writeFileSync(join(root, 'README.md'), '# Title\n\n[Local](http://localhost:4782)\n\n<script>alert(1)</script>\n')
+  writeFileSync(join(root, 'README.md'), '# Title\n\n[Local](http://localhost:4782)\n\n```mermaid\ngraph TD\n  A --> B\n```\n\n<script>alert(1)</script>\n')
   writeFileSync(join(root, 'page.html'), '<!doctype html><h1>Preview me</h1>')
   const server = createMuxMapServer({
     databasePath: ':memory:',
@@ -419,7 +454,14 @@ test('file preview API renders markdown and html with MuxMap actions', async () 
     assert.match(markdownHtml, /Open in Zed/)
     assert.match(markdownHtml, /Open in VS Code/)
     assert.match(markdownHtml, /Copy content/)
+    assert.match(markdownHtml, /<pre class="mermaid">graph TD/)
+    assert.match(markdownHtml, /\/api\/vendor\/mermaid\.esm\.min\.mjs/)
     assert.match(markdownHtml, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/)
+
+    const mermaid = await fetch(`${base}/api/vendor/mermaid.esm.min.mjs`, { headers: { cookie } })
+    assert.equal(mermaid.status, 200)
+    assert.match(mermaid.headers.get('content-type') ?? '', /^text\/javascript/)
+    assert.match(await mermaid.text(), /mermaid/)
 
     const source = await fetch(`${base}/api/files/open?path=${encodeURIComponent('README.md')}&cwd=${encodeURIComponent(root)}&renderer=source`, { headers: { cookie } })
     assert.match(await source.text(), /<table>/)

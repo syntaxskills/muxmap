@@ -15,7 +15,7 @@ import './App.css'
 import { api, apiText } from './api.ts'
 import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canBulkRecoverAgentSession, canRecoverAgentSession, effectiveArchivedNodeIds, expandedNodeHeight, expandedNodeWidth, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
 import { centerPan, dragPan, gridBackground, isCanvasBlankTarget, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
-import type { NodeStepDefinition, NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
+import type { NodeNoteEntry, NodeStepDefinition, NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { normalizeTerminalOpacity, normalizeTerminalSplit } from './terminalInteraction.ts'
 import { readViewState, writeViewState } from './viewState.ts'
@@ -35,6 +35,8 @@ import { agentSessionSummary } from './agentSessionDetails.ts'
 import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachment } from './imageAttachments.ts'
 import { keyboardOwnerFromPointerTarget, mindmapDirectionFromKey, navigateMindmapNode, shouldMindmapHandleArrow, type KeyboardOwner } from './mindmapNavigation.ts'
 import { NoteImagePreview } from './NoteImagePreview.tsx'
+import { NodeNotesEditor, NodeNotesPreview, type NodeNoteDraft } from './NodeNotes.tsx'
+import { mergeNodeNotes } from './nodeNotes.ts'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { AgentEventList } from './AgentEventList.tsx'
 import { demoWorkspaceGraph } from './demoGraph.ts'
@@ -174,6 +176,7 @@ function App() {
     return demoMode && !view.selectedId ? { ...view, selectedId: 'demo-api-contract' } : view
   })
   const [graph, setGraph] = useState<WorkspaceGraph | null>(() => demoMode ? demoWorkspaceGraph : null)
+  const [fullNodeNotes, setFullNodeNotes] = useState<Record<string, NodeNoteEntry[]>>({})
   const [selectedId, setSelectedId] = useState<string | null>(initialView.selectedId ?? 'dev-1420')
   const [collapsed, setCollapsed] = useState(new Set<string>())
   const [query, setQuery] = useState('')
@@ -439,6 +442,14 @@ function App() {
     }
   }, [graph, loadWorkspace, selectedId, terminalSessionId])
   useEffect(() => {
+    if (!selectedId || demoMode) return
+    let disposed = false
+    void api<{ notes: NodeNoteEntry[] }>(`/api/nodes/${selectedId}/notes`)
+      .then((response) => { if (!disposed) setFullNodeNotes((current) => ({ ...current, [selectedId]: response.notes })) })
+      .catch(() => undefined)
+    return () => { disposed = true }
+  }, [demoMode, selectedId])
+  useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const pinchZoom = (event: WheelEvent) => {
@@ -683,11 +694,70 @@ function App() {
       })
       setGraph((current) => current ? {
         ...current,
-        nodes: current.nodes.map((node) => node.id === updated.id ? updated : node),
+        nodes: current.nodes.map((node) => node.id === updated.id ? { ...node, ...updated, notes: node.notes, steps: node.steps } : node),
       } : current)
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : 'Unable to update node')
       await loadWorkspace()
+    }
+  }
+
+  function replaceNodeNote(nodeId: string, note: NodeNoteEntry) {
+    const merge = (notes: readonly NodeNoteEntry[] | undefined) => [note, ...(notes ?? []).filter((item) => item.id !== note.id)].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    setGraph((current) => current ? { ...current, nodes: current.nodes.map((node) => node.id === nodeId ? { ...node, notes: merge(node.notes).slice(0, 6) } : node) } : current)
+    setFullNodeNotes((current) => ({ ...current, [nodeId]: merge(current[nodeId] ?? graph?.nodes.find((item) => item.id === nodeId)?.notes) }))
+  }
+
+  async function addNodeNote(nodeId: string, draft: NodeNoteDraft) {
+    setError('')
+    if (demoMode) {
+      replaceNodeNote(nodeId, { id: `demo-note-${Date.now()}`, nodeId, kind: draft.url ? 'link' : 'text', provider: draft.url ? 'web' : 'note', ...draft, createdBy: 'human', updatedBy: 'human', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+      return
+    }
+    try {
+      const response = await api<{ note: NodeNoteEntry }>(`/api/nodes/${nodeId}/notes`, {
+        method: 'POST',
+        body: JSON.stringify({ ...draft, kind: draft.url ? 'link' : 'text' }),
+      })
+      replaceNodeNote(nodeId, response.note)
+    } catch (noteError) {
+      setError(noteError instanceof Error ? noteError.message : 'Unable to add node note')
+      throw noteError
+    }
+  }
+
+  async function updateNodeNote(nodeId: string, noteId: string, draft: NodeNoteDraft) {
+    setError('')
+    if (demoMode) {
+      const existing = (fullNodeNotes[nodeId] ?? graph?.nodes.find((node) => node.id === nodeId)?.notes)?.find((note) => note.id === noteId)
+      if (existing) replaceNodeNote(nodeId, { ...existing, ...draft, updatedBy: 'human', updatedAt: new Date().toISOString() })
+      return
+    }
+    try {
+      const response = await api<{ note: NodeNoteEntry }>(`/api/nodes/${nodeId}/notes/${noteId}`, {
+        method: 'PATCH', body: JSON.stringify(draft),
+      })
+      replaceNodeNote(nodeId, response.note)
+    } catch (noteError) {
+      setError(noteError instanceof Error ? noteError.message : 'Unable to edit node note')
+      throw noteError
+    }
+  }
+
+  async function deleteNodeNote(nodeId: string, noteId: string) {
+    setError('')
+    if (demoMode) {
+      setGraph((current) => current ? { ...current, nodes: current.nodes.map((node) => node.id === nodeId ? { ...node, notes: node.notes?.filter((note) => note.id !== noteId) } : node) } : current)
+      setFullNodeNotes((current) => ({ ...current, [nodeId]: (current[nodeId] ?? []).filter((note) => note.id !== noteId) }))
+      return
+    }
+    try {
+      await api(`/api/nodes/${nodeId}/notes/${noteId}`, { method: 'DELETE' })
+      setGraph((current) => current ? { ...current, nodes: current.nodes.map((node) => node.id === nodeId ? { ...node, notes: node.notes?.filter((note) => note.id !== noteId) } : node) } : current)
+      setFullNodeNotes((current) => ({ ...current, [nodeId]: (current[nodeId] ?? []).filter((note) => note.id !== noteId) }))
+    } catch (noteError) {
+      setError(noteError instanceof Error ? noteError.message : 'Unable to delete node note')
+      throw noteError
     }
   }
 
@@ -1445,6 +1515,7 @@ function App() {
                   const childCount = activeGraphNodes.filter((child) => child.parentId === node.id).length
                   const archivedChildCount = archivedChildCounts.get(node.id) ?? 0
                   const expanded = nodeUsesExpandedLayout(node.id, selectedId, hoveredId)
+                  const hasNodeNotes = (node.notes?.length ?? 0) > 0
                   const isTodoNode = node.type === 'todo'
                   const hasOpenTodo = node.type === 'todo' && !node.doneAt
                   const lifecycleEnabled = settings['lifecycle.enabled']
@@ -1456,11 +1527,12 @@ function App() {
                     width: nodeWidth(node.id),
                     height: nodeHeights.get(node.id) ?? NODE_HEIGHT,
                     '--node-color': node.color,
+                    '--node-notes-height': `${hasNodeNotes ? 36 + Math.min(node.notes?.length ?? 0, 3) * 23 : 0}px`,
                     ...(agentState === 'working' ? { '--agent-working-sweep-delay': agentWorkingSweepDelay(performance.now()) } : {}),
                   } as CSSProperties
                   return (
                     <article
-                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${isTodoNode ? 'is-todo' : ''} ${hasOpenTodo ? 'is-todo-open' : ''} ${expanded ? 'is-expanded' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${agentState ? `is-agent-${agentState}` : ''} ${channelNodeIds.has(node.id) ? 'is-channel-linked' : ''} ${pendingChannelNodeId === node.id ? 'is-channel-pending' : ''} ${activityFade !== 'fresh' ? `is-activity-${activityFade}` : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
+                      className={`map-node ${node.parentId ? 'is-reorderable' : ''} ${isTodoNode ? 'is-todo' : ''} ${hasOpenTodo ? 'is-todo-open' : ''} ${expanded ? 'is-expanded' : ''} ${expanded && hasNodeNotes ? 'has-node-notes' : ''} ${selectedId === node.id ? 'is-selected' : ''} ${activeTerminalNode?.id === node.id ? 'is-terminal-active' : ''} ${agentState ? `is-agent-${agentState}` : ''} ${channelNodeIds.has(node.id) ? 'is-channel-linked' : ''} ${pendingChannelNodeId === node.id ? 'is-channel-pending' : ''} ${activityFade !== 'fresh' ? `is-activity-${activityFade}` : ''} ${draggedId === node.id ? 'is-dragging' : ''} ${dropTarget?.id === node.id ? `drop-${dropTarget.position}` : ''}`}
                       key={node.id}
                       ref={(element) => {
                         if (element) nodeElementRefs.current.set(node.id, element)
@@ -1520,6 +1592,7 @@ function App() {
                       {hasOpenTodo && <span className="node-todo-marker" aria-label="Todo open" title="Todo" />}
                       {channelNodeIds.has(node.id) && <span className="node-channel-marker" aria-label="Agent channel linked" title="Agent channel linked"><Link2Icon /></span>}
                       {agentState === 'needs_input' && <span className="agent-needs-input-marker" role="img" aria-label={`Agent needs input for ${node.title}`} title="Agent needs input">?</span>}
+                      {expanded && <NodeNotesPreview notes={node.notes} />}
                       <button className="node-add-action" type="button" onClick={() => void addChild(node)} aria-label={`Add child to ${node.title}`}>+</button>
                       {lifecycleEnabled && <NodeStepPopover steps={stepper} />}
                     </article>
@@ -1598,6 +1671,14 @@ function App() {
               </div>
             </details>
           </div>
+
+          <NodeNotesEditor
+            notes={mergeNodeNotes(fullNodeNotes[selected.id], selected.notes)}
+            disabled={busy}
+            onAdd={(draft) => addNodeNote(selected.id, draft)}
+            onUpdate={(noteId, draft) => updateNodeNote(selected.id, noteId, draft)}
+            onDelete={(noteId) => deleteNodeNote(selected.id, noteId)}
+          />
 
           {session && (
             <>

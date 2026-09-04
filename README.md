@@ -19,7 +19,7 @@ Most terminal-heavy workflows eventually become a pile of anonymous panes. MuxMa
 - Manage orphan `muxmap*` sessions instead of leaving hidden tmux/Zellij clutter.
 - Track Codex, Claude Code, Pi, and SSH activity with optional system or in-page notifications.
 - Manually connect two terminal-backed nodes into a bounded agent chat channel and see that relationship on the map.
-- Track node lifecycle steps from MCP, with configurable step names and clickable ticket/MR refs.
+- Keep a durable note stream under each node with human notes, agent updates, opened files, and clickable Jira/GitHub/GitLab/Lark artifacts.
 - Use the terminal command box for edited input with MuxMap-managed history.
 - Tune the workspace through a VS Code-style settings UI or JSON editor.
 
@@ -61,7 +61,7 @@ Open <http://127.0.0.1:4782>.
 
 ## File previews
 
-Terminal file links open in a MuxMap browser preview. Markdown is rendered with `markdown-it`; HTML files open in a sandboxed preview with a MuxMap header. The preview header can copy the path/content or open the file in Zed or VS Code when their CLI commands are installed.
+Terminal file links open in a MuxMap browser preview and are saved to the node's Notes & artifacts stream. Markdown is rendered with `markdown-it`, including Mermaid diagrams; HTML files open in a sandboxed preview with a MuxMap header. The preview header can copy the path/content or open the file in Zed or VS Code when their CLI commands are installed.
 
 ## Agent hooks
 
@@ -93,11 +93,11 @@ Configure the MCP client with:
 - `MUXMAP_NODE_ID` so sends can default to the current node
 - `MUXMAP_WORKSPACE_ID`, default `default`
 
-New tmux sessions started from MuxMap automatically carry `MUXMAP_NODE_ID`, `MUXMAP_SESSION_ID`, and `MUXMAP_URL` in their session environment. Agents launched inside those terminals can call lifecycle tools such as `muxmap_update_node_step` without passing `nodeId` manually. Existing sessions are not retroactively modified.
+New tmux sessions started from MuxMap automatically carry `MUXMAP_NODE_ID`, `MUXMAP_SESSION_ID`, and `MUXMAP_URL` in their session environment. Agents launched inside those terminals can call `muxmap_add_node_note` without passing `nodeId` manually. Existing sessions are not retroactively modified.
 
-The adapter exposes tools to list channels, read messages, send concise messages, and check hourly quota usage. It only works through channels you created in the map.
+The adapter exposes tools to list channels, read messages, send concise messages, check hourly quota usage, and add or read node notes. Agents should attach concise decisions, messages, and artifact links with `muxmap_add_node_note`.
 
-It also exposes node lifecycle tools. Edit stages in Settings → Lifecycle, or seed defaults by copying `muxmap.config.example.json` to `muxmap.config.json` / setting `MUXMAP_CONFIG=/path/to/muxmap.config.json`. MCP `tools/list` reflects the active step keys, so agents know which `stepKey` values are valid.
+The older fixed lifecycle tools remain available for compatibility but are hidden by default in the map. They can be re-enabled under Settings → Lifecycle.
 
 ## Access modes
 

@@ -97,6 +97,8 @@ test('MCP adapter exposes MuxMap channel tools over JSON-RPC', async () => {
       'muxmap_read_channel',
       'muxmap_send_channel_message',
       'muxmap_channel_usage',
+      'muxmap_add_node_note',
+      'muxmap_get_node_notes',
       'muxmap_update_node_step',
       'muxmap_get_node_steps',
       'muxmap_get_node_step_definitions',
@@ -169,6 +171,23 @@ test('MCP adapter exposes MuxMap channel tools over JSON-RPC', async () => {
       params: { name: 'muxmap_get_node_step_definitions', arguments: {} },
     }, { env }))
     assert.deepEqual((definitions.steps as Array<Record<string, unknown>>).map((step) => step.key), ['initialized', 'ticket_created', 'in_progress', 'mr_raised', 'finalized'])
+
+    const addedNote = textPayload(await handleMcpMessage({
+      jsonrpc: '2.0',
+      id: 10,
+      method: 'tools/call',
+      params: { name: 'muxmap_add_node_note', arguments: { label: 'PR #42', url: 'https://github.com/example/muxmap/pull/42', body: 'Ready for review.' } },
+    }, { env }))
+    assert.equal((addedNote.note as Record<string, unknown>).provider, 'github')
+    assert.equal((addedNote.note as Record<string, unknown>).createdBy, firstSession.session.id)
+
+    const notes = textPayload(await handleMcpMessage({
+      jsonrpc: '2.0',
+      id: 11,
+      method: 'tools/call',
+      params: { name: 'muxmap_get_node_notes', arguments: {} },
+    }, { env }))
+    assert.equal((notes.notes as Array<Record<string, unknown>>)[0]?.label, 'PR #42')
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })
@@ -195,6 +214,12 @@ test('MCP adapter returns tool errors as MCP tool results instead of crashing th
   const missingNodeResult = (missingNodeResponse as { result: { isError: boolean; content: Array<{ text: string }> } }).result
   assert.equal(missingNodeResult.isError, true)
   assert.match(missingNodeResult.content[0]!.text, /nodeId is required/)
+
+  const missingNoteNode = await handleMcpMessage({
+    jsonrpc: '2.0', id: 'missing-note-node', method: 'tools/call',
+    params: { name: 'muxmap_add_node_note', arguments: { body: 'No target' } },
+  }, { env: {} })
+  assert.match((missingNoteNode as { result: { content: Array<{ text: string }> } }).result.content[0]!.text, /nodeId is required/)
 })
 
 test('MCP tools/list reflects configured lifecycle step keys from MuxMap', async () => {

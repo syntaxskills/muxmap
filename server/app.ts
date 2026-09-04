@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net'
 import { homedir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { spawn as spawnPty, type IPtyForkOptions, type IWindowsPtyForkOptions } from 'node-pty'
 import MarkdownIt from 'markdown-it'
 import { WebSocketServer, type WebSocket } from 'ws'
@@ -262,7 +263,15 @@ function safeFilePath(inputPath: string | null, inputCwd: string | null | Array<
   throw new Error(errors.find((message) => /outside allowed roots/i.test(message)) ?? errors[0] ?? 'Unable to open file')
 }
 
-const markdown = new MarkdownIt({ html: false, linkify: true, typographer: true })
+const mermaidModulePath = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', 'mermaid', 'dist', 'mermaid.esm.min.mjs')
+const markdown = new MarkdownIt({
+  html: false,
+  linkify: true,
+  typographer: true,
+  highlight: (source, language) => language.trim().toLowerCase() === 'mermaid'
+    ? `<pre class="mermaid">${htmlEscape(source)}</pre>`
+    : '',
+})
 markdown.renderer.rules.link_open = (tokens, index, options, _env, self) => {
   const token = tokens[index]
   token.attrSet('target', '_blank')
@@ -340,7 +349,11 @@ td{padding:0 14px;white-space:pre}tr.is-selected{background:#31401f}tr.is-select
 
 function markdownPreviewHtml(path: string, content: string, line: number | undefined, column: number | undefined) {
   const rendered = markdown.render(content)
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`main{box-sizing:border-box;max-width:920px;margin:0 auto;padding:28px 22px 64px;font:15px/1.68 ui-sans-serif,system-ui,sans-serif}.markdown-body h1,.markdown-body h2,.markdown-body h3{line-height:1.2;color:#f4f7f2}.markdown-body h1{font-size:32px}.markdown-body h2{font-size:23px;border-top:1px solid #2d352c;padding-top:24px}.markdown-body a{all:unset;color:#bde68b;text-decoration:underline;cursor:pointer}.markdown-body code{border-radius:5px;background:#20261f;padding:2px 5px;font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.markdown-body pre{overflow:auto;border:1px solid #2d352c;border-radius:14px;background:#0b0d0b;padding:14px}.markdown-body pre code{background:transparent;padding:0}.markdown-body blockquote{margin-left:0;border-left:3px solid #586b3f;padding-left:14px;color:#b7c0b4}.markdown-body img{max-width:100%;border-radius:12px}@media (prefers-color-scheme:light){.markdown-body h1,.markdown-body h2,.markdown-body h3{color:#111411}.markdown-body h2{border-top-color:#d9dfd5}.markdown-body a{color:#426a1c}.markdown-body code{background:#eef2ea}.markdown-body pre{background:#fff;border-color:#d9dfd5}.markdown-body blockquote{color:#586155}}`)}</head><body>${fileHeaderHtml(path, content, line, column, '?renderer=source')}<main class="markdown-body">${rendered}</main></body></html>`
+  const mermaidScript = rendered.includes('class="mermaid"') ? `<script type="module">
+import mermaid from '/api/vendor/mermaid.esm.min.mjs';
+mermaid.initialize({ startOnLoad: true, securityLevel: 'strict', theme: matchMedia('(prefers-color-scheme: light)').matches ? 'default' : 'dark' });
+</script>` : ''
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`main{box-sizing:border-box;max-width:920px;margin:0 auto;padding:28px 22px 64px;font:15px/1.68 ui-sans-serif,system-ui,sans-serif}.markdown-body h1,.markdown-body h2,.markdown-body h3{line-height:1.2;color:#f4f7f2}.markdown-body h1{font-size:32px}.markdown-body h2{font-size:23px;border-top:1px solid #2d352c;padding-top:24px}.markdown-body a{all:unset;color:#bde68b;text-decoration:underline;cursor:pointer}.markdown-body code{border-radius:5px;background:#20261f;padding:2px 5px;font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.markdown-body pre{overflow:auto;border:1px solid #2d352c;border-radius:14px;background:#0b0d0b;padding:14px}.markdown-body pre code{background:transparent;padding:0}.markdown-body blockquote{margin-left:0;border-left:3px solid #586b3f;padding-left:14px;color:#b7c0b4}.markdown-body img{max-width:100%;border-radius:12px}.markdown-body .mermaid{border:1px solid #2d352c;border-radius:14px;background:#151914;padding:18px;overflow:auto;text-align:center}@media (prefers-color-scheme:light){.markdown-body h1,.markdown-body h2,.markdown-body h3{color:#111411}.markdown-body h2{border-top-color:#d9dfd5}.markdown-body a{color:#426a1c}.markdown-body code{background:#eef2ea}.markdown-body pre{background:#fff;border-color:#d9dfd5}.markdown-body blockquote{color:#586155}.markdown-body .mermaid{background:#fff;border-color:#d9dfd5}}`)}</head><body>${fileHeaderHtml(path, content, line, column, '?renderer=source')}<main class="markdown-body">${rendered}</main>${mermaidScript}</body></html>`
 }
 
 function htmlDocumentPreview(path: string, content: string, line: number | undefined, column: number | undefined) {
@@ -554,6 +567,12 @@ export function createMuxMapServer(options: ServerOptions) {
           ))
         }
 
+        if (request.method === 'GET' && url.pathname === '/api/vendor/mermaid.esm.min.mjs') {
+          if (!existsSync(mermaidModulePath)) return sendJson(response, 503, { error: 'Mermaid renderer is not installed' })
+          response.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'private, max-age=31536000' })
+          return response.end(readFileSync(mermaidModulePath))
+        }
+
         if (request.method === 'POST' && url.pathname === '/api/files/action') {
           const body = await readJson(request)
           if (!['vscode', 'zed'].includes(String(body.action))) throw new Error('action must be vscode or zed')
@@ -700,6 +719,41 @@ export function createMuxMapServer(options: ServerOptions) {
               typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.slice(0, 128) : 'user',
             ),
           })
+        }
+
+        const nodeNotesMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/notes$/)
+        if (request.method === 'GET' && nodeNotesMatch) {
+          return sendJson(response, 200, { notes: store.listNodeNotes(nodeNotesMatch[1]) })
+        }
+        if (request.method === 'POST' && nodeNotesMatch) {
+          const body = await readJson(request)
+          const updatedBy = Array.isArray(request.headers['x-muxmap-updated-by'])
+            ? request.headers['x-muxmap-updated-by'][0]
+            : request.headers['x-muxmap-updated-by']
+          return sendJson(response, 201, {
+            note: store.createNodeNote(
+              nodeNotesMatch[1],
+              body,
+              typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.slice(0, 128) : 'human',
+            ),
+          })
+        }
+
+        const nodeNoteMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/notes\/([^/]+)$/)
+        if (request.method === 'PATCH' && nodeNoteMatch) {
+          const body = await readJson(request)
+          const updatedBy = Array.isArray(request.headers['x-muxmap-updated-by'])
+            ? request.headers['x-muxmap-updated-by'][0]
+            : request.headers['x-muxmap-updated-by']
+          return sendJson(response, 200, {
+            note: store.updateNodeNote(
+              nodeNoteMatch[1], nodeNoteMatch[2], body,
+              typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.slice(0, 128) : 'human',
+            ),
+          })
+        }
+        if (request.method === 'DELETE' && nodeNoteMatch) {
+          return sendJson(response, 200, { deleted: store.deleteNodeNote(nodeNoteMatch[1], nodeNoteMatch[2]) })
         }
 
         const attachMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/session$/)

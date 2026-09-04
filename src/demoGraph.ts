@@ -1,4 +1,4 @@
-import type { AgentActivity, AgentEventLogEntry, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
+import type { AgentActivity, AgentEventLogEntry, NodeNoteEntry, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 
 const workspaceId = 'demo'
 const now = '2026-08-19T10:00:00.000Z'
@@ -24,6 +24,10 @@ function event(runtimeName: string, kind: AgentEventLogEntry['kind'], eventName:
     payload: { hook_event_name: eventName, ...(summary ? { message: summary } : {}) },
     createdAt,
   }
+}
+
+function nodeNote(nodeId: string, id: string, input: Pick<NodeNoteEntry, 'kind' | 'provider'> & Partial<Pick<NodeNoteEntry, 'label' | 'body' | 'url' | 'createdBy'>>): NodeNoteEntry {
+  return { id, nodeId, createdBy: input.createdBy ?? 'demo-agent', updatedBy: input.createdBy ?? 'demo-agent', createdAt: now, updatedAt: now, ...input }
 }
 
 function session(input: Omit<TerminalSession, 'workspaceId' | 'createdAt' | 'updatedAt' | 'name' | 'runtimeName' | 'backend' | 'cwd'> & {
@@ -71,6 +75,12 @@ export const demoWorkspaceGraph: WorkspaceGraph = {
       jiraKey: 'DEV-1842',
       repoPath: '/Users/example/dev/product-platform/services/authentication/session-continuity/src/server/redirect-handlers/provider-callback',
       note: 'Long metadata case: verify expanded nodes grow vertically, wrap path text, and keep the terminal preview readable beside agent status.',
+      notes: [
+        nodeNote('demo-api-contract', 'demo-note-jira', { kind: 'link', provider: 'jira', label: 'DEV-1842', body: 'Identity redirect context ticket', url: 'https://jira.example/browse/DEV-1842' }),
+        nodeNote('demo-api-contract', 'demo-note-github', { kind: 'link', provider: 'github', label: 'PR #317', body: 'Implementation ready for review', url: 'https://github.com/example/product-platform/pull/317' }),
+        nodeNote('demo-api-contract', 'demo-note-file', { kind: 'file', provider: 'file', label: 'provider-callback.ts', url: '/api/files/open?path=src%2Fprovider-callback.ts' }),
+        nodeNote('demo-api-contract', 'demo-note-agent', { kind: 'message', provider: 'agent', body: 'Redirect and refresh regression tests are passing.' }),
+      ],
       sortOrder: 0,
     }),
     node({

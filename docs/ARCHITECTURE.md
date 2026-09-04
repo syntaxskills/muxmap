@@ -25,7 +25,7 @@ Execution layer
 
 ## Storage
 
-Workspace state is persisted in SQLite under the configured data directory. The database stores workspaces, nodes, sessions, archive state, last activity timestamps, Agent activity, human-created agent channels, channel messages, and terminal command-box history.
+Workspace state is persisted in SQLite under the configured data directory. The database stores workspaces, nodes, node notes and artifacts, sessions, archive state, last activity timestamps, Agent activity, human-created agent channels, channel messages, and terminal command-box history.
 
 The terminal process itself is not stored in SQLite. tmux or Zellij owns the live shell. On startup MuxMap reconciles the database with live sessions and marks missing sessions stopped. A suspended session is different from stopped: MuxMap intentionally releases the runtime to save memory while keeping the node/session metadata so the same runtime name, or saved Agent resume metadata when available, can be used later.
 
@@ -56,17 +56,26 @@ MuxMap's default transport remains `muxmap-local`, so channels work even when ve
 
 Channel messaging is intentionally bounded. The MCP adapter sends concise text, expects long artifacts to be written to files, and passes file paths or summaries through the channel. The default sliding-window quota is 50 messages per hour, warning at 250k estimated tokens per hour, and hard-closing the channel before it exceeds 500k estimated tokens per hour. The quota is per hour, not lifetime, so multi-day collaboration can continue after the window rolls over.
 
-The stdio MCP server is started by MCP clients with `node --experimental-strip-types server/mcp-adapter.ts`. Use `npm run --silent mcp` only for manual smoke tests; bare `npm run mcp` writes an npm banner to stdout and is not valid MCP transport output. The server uses newline-delimited JSON-RPC over stdin/stdout, calls the same authenticated HTTP APIs as the browser, and exposes channel and lifecycle tools:
+The stdio MCP server is started by MCP clients with `node --experimental-strip-types server/mcp-adapter.ts`. Use `npm run --silent mcp` only for manual smoke tests; bare `npm run mcp` writes an npm banner to stdout and is not valid MCP transport output. The server uses newline-delimited JSON-RPC over stdin/stdout, calls the same authenticated HTTP APIs as the browser, and exposes channel and node-context tools:
 
 - `muxmap_list_channels`
 - `muxmap_read_channel`
 - `muxmap_send_channel_message`
 - `muxmap_channel_usage`
+- `muxmap_add_node_note`
+- `muxmap_get_node_notes`
 - `muxmap_update_node_step`
 - `muxmap_get_node_steps`
 - `muxmap_get_node_step_definitions`
 
-Node lifecycle steps are configurable through `muxmap.config.json` or `MUXMAP_CONFIG`. The server validates step updates against that configured list, includes the definitions in workspace payloads, and MCP `tools/list` reflects the same keys.
+Node notes are the primary durable context stream. Humans can add, edit, and delete entries in Details; agents can append concise messages or artifact links through MCP; terminal link activation records files and web artifacts without delaying navigation. Jira, GitHub, GitLab, Lark, file, web, and AI entries receive distinct provider metadata. The older configurable lifecycle steps remain available for compatibility and are hidden by default.
+
+Node note API:
+
+- `GET /api/nodes/:nodeId/notes`
+- `POST /api/nodes/:nodeId/notes`
+- `PATCH /api/nodes/:nodeId/notes/:noteId`
+- `DELETE /api/nodes/:nodeId/notes/:noteId`
 
 Runtime configuration:
 

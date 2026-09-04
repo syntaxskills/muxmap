@@ -941,6 +941,95 @@ kbd {
   color: var(--accent);
 }
 
+.map-node.is-expanded.has-node-notes .node-select {
+  padding-bottom: calc(var(--node-notes-height) + 5px);
+}
+
+.node-notes-preview {
+  position: absolute;
+  z-index: 4;
+  right: 9px;
+  bottom: 8px;
+  left: 10px;
+  display: grid;
+  gap: 3px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--node-color) 24%, var(--line));
+  user-select: text;
+}
+
+.node-notes-preview header,
+.node-notes-preview > a,
+.node-notes-preview > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.node-notes-preview header {
+  justify-content: space-between;
+  color: var(--text-muted);
+  font: 650 8px/1 var(--mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.node-notes-preview header small {
+  font: inherit;
+}
+
+.node-notes-preview > a,
+.node-notes-preview > div {
+  height: 20px;
+  gap: 5px;
+  color: var(--text);
+  font: 9px/1.2 var(--mono);
+  text-decoration: none;
+}
+
+.node-notes-preview > a:hover {
+  color: var(--text-strong);
+}
+
+.node-notes-preview > a > span:nth-child(2),
+.node-notes-preview > div > span:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-notes-preview svg {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.node-note-provider {
+  min-width: 24px;
+  height: 14px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--node-color, var(--accent)) 30%, var(--line));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--node-color, var(--accent)) 10%, var(--surface));
+  color: var(--text-muted);
+  font: 700 7px/1 var(--mono);
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+
+.node-note-provider.is-jira { border-color: color-mix(in srgb, #4b8df8 42%, var(--line)); color: #74a7fa; }
+.node-note-provider.is-github { border-color: color-mix(in srgb, #aab1bc 38%, var(--line)); color: var(--text-strong); }
+.node-note-provider.is-gitlab { border-color: color-mix(in srgb, #e97835 42%, var(--line)); color: #ed8f55; }
+.node-note-provider.is-lark { border-color: color-mix(in srgb, #45b5eb 42%, var(--line)); color: #62c2ef; }
+.node-note-provider.is-agent { border-color: color-mix(in srgb, #b48bea 42%, var(--line)); color: #c4a3ef; }
+
 .node-step-summary span {
   display: flex !important;
   align-items: center;
@@ -2862,6 +2951,190 @@ kbd {
   cursor: not-allowed;
 }
 
+.node-notes-editor {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-subtle) 88%, transparent);
+}
+
+.node-notes-editor > header,
+.node-notes-editor > header > div,
+.node-note-list,
+.node-note-item > div:nth-child(2),
+.node-note-form {
+  min-width: 0;
+  display: grid;
+}
+
+.node-notes-editor > header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.node-notes-editor > header > div {
+  gap: 3px;
+}
+
+.node-notes-editor > header strong {
+  color: var(--text-strong);
+  font: 700 11px/1.2 var(--mono);
+}
+
+.node-notes-editor > header small,
+.node-note-item small,
+.node-note-list > p {
+  color: var(--text-muted);
+  font: 9px/1.4 var(--mono);
+}
+
+.node-notes-editor > header button,
+.node-note-actions button,
+.node-note-form button {
+  min-height: 27px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  font: 9px/1 var(--mono);
+}
+
+.node-notes-editor button svg,
+.node-note-actions button svg {
+  width: 12px;
+  height: 12px;
+}
+
+.node-note-list {
+  gap: 6px;
+}
+
+.node-note-list > p {
+  margin: 3px 0;
+}
+
+.node-notes-editor .node-note-error {
+  margin: 0;
+  color: #c87070;
+  font: 9px/1.35 var(--mono);
+}
+
+.node-note-item {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.node-note-item > div:nth-child(2) {
+  gap: 3px;
+}
+
+.node-note-item a,
+.node-note-item strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font: 600 10px/1.35 var(--mono);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-note-item a {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.node-note-item a:hover {
+  color: var(--accent);
+}
+
+.node-note-item a svg {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+}
+
+.node-note-item p {
+  margin: 0;
+  color: var(--text);
+  font: 10px/1.45 var(--sans);
+  white-space: pre-wrap;
+}
+
+.node-note-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.node-note-actions button {
+  width: 27px;
+  padding: 0;
+}
+
+.node-note-actions button.is-confirming {
+  width: auto;
+  border-color: color-mix(in srgb, #d66 55%, var(--line));
+  color: #d77;
+}
+
+.node-note-form {
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.node-note-form textarea,
+.node-note-form input {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--background);
+  color: var(--text);
+  font: 10px/1.45 var(--mono);
+}
+
+.node-note-form textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+
+.node-note-form input {
+  height: 30px;
+  padding: 0 8px;
+}
+
+.node-note-form > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.node-note-form button.is-primary {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  background: var(--accent-soft);
+  color: var(--text-strong);
+}
+
 .agent-channel-list {
   display: grid;
   gap: 8px;
@@ -4326,6 +4599,16 @@ kbd {
     border-left: 0;
     box-shadow: 0 -18px 48px var(--shadow);
     animation: terminal-sheet-in 220ms cubic-bezier(.2, .82, .2, 1) both;
+    overflow-x: hidden;
+  }
+
+  .node-note-item {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .node-note-actions {
+    grid-column: 2;
+    justify-self: end;
   }
 
   .side-panel-close,

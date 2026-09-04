@@ -83,6 +83,30 @@ function toolsForNodeSteps(definitions: readonly NodeStepDefinition[] = defaultN
     },
   },
   {
+    name: 'muxmap_add_node_note',
+    description: 'Add durable context to the current MuxMap node. Use this for concise AI updates, decisions, Jira/GitHub/GitLab/Lark links, and file artifacts. Include both label and URL for clickable artifacts; nodeId defaults to MUXMAP_NODE_ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string', description: 'MuxMap node id. Defaults to MUXMAP_NODE_ID.' },
+        kind: { type: 'string', enum: ['text', 'link', 'file', 'message'], default: 'message' },
+        label: { type: 'string', description: 'Short artifact label, for example DEV-2830 or PR #42.' },
+        body: { type: 'string', description: 'Concise note or AI message, max 4000 characters.' },
+        url: { type: 'string', description: 'HTTP(S) artifact link or a MuxMap file-preview URL.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'muxmap_get_node_notes',
+    description: 'Read the durable notes, links, files, and AI messages attached to a MuxMap node. nodeId defaults to MUXMAP_NODE_ID.',
+    inputSchema: {
+      type: 'object',
+      properties: { nodeId: { type: 'string', description: 'MuxMap node id. Defaults to MUXMAP_NODE_ID.' } },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'muxmap_update_node_step',
     description: `Update one configured MuxMap node lifecycle step. Configured steps: ${lifecycleDescription(definitions)}. After creating a ticket or MR, call this with the ref and URL so the user can click through from the map. Example: {"stepKey":"${stepKeys[1] ?? stepKeys[0] ?? 'step'}","ref":"DEV-2830","url":"https://jira.example/browse/DEV-2830"}.`,
     inputSchema: {
@@ -91,7 +115,7 @@ function toolsForNodeSteps(definitions: readonly NodeStepDefinition[] = defaultN
         nodeId: { type: 'string', description: 'MuxMap node id. Defaults to MUXMAP_NODE_ID.' },
         stepKey: { type: 'string', enum: stepKeys },
         status: { type: 'string', enum: ['pending', 'done'], default: 'done' },
-        ref: { type: 'string', description: 'Short clickable label, for example OCI-2830 or !13595.' },
+        ref: { type: 'string', description: 'Short clickable label, for example DEV-2830 or !13595.' },
         url: { type: 'string', description: 'HTTP(S) link for the ref, for example Jira or GitLab MR URL.' },
         note: { type: 'string', description: 'Optional short note, max 200 chars.' },
       },
@@ -254,6 +278,25 @@ export async function callMuxMapMcpTool(name: string, input: unknown, options: {
   if (name === 'muxmap_channel_usage') {
     const id = channelId(args.channelId)
     return textResult(await muxmapRequest(fetchImpl, env, `/api/agent-channels/${encodeURIComponent(id)}/usage`))
+  }
+  if (name === 'muxmap_add_node_note') {
+    const targetNodeId = nodeId(env, args)
+    const body: JsonObject = {
+      kind: typeof args.kind === 'string' && args.kind.trim() ? args.kind.trim() : args.url ? 'link' : 'message',
+    }
+    for (const key of ['label', 'body', 'url'] as const) {
+      if (typeof args[key] === 'string') body[key] = args[key]
+    }
+    const updatedBy = await updatedByForNode(fetchImpl, env, targetNodeId)
+    return textResult(await muxmapRequest(fetchImpl, env, `/api/nodes/${encodeURIComponent(targetNodeId)}/notes`, {
+      method: 'POST',
+      headers: { 'x-muxmap-updated-by': updatedBy },
+      body: JSON.stringify(body),
+    }))
+  }
+  if (name === 'muxmap_get_node_notes') {
+    const targetNodeId = nodeId(env, args)
+    return textResult(await muxmapRequest(fetchImpl, env, `/api/nodes/${encodeURIComponent(targetNodeId)}/notes`))
   }
   if (name === 'muxmap_update_node_step') {
     const targetNodeId = nodeId(env, args)

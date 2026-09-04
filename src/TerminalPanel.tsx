@@ -101,7 +101,18 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     terminal.loadAddon(fit)
     terminal.open(container.current)
     const webglRenderer = loadAddonWithFallback(terminal, () => new WebglAddon())
-    const links = terminal.registerLinkProvider(createTerminalLinkProvider(terminal, { cwd: session.cwd, sessionId: session.id }))
+    const links = terminal.registerLinkProvider(createTerminalLinkProvider(
+      terminal,
+      { cwd: session.cwd, sessionId: session.id },
+      undefined,
+      (link) => {
+        void api(`/api/nodes/${node.id}/notes`, {
+          method: 'POST',
+          headers: { 'x-muxmap-updated-by': `terminal:${session.id}` },
+          body: JSON.stringify({ kind: link.url.startsWith('/api/files/open?') ? 'file' : 'link', label: link.text, url: link.url }),
+        }).catch(() => undefined)
+      },
+    ))
     const applicationInteractive = () => terminal.modes.mouseTrackingMode !== 'none' || terminal.buffer.active.type === 'alternate'
     const forceSelection = (event: MouseEvent) => forceTerminalTextSelection(event, terminal.modes.mouseTrackingMode !== 'none')
     terminal.element?.addEventListener('mousedown', forceSelection, true)
@@ -230,7 +241,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       webglRenderer?.dispose()
       terminal.dispose()
     }
-  }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, onStatus, precisionScrollMultiplier, scrollback, session.cwd, session.id, wheelMode])
+  }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, node.id, onStatus, precisionScrollMultiplier, scrollback, session.cwd, session.id, wheelMode])
 
   function beginDrag(event: ReactPointerEvent<HTMLDivElement>) {
     if (!floating || isFullscreen || event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea')) return

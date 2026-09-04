@@ -318,6 +318,75 @@ test('node lifecycle steps seed initialized and validate updates atomically', ()
   store.close()
 })
 
+test('node notes store text, AI messages, and classified artifact links', () => {
+  const store = createStore(':memory:')
+  const node = store.createNode('default', { parentId: 'workspace', title: 'Artifact stream', type: 'note' })
+
+  const jira = store.createNodeNote(node.id, {
+    kind: 'link',
+    label: 'DEV-2830',
+    url: 'https://jira.example/browse/DEV-2830',
+  }, 'terminal:sess-1')
+  const github = store.createNodeNote(node.id, {
+    kind: 'link',
+    label: 'PR #42',
+    url: 'https://github.com/example/muxmap/pull/42',
+  }, 'terminal:sess-1')
+  const lark = store.createNodeNote(node.id, {
+    kind: 'link', label: 'Release checklist', url: 'https://example.larksuite.com/wiki/release-checklist',
+  }, 'terminal:sess-1')
+  const message = store.createNodeNote(node.id, {
+    kind: 'message',
+    body: 'Tests are green and the review is ready.',
+  }, 'mcp')
+
+  assert.equal(jira.provider, 'jira')
+  assert.equal(github.provider, 'github')
+  assert.equal(lark.provider, 'lark')
+  assert.equal(message.provider, 'agent')
+  assert.deepEqual(store.listNodeNotes(node.id).map((note) => note.id), [message.id, lark.id, github.id, jira.id])
+  assert.equal(store.getWorkspace('default').nodes.find((item) => item.id === node.id)?.notes?.length, 4)
+  store.close()
+})
+
+test('terminal node-note links dedupe while human notes remain independently editable', () => {
+  const store = createStore(':memory:')
+  const node = store.createNode('default', { parentId: 'workspace', title: 'Click history', type: 'note' })
+  const first = store.createNodeNote(node.id, {
+    kind: 'file',
+    label: 'src/App.tsx:42',
+    url: '/api/files/open?path=src%2FApp.tsx&line=42',
+  }, 'terminal:sess-1')
+  const duplicate = store.createNodeNote(node.id, {
+    kind: 'file',
+    label: 'App.tsx',
+    url: '/api/files/open?path=src%2FApp.tsx&line=42',
+  }, 'terminal:sess-1')
+  const human = store.createNodeNote(node.id, { kind: 'text', body: 'Check the rendering path.' }, 'human')
+  const updated = store.updateNodeNote(node.id, human.id, { body: 'Check rendering and keyboard focus.' }, 'human')
+
+  assert.equal(duplicate.id, first.id)
+  assert.equal(duplicate.label, 'App.tsx')
+  assert.equal(updated.body, 'Check rendering and keyboard focus.')
+  assert.equal(store.listNodeNotes(node.id).length, 2)
+  assert.equal(store.deleteNodeNote(node.id, human.id), true)
+  assert.equal(store.listNodeNotes(node.id).length, 1)
+  store.close()
+})
+
+test('node notes reject unsafe or oversized content without changing stored rows', () => {
+  const store = createStore(':memory:')
+  const node = store.createNode('default', { parentId: 'workspace', title: 'Validated notes', type: 'note' })
+  store.createNodeNote(node.id, { kind: 'text', body: 'Keep me' }, 'human')
+
+  assert.throws(() => store.createNodeNote(node.id, { kind: 'link', url: 'javascript:alert(1)' }, 'human'), /http/i)
+  assert.throws(() => store.createNodeNote(node.id, { kind: 'text', body: 'x'.repeat(4001) }, 'human'), /4000/)
+  assert.throws(() => store.createNodeNote(node.id, { kind: 'unknown' }, 'human'), /kind/i)
+  assert.throws(() => store.createNodeNote('missing', { kind: 'text', body: 'No node' }, 'human'), /not found/i)
+  assert.equal(store.listNodeNotes(node.id).length, 1)
+  store.close()
+})
+
 test('existing nodes with no lifecycle rows render lazy initialized fallback', () => {
   const store = createStore(':memory:')
   const rootSteps = store.getNodeSteps('workspace')

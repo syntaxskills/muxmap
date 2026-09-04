@@ -1,7 +1,7 @@
 import type { TerminalBackend } from './model.ts'
 
 export type RuntimePlatform = 'win32' | 'darwin' | 'linux' | string
-export const SETTINGS_VERSION = 4
+export const SETTINGS_VERSION = 5
 export type SettingCategory = 'Appearance' | 'Canvas' | 'Mindmap' | 'Lifecycle' | 'Terminal' | 'Notifications'
 
 export type AppSettings = {
@@ -70,7 +70,7 @@ export const settingDefinitions: SettingDefinition[] = [
   { key: 'mindmap.dimInactiveNodes', category: 'Mindmap', label: 'Dim inactive nodes', description: 'Softly fades old terminal nodes so current work stays prominent.', control: 'boolean' },
   { key: 'mindmap.inactiveAfterHours', category: 'Mindmap', label: 'Inactive after', description: 'Minimum quiet time before a terminal node can be dimmed.', control: 'number', min: 1, max: 720, step: 1, unit: 'h' },
   { key: 'mindmap.inactiveOldestPercent', category: 'Mindmap', label: 'Inactive cohort', description: 'Only this oldest percentage of visible terminal nodes can be dimmed.', control: 'number', min: 10, max: 90, step: 5, unit: '%' },
-  { key: 'lifecycle.enabled', category: 'Lifecycle', label: 'Show lifecycle steps', description: 'Shows the compact step dots and hover rail on map nodes.', control: 'boolean' },
+  { key: 'lifecycle.enabled', category: 'Lifecycle', label: 'Show legacy lifecycle steps', description: 'Keeps the older fixed-stage rail visible. Node notes are the recommended workflow.', control: 'boolean' },
   { key: 'terminal.backend', category: 'Terminal', label: 'Default backend', description: 'Used when attaching a new terminal session.', control: 'select', options: [{ value: 'tmux', label: 'tmux' }, { value: 'zellij', label: 'Zellij' }] },
   { key: 'terminal.opacity', category: 'Terminal', label: 'Window opacity', description: 'Applies to docked, floating, and full-screen terminals.', control: 'number', min: 45, max: 100, step: 1, unit: '%' },
   { key: 'terminal.fontSize', category: 'Terminal', label: 'Font size', description: 'Controls terminal text size.', control: 'number', min: 10, max: 20, step: 1, unit: 'px' },
@@ -116,7 +116,7 @@ export function defaultSettings(platform: RuntimePlatform): AppSettings {
     'mindmap.dimInactiveNodes': true,
     'mindmap.inactiveAfterHours': 36,
     'mindmap.inactiveOldestPercent': 50,
-    'lifecycle.enabled': true,
+    'lifecycle.enabled': false,
     'terminal.backend': platform === 'win32' ? 'zellij' : 'tmux',
     'terminal.opacity': 96,
     'terminal.fontSize': 12,
@@ -236,8 +236,11 @@ export function settingsJson(settings: AppSettings) {
 }
 
 function migrateSettings(settings: AppSettings, sourceVersion: number) {
-  if (sourceVersion >= 2) return settings
-  return { ...settings, 'mindmap.showNodeType': false }
+  return {
+    ...settings,
+    ...(sourceVersion < 2 ? { 'mindmap.showNodeType': false } : {}),
+    ...(sourceVersion < 5 ? { 'lifecycle.enabled': false } : {}),
+  }
 }
 
 export function loadSettings(source: string | null, platform: RuntimePlatform, sourceVersion = SETTINGS_VERSION) {

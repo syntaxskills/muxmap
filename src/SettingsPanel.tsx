@@ -121,7 +121,7 @@ export function SettingsPanel({ settings, platform, nodeStepDefinitions, notific
             })}
             {category === 'Lifecycle' && !query && <div className="lifecycle-settings-editor">
               <div className="lifecycle-settings-heading">
-                <span><strong>Development stages</strong><small>These keys are exposed to MCP tools. Agents use them when calling muxmap_update_node_step.</small></span>
+                <span><strong>Legacy Development stages</strong><small>Kept for existing workspaces. New work should use Node Notes and muxmap_add_node_note.</small></span>
                 <button type="button" onClick={() => setStepDrafts((current) => [...current, { key: `step_${current.length + 1}`, label: `Step ${current.length + 1}` }])} disabled={stepDrafts.length >= 8}>Add step</button>
               </div>
               <div className="lifecycle-step-editor-list">

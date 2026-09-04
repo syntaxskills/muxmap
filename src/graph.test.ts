@@ -196,6 +196,10 @@ test('expanded nodes grow only as much as their visible metadata needs', () => {
   assert.equal(expandedNodeHeight({ ...nodes[3], type: 'todo', project: 'Identity', repoPath: '/repo', note: 'Context' }, true, 0, true), 207)
   assert.equal(expandedNodeHeight({ ...nodes[3], project: 'Identity', repoPath: '/repo', note: 'Context' }, false, 1), 207)
   assert.equal(expandedNodeHeight({ ...nodes[3], repoPath: '/very/long/path/that/needs/to/wrap/because/it/would/overflow/the/expanded/node', note: 'Long notes should add height instead of spilling outside the node card.' }, false), 181)
+  assert.equal(expandedNodeHeight({ ...nodes[1], notes: [
+    { id: 'a', nodeId: nodes[1].id, kind: 'link', provider: 'github', label: 'PR #1', url: 'https://github.com/example/repo/pull/1', createdBy: 'human', updatedBy: 'human', createdAt: base.createdAt, updatedAt: base.updatedAt },
+    { id: 'b', nodeId: nodes[1].id, kind: 'text', provider: 'note', body: 'Decision', createdBy: 'human', updatedBy: 'human', createdAt: base.createdAt, updatedAt: base.updatedAt },
+  ] }, false), 185)
   assert.equal(expandedNodeWidth(nodes[1], false), 184)
   assert.equal(expandedNodeWidth({ ...nodes[3], repoPath: '/repo/muxmap' }, false), 184)
 })

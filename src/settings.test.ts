@@ -34,7 +34,7 @@ test('notification delivery can target the system, the page, both, or neither', 
 })
 
 test('lifecycle display can be disabled through settings UI and JSON', () => {
-  assert.equal(defaultSettings('linux')['lifecycle.enabled'], true)
+  assert.equal(defaultSettings('linux')['lifecycle.enabled'], false)
   const parsed = parseSettingsJson('{"lifecycle":{"enabled":false}}', 'linux')
   assert.deepEqual(parsed.errors, [])
   assert.equal(parsed.settings?.['lifecycle.enabled'], false)
@@ -171,6 +171,7 @@ test('old flat persisted settings migrate to current nested JSON without losing 
   assert.equal(migrated['workbench.density'], 'comfortable')
   assert.equal(migrated['terminal.opacity'], 81)
   assert.equal(migrated['mindmap.inactiveAfterHours'], 72)
+  assert.equal(migrated['lifecycle.enabled'], false)
   const exported = JSON.parse(settingsJson(migrated))
   assert.equal(exported.workbench.density, 'comfortable')
   assert.equal(exported.terminal.opacity, 81)

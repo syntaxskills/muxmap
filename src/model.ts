@@ -22,6 +22,7 @@ export type WorkNode = {
   doneAt?: string
   archivedAt?: string
   steps?: NodeLifecycleStep[]
+  notes?: NodeNoteEntry[]
   createdAt: string
   updatedAt: string
 }
@@ -45,6 +46,23 @@ export type NodeLifecycleStep = {
   note?: string
   updatedAt?: string
   updatedBy?: string
+}
+
+export type NodeNoteKind = 'text' | 'link' | 'file' | 'message'
+export type NodeNoteProvider = 'note' | 'jira' | 'github' | 'gitlab' | 'lark' | 'file' | 'web' | 'agent'
+
+export type NodeNoteEntry = {
+  id: string
+  nodeId: string
+  kind: NodeNoteKind
+  provider: NodeNoteProvider
+  label?: string
+  body?: string
+  url?: string
+  createdBy: string
+  updatedBy: string
+  createdAt: string
+  updatedAt: string
 }
 
 export type TerminalStatus = 'running' | 'detached' | 'suspended' | 'stopped' | 'error'

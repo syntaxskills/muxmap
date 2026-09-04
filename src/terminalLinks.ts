@@ -1,6 +1,7 @@
 import type { ILink, ILinkProvider, Terminal } from '@xterm/xterm'
 
 type LinkOpener = (url: string) => void
+type LinkActivation = (link: { text: string; url: string }) => void
 type TerminalLinkContext = string | { cwd?: string; sessionId?: string }
 
 const terminalUrlBody = String.raw`[^\s<>"{}^⟨⟩` + "`" + String.raw`']+`
@@ -114,7 +115,7 @@ export function terminalLinksInLine(line: string, context?: TerminalLinkContext)
   return links.sort((left, right) => left.start - right.start)
 }
 
-export function createTerminalLinkProvider(terminal: Terminal, context?: TerminalLinkContext, open: LinkOpener = openBrowserLink): ILinkProvider {
+export function createTerminalLinkProvider(terminal: Terminal, context?: TerminalLinkContext, open: LinkOpener = openBrowserLink, onActivate?: LinkActivation): ILinkProvider {
   return {
     provideLinks(bufferLineNumber, callback) {
       try {
@@ -124,7 +125,10 @@ export function createTerminalLinkProvider(terminal: Terminal, context?: Termina
           text: link.text,
           range: { start: { x: link.start + 1, y: bufferLineNumber }, end: { x: link.end, y: bufferLineNumber } },
           decorations: { underline: true, pointerCursor: true },
-          activate: () => open(link.url),
+          activate: () => {
+            onActivate?.({ text: link.text, url: link.url })
+            open(link.url)
+          },
         }))
         callback(links.length > 0 ? links : undefined)
       } catch {
