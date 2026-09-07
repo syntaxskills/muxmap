@@ -1584,6 +1584,9 @@ kbd {
 }
 
 .detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   padding: 0 22px 22px;
   box-shadow: inset 3px 0 0 var(--accent-soft);
 }
@@ -2179,6 +2182,10 @@ kbd {
   border-color: var(--accent);
   outline: 2px solid var(--accent-soft);
   outline-offset: 1px;
+}
+
+.agent-session-card {
+  border-radius: 12px;
 }
 
 .agent-session-card,
@@ -3199,7 +3206,6 @@ kbd {
 }
 
 .node-more-actions {
-  margin-top: 20px;
   border-top: 1px solid var(--line);
 }
 
