@@ -468,7 +468,7 @@ test('file preview API renders markdown and html with MuxMap actions', async () 
 
     const html = await fetch(`${base}/api/files/open?path=${encodeURIComponent('page.html')}&cwd=${encodeURIComponent(root)}`, { headers: { cookie } })
     const htmlPreview = await html.text()
-    assert.match(htmlPreview, /<iframe sandbox="allow-same-origin"/)
+    assert.match(htmlPreview, /<iframe sandbox="allow-scripts"/)
     assert.match(htmlPreview, /Preview me/)
     assert.match(htmlPreview, /\?renderer=source/)
   } finally {

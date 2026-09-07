@@ -357,7 +357,7 @@ mermaid.initialize({ startOnLoad: true, securityLevel: 'strict', theme: matchMed
 }
 
 function htmlDocumentPreview(path: string, content: string, line: number | undefined, column: number | undefined) {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`iframe{display:block;width:100%;height:calc(100vh - 57px);border:0;background:white}`)}</head><body>${fileHeaderHtml(path, content, line, column, '?renderer=source')}<iframe sandbox="allow-same-origin" srcdoc="${htmlEscape(content)}"></iframe></body></html>`
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`body{display:flex;flex-direction:column;height:100vh;overflow:hidden}iframe{flex:1;display:block;width:100%;border:0;background:white}`)}</head><body>${fileHeaderHtml(path, content, line, column, '?renderer=source')}<iframe sandbox="allow-scripts" srcdoc="${htmlEscape(content)}"></iframe></body></html>`
 }
 
 export function editorTarget(path: string, line?: number, column?: number) {
