@@ -246,7 +246,7 @@ function safeFilePath(inputPath: string | null, inputCwd: string | null | Array<
   const rawPath = expandHome(inputPath)
   const cwdCandidates = cwdInputs(inputCwd)
   const attempts = isAbsolute(rawPath) ? [roots[0]] : cwdCandidates.length > 0 ? cwdCandidates : [roots[0]]
-  const errors: string[] = []
+  const errors: Error[] = []
   for (const attempt of attempts) {
     try {
       const cwd = realpathSync(resolve(expandHome(attempt)))
@@ -257,10 +257,10 @@ function safeFilePath(inputPath: string | null, inputCwd: string | null | Array<
       if (!stat.isFile()) throw new Error('Path is not a file')
       return { path: candidate, size: stat.size }
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : 'Unable to open file')
+      errors.push(error instanceof Error ? error : new Error('Unable to open file'))
     }
   }
-  throw new Error(errors.find((message) => /outside allowed roots/i.test(message)) ?? errors[0] ?? 'Unable to open file')
+  throw errors.find((error) => /outside allowed roots/i.test(error.message)) ?? errors[0] ?? new Error('Unable to open file')
 }
 
 const mermaidModulePath = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules', 'mermaid', 'dist', 'mermaid.esm.min.mjs')
@@ -334,6 +334,21 @@ button,a{border:1px solid #3d483b;border-radius:9px;background:#20261f;color:#ed
 button:hover,a:hover{background:#2a3328;border-color:#596756}.muxmap-file-status{min-width:72px;color:#bde68b;font:12px ui-sans-serif,system-ui,sans-serif}
 @media (prefers-color-scheme:light){body{background:#f7f8f5;color:#20251f}header{background:rgba(247,248,245,.96);border-bottom-color:#d9dfd5;color:#657064}header strong{color:#111411}button,a{background:#fff;color:#20251f;border-color:#ccd5c8}button:hover,a:hover{background:#f0f5ed}.muxmap-file-status{color:#426a1c}}
 ${extra}</style>`
+}
+
+function fileErrorHtml(url: URL, message: string, missing: boolean, defaultCwd: string) {
+  const title = missing ? 'File not found' : 'Unable to open file'
+  const cwd = url.searchParams.get('cwd') || defaultCwd
+  const context = new URLSearchParams({ cwd })
+  for (const key of ['sessionId', 'renderer']) {
+    const value = url.searchParams.get(key)
+    if (value) context.set(key, value)
+  }
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title} · MuxMap</title>${filePreviewStyles(`main{max-width:720px;margin:8vh auto;padding:24px;font:15px/1.6 ui-sans-serif,system-ui,sans-serif}h1{font-size:28px;line-height:1.2}p,code{overflow-wrap:anywhere}form{margin-top:28px}label{display:block;font-weight:600;margin-bottom:8px}.path-entry{display:flex;gap:10px;flex-wrap:wrap}input{box-sizing:border-box;flex:1;min-width:0;width:100%;border:1px solid #657064;border-radius:9px;background:transparent;color:inherit;padding:12px;font:14px ui-monospace,monospace}input:focus-visible,button:focus-visible{outline:2px solid #86a667;outline-offset:3px}button{padding:12px 18px;font-size:14px}.hint{font-size:13px}`)}</head><body><header><strong>MuxMap · File preview</strong></header><main>
+<h1>${title}</h1><p>${missing ? 'Check the path below, or enter another file to open.' : htmlEscape(message)}</p>
+<form action="/api/files/open" method="get"><label for="file-path">File path</label><div class="path-entry"><input id="file-path" name="path" value="${htmlEscape(url.searchParams.get('path') ?? '')}" placeholder="src/App.tsx or /home/you/project/src/App.tsx" aria-describedby="path-help" required autofocus spellcheck="false"><button type="submit">Open file</button></div>
+${[...context].map(([key, value]) => `<input type="hidden" name="${key}" value="${htmlEscape(value)}">`).join('')}
+<p id="path-help" class="hint">Enter a relative or full path. ${context.has('sessionId') ? 'Relative paths use the terminal’s current working directory.' : `Relative paths start from <code>${htmlEscape(cwd)}</code>.`}</p></form></main></body></html>`
 }
 
 function fileSourcePreviewHtml(path: string, content: string, line: number | undefined, column: number | undefined) {
@@ -928,7 +943,13 @@ export function createMuxMapServer(options: ServerOptions) {
       response.end(request.method === 'HEAD' ? undefined : readFileSync(file))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unexpected error'
-      const status = error instanceof StoreValidationError ? error.statusCode : /not found/i.test(message) ? 404 : 400
+      const filePreview = request.method === 'GET' && url.pathname === '/api/files/open'
+      const missingFile = filePreview && error instanceof Error && 'code' in error && ['ENOENT', 'ENOTDIR'].includes(String(error.code))
+      const status = error instanceof StoreValidationError ? error.statusCode : missingFile || /not found/i.test(message) ? 404 : 400
+      if (filePreview && request.headers.accept?.includes('text/html')) {
+        response.writeHead(status, { 'content-type': 'text/html; charset=utf-8' })
+        return response.end(fileErrorHtml(url, message, status === 404, options.allowedRoots[0] ?? ''))
+      }
       sendJson(response, status, { error: message })
     }
   })

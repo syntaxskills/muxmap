@@ -1,4 +1,4 @@
-import type { ILink, ILinkProvider, Terminal } from '@xterm/xterm'
+import type { IBufferRange, ILink, ILinkProvider, Terminal } from '@xterm/xterm'
 
 type LinkOpener = (url: string) => void
 type LinkActivation = (link: { text: string; url: string }) => void
@@ -119,11 +119,34 @@ export function createTerminalLinkProvider(terminal: Terminal, context?: Termina
   return {
     provideLinks(bufferLineNumber, callback) {
       try {
-        const line = terminal.buffer.active.getLine(bufferLineNumber - 1)?.translateToString(true)
+        const buffer = terminal.buffer.active
+        let firstRow = bufferLineNumber - 1
+        if (!buffer.getLine(firstRow)) return callback(undefined)
+        while (firstRow > 0 && buffer.getLine(firstRow)?.isWrapped) firstRow--
+        let line = ''
+        const positions: IBufferRange[] = []
+        for (let row = firstRow; row < buffer.length; row++) {
+          const bufferLine = buffer.getLine(row)!
+          const nextLine = buffer.getLine(row + 1)
+          for (let column = 0; column < Math.min(bufferLine.length, terminal.cols); column++) {
+            const cell = bufferLine.getCell(column)!
+            const width = cell.getWidth()
+            if (!width) continue
+            // xterm leaves an empty last cell when a wide character wraps.
+            if (column === terminal.cols - 1 && !cell.getCode() && nextLine?.isWrapped && nextLine.getCell(0)?.getWidth() === 2) continue
+            const chars = cell.getChars() || ' '
+            const position = { start: { x: column + 1, y: row + 1 }, end: { x: column + width, y: row + 1 } }
+            for (let index = 0; index < chars.length; index++) positions.push(position)
+            line += chars
+          }
+          if (!nextLine?.isWrapped) break
+        }
         if (!line) return callback(undefined)
-        const links = terminalLinksInLine(line, context).map<ILink>((link) => ({
+        const links = terminalLinksInLine(line, context).filter((link) =>
+          positions[link.start].start.y <= bufferLineNumber && positions[link.end - 1].end.y >= bufferLineNumber,
+        ).map<ILink>((link) => ({
           text: link.text,
-          range: { start: { x: link.start + 1, y: bufferLineNumber }, end: { x: link.end, y: bufferLineNumber } },
+          range: { start: positions[link.start].start, end: positions[link.end - 1].end },
           decorations: { underline: true, pointerCursor: true },
           activate: () => {
             onActivate?.({ text: link.text, url: link.url })

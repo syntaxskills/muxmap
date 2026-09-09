@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
+import xterm, { type ILink } from '@xterm/xterm'
 import { createTerminalLinkProvider, normalizeTerminalFileLink, normalizeTerminalLink, terminalLinksInLine } from './terminalLinks.ts'
 
 test('terminal links normalize browser URLs and local dev URLs', () => {
@@ -55,65 +56,74 @@ test('terminal links stop local dev URLs before adjacent terminal text', () => {
   assert.deepEqual(terminalLinksInLine('at src/App.tsxHome prompt'), [])
 })
 
-test('terminal link provider opens the clicked link in a browser tab', async () => {
+async function writtenTerminal(t: TestContext, text: string, cols = 80) {
+  const terminal = new xterm.Terminal({ cols, rows: 10, allowProposedApi: true })
+  t.after(() => terminal.dispose())
+  await new Promise<void>((resolve) => terminal.write(text, resolve))
+  return terminal
+}
+
+test('terminal link provider opens the clicked link in a browser tab', async (t) => {
   const opened: string[] = []
   const activated: Array<{ text: string; url: string }> = []
-  const terminal = {
-    buffer: {
-      active: {
-        getLine(y: number) {
-          assert.equal(y, 2)
-          return { translateToString: () => 'visit www.example.com/docs' }
-        },
-      },
-    },
-  }
-  const provider = createTerminalLinkProvider(terminal as never, undefined, (url) => opened.push(url), (link) => activated.push(link))
-  const links = await new Promise<unknown[]>((resolve) => provider.provideLinks(3, (items) => resolve(items ?? [])))
+  const terminal = await writtenTerminal(t, '\r\n\r\nvisit www.example.com/docs')
+  const provider = createTerminalLinkProvider(terminal, undefined, (url) => opened.push(url), (link) => activated.push(link))
+  const links = await new Promise<ILink[]>((resolve) => provider.provideLinks(3, (items) => resolve(items ?? [])))
 
   assert.equal(links.length, 1)
-  assert.deepEqual((links[0] as { range: unknown }).range, { start: { x: 7, y: 3 }, end: { x: 26, y: 3 } })
-  ;(links[0] as { activate: () => void }).activate()
+  assert.deepEqual(links[0].range, { start: { x: 7, y: 3 }, end: { x: 26, y: 3 } })
+  links[0].activate({} as MouseEvent, links[0].text)
   assert.deepEqual(opened, ['https://www.example.com/docs'])
   assert.deepEqual(activated, [{ text: 'www.example.com/docs', url: 'https://www.example.com/docs' }])
 })
 
-test('terminal link provider opens source file links in a browser tab', async () => {
+test('terminal link provider opens source file links in a browser tab', async (t) => {
   const opened: string[] = []
-  const terminal = {
-    buffer: {
-      active: {
-        getLine() {
-          return { translateToString: () => 'error src/terminalLinks.ts:33' }
-        },
-      },
-    },
-  }
-  const provider = createTerminalLinkProvider(terminal as never, '/repo/muxmap', (url) => opened.push(url))
-  const links = await new Promise<unknown[]>((resolve) => provider.provideLinks(1, (items) => resolve(items ?? [])))
+  const terminal = await writtenTerminal(t, 'error src/terminalLinks.ts:33')
+  const provider = createTerminalLinkProvider(terminal, '/repo/muxmap', (url) => opened.push(url))
+  const links = await new Promise<ILink[]>((resolve) => provider.provideLinks(1, (items) => resolve(items ?? [])))
 
   assert.equal(links.length, 1)
-  ;(links[0] as { activate: () => void }).activate()
+  links[0].activate({} as MouseEvent, links[0].text)
   assert.deepEqual(opened, ['/api/files/open?path=src%2FterminalLinks.ts&cwd=%2Frepo%2Fmuxmap&line=33'])
 })
 
-test('terminal link provider includes session id so file links can resolve against live cwd', async () => {
+test('terminal link provider includes session id so file links can resolve against live cwd', async (t) => {
   const opened: string[] = []
-  const terminal = {
-    buffer: {
-      active: {
-        getLine() {
-          return { translateToString: () => 'open my_ignore/swimlane_apm_direct_requests.md' }
-        },
-      },
-    },
-  }
-  const provider = createTerminalLinkProvider(terminal as never, { cwd: '/repo/project', sessionId: 'sess_live' }, (url) => opened.push(url))
-  const links = await new Promise<unknown[]>((resolve) => provider.provideLinks(1, (items) => resolve(items ?? [])))
+  const terminal = await writtenTerminal(t, 'open my_ignore/swimlane_apm_direct_requests.md')
+  const provider = createTerminalLinkProvider(terminal, { cwd: '/repo/project', sessionId: 'sess_live' }, (url) => opened.push(url))
+  const links = await new Promise<ILink[]>((resolve) => provider.provideLinks(1, (items) => resolve(items ?? [])))
 
   assert.equal(links.length, 1)
-  ;(links[0] as { activate: () => void }).activate()
+  links[0].activate({} as MouseEvent, links[0].text)
   assert.deepEqual(opened, ['/api/files/open?path=my_ignore%2Fswimlane_apm_direct_requests.md&cwd=%2Frepo%2Fproject&sessionId=sess_live'])
+})
+
+test('terminal links cover every wrapped row, preserve cell coordinates, and stop at hard newlines', async (t) => {
+  for (const path of ['/repo/long/path/src/App.tsx:12:4', 'src/long/path/to/App.tsx:12:4', '/repo/目录/long/path/App.tsx:12:4', 'https://example.com/long/path/to/page']) {
+    for (const cols of [12, 20]) {
+      const prefix = '文 é '
+      const text = prefix + path
+      const terminal = await writtenTerminal(t, text, cols)
+      const lastRow = terminal.buffer.active.cursorY + 1
+      const lastColumn = terminal.buffer.active.cursorX
+      const opened: string[] = []
+      const provider = createTerminalLinkProvider(terminal, '/repo', (url) => opened.push(url))
+      for (let row = 1; row <= lastRow; row++) {
+        const links = await new Promise<ILink[]>((resolve) => provider.provideLinks(row, (items) => resolve(items ?? [])))
+        assert.equal(links.length, 1)
+        assert.equal(links[0].text, path)
+        assert.deepEqual(links[0].range, { start: { x: 6, y: 1 }, end: { x: lastColumn, y: lastRow } })
+        links[0].activate({} as MouseEvent, links[0].text)
+      }
+      assert.deepEqual(opened, Array(lastRow).fill(normalizeTerminalLink(path) ?? normalizeTerminalFileLink(path, '/repo')))
+    }
+  }
+  const terminal = await writtenTerminal(t, 'open /repo/long/\r\nsrc/App.tsx', 20)
+  const provider = createTerminalLinkProvider(terminal)
+  assert.equal(await new Promise((resolve) => provider.provideLinks(1, resolve)), undefined)
+  const links = await new Promise<ILink[]>((resolve) => provider.provideLinks(2, (items) => resolve(items ?? [])))
+  assert.equal(links[0].text, 'src/App.tsx')
 })
 
 test('terminal link provider returns no links when the buffer line is unavailable', async () => {

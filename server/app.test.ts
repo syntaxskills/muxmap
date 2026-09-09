@@ -420,9 +420,36 @@ test('file preview API opens files inside allowed roots and rejects outside path
     assert.match(html, /<tr id="L2" class="is-selected">/)
     assert.match(html, /const value = 1/)
 
+    const missing = await fetch(`${base}/api/files/open?${new URLSearchParams({ path: 'src/missing.tsx', cwd: root, sessionId: 'sess_missing' })}`, { headers: { cookie, accept: 'text/html' } })
+    assert.equal(missing.status, 404)
+    assert.match(missing.headers.get('content-type') ?? '', /^text\/html/)
+    const errorHtml = await missing.text()
+    assert.match(errorHtml, /<h1>File not found<\/h1>/)
+    assert.match(errorHtml, /<form action="\/api\/files\/open" method="get">/)
+    assert.match(errorHtml, /name="path" value="src\/missing.tsx"/)
+    assert.match(errorHtml, /name="sessionId" value="sess_missing"/)
+    const formContext = new URLSearchParams([...errorHtml.matchAll(/type="hidden" name="([^"]+)" value="([^"]*)"/g)].map((match) => [match[1], match[2]]))
+    assert.equal(formContext.get('cwd'), root)
+    for (const path of ['src/App.tsx', file]) {
+      formContext.set('path', path)
+      const corrected = await fetch(`${base}/api/files/open?${formContext}`, { headers: { cookie, accept: 'text/html' } })
+      assert.equal(corrected.status, 200)
+      assert.match(await corrected.text(), /const value = 1/)
+    }
+
+    const unsafePath = 'src/"><script>alert(1)</script>.tsx'
+    const escaped = await fetch(`${base}/api/files/open?${new URLSearchParams({ path: unsafePath, cwd: root })}`, { headers: { cookie, accept: 'text/html' } })
+    assert.equal(escaped.status, 404)
+    const escapedHtml = await escaped.text()
+    assert.ok(!escapedHtml.includes('<script>alert(1)</script>'))
+    assert.ok(escapedHtml.includes('&quot;&gt;&lt;script&gt;'))
+
     const denied = await fetch(`${base}/api/files/open?path=${encodeURIComponent(join(outside, 'secret.ts'))}`, { headers: { cookie } })
     assert.equal(denied.status, 400)
     assert.deepEqual(await denied.json(), { error: 'File path is outside allowed roots' })
+    const deniedPage = await fetch(`${base}/api/files/open?path=${encodeURIComponent(join(outside, 'secret.ts'))}`, { headers: { cookie, accept: 'text/html' } })
+    assert.equal(deniedPage.status, 400)
+    assert.match(await deniedPage.text(), /File path is outside allowed roots/)
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })
