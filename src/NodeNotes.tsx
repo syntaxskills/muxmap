@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type MouseEvent, type PointerEvent } from 'react'
+import { useState, type FormEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import { Cross2Icon, OpenInNewWindowIcon, Pencil2Icon, PlusIcon, TrashIcon } from '@radix-ui/react-icons'
 import type { NodeNoteEntry } from './model.ts'
 import { nodeNoteDisplayText, nodeNoteProviderLabel, visibleNodeNotes } from './nodeNotes.ts'
@@ -10,9 +10,24 @@ function stop(event: MouseEvent | PointerEvent) {
   event.stopPropagation()
 }
 
+async function checkNoteLink(event: MouseEvent<HTMLAnchorElement>) {
+  if (event.type === 'auxclick' && event.button !== 1) return
+  const details = event.currentTarget.closest('details')
+  if (await checkFileNote(event.currentTarget.getAttribute('href') ?? undefined) === 'File not found') details?.removeAttribute('open')
+}
+
 function ProviderBadge({ note }: { note: NodeNoteEntry }) {
   const status = useFileNoteStatus(note.url)
   return <span className={`node-note-provider is-${note.provider}${status ? ' is-unavailable' : ''}`} title={status} aria-live="polite">{status || nodeNoteProviderLabel(note.provider)}</span>
+}
+
+function CollapsibleFileNote({ note, children }: { note: NodeNoteEntry; children: ReactNode }) {
+  const status = useFileNoteStatus(note.url)
+  if (status !== 'File not found') return children
+  return <details className="node-note-missing">
+    <summary title={nodeNoteDisplayText(note)}>File not found · {nodeNoteDisplayText(note)}</summary>
+    {children}
+  </details>
 }
 
 export function NodeNotesPreview({ notes }: { notes?: readonly NodeNoteEntry[] }) {
@@ -23,9 +38,9 @@ export function NodeNotesPreview({ notes }: { notes?: readonly NodeNoteEntry[] }
       <header><span>Notes & artifacts</span><small>{notes?.length ?? visible.length}</small></header>
       {visible.map((note) => {
         const content = <><ProviderBadge note={note} /><span title={note.body ?? note.url ?? note.label}>{nodeNoteDisplayText(note)}</span>{note.url && <OpenInNewWindowIcon aria-hidden="true" />}</>
-        return note.url
-          ? <a key={note.id} href={note.url} target="_blank" rel="noopener noreferrer" onClick={() => void checkFileNote(note.url)} onAuxClick={(event) => { if (event.button === 1) void checkFileNote(note.url) }}>{content}</a>
-          : <div key={note.id}>{content}</div>
+        return <CollapsibleFileNote key={note.id} note={note}>{note.url
+          ? <a href={note.url} target="_blank" rel="noopener noreferrer" onClick={checkNoteLink} onAuxClick={checkNoteLink}>{content}</a>
+          : <div>{content}</div>}</CollapsibleFileNote>
       })}
     </section>
   )
@@ -88,11 +103,11 @@ export function NodeNotesEditor({ notes, disabled, onAdd, onUpdate, onDelete }: 
             <div><button type="button" onClick={() => setEditingId(null)}>Cancel</button><button className="is-primary" type="submit" disabled={disabled}>Save</button></div>
           </form>
         ) : (
-          <article className={`node-note-item is-${note.provider}`} key={note.id}>
+          <CollapsibleFileNote key={note.id} note={note}><article className={`node-note-item is-${note.provider}`}>
             <ProviderBadge note={note} />
-            <div>{note.url ? <a href={note.url} target="_blank" rel="noopener noreferrer" onClick={() => void checkFileNote(note.url)} onAuxClick={(event) => { if (event.button === 1) void checkFileNote(note.url) }}>{nodeNoteDisplayText(note)}<OpenInNewWindowIcon /></a> : <strong>{nodeNoteDisplayText(note)}</strong>}{note.body && note.label && <p>{note.body}</p>}<small>{note.createdBy.startsWith('terminal:') ? 'Opened from terminal' : note.createdBy === 'human' ? 'Edited by human' : 'Agent update'} · {new Date(note.updatedAt).toLocaleString()}</small></div>
+            <div>{note.url ? <a href={note.url} target="_blank" rel="noopener noreferrer" onClick={checkNoteLink} onAuxClick={checkNoteLink}>{nodeNoteDisplayText(note)}<OpenInNewWindowIcon /></a> : <strong>{nodeNoteDisplayText(note)}</strong>}{note.body && note.label && <p>{note.body}</p>}<small>{note.createdBy.startsWith('terminal:') ? 'Opened from terminal' : note.createdBy === 'human' ? 'Edited by human' : 'Agent update'} · {new Date(note.updatedAt).toLocaleString()}</small></div>
             <div className="node-note-actions"><button type="button" onClick={() => { setSubmitError(''); setEditingId(note.id); setConfirmDeleteId(null) }} title="Edit note" aria-label="Edit note"><Pencil2Icon /></button><button className={confirmDeleteId === note.id ? 'is-confirming' : ''} type="button" onClick={() => { if (confirmDeleteId !== note.id) return setConfirmDeleteId(note.id); void onDelete(note.id).then(() => setConfirmDeleteId(null)).catch(() => undefined) }} title={confirmDeleteId === note.id ? 'Confirm delete' : 'Delete note'} aria-label={confirmDeleteId === note.id ? 'Confirm delete note' : 'Delete note'}>{confirmDeleteId === note.id ? 'Delete?' : <TrashIcon />}</button></div>
-          </article>
+          </article></CollapsibleFileNote>
         ))}
       </div>
     </section>
