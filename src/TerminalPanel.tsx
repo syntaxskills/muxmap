@@ -13,6 +13,7 @@ import { agentStatusText, agentStatusTooltip } from './agentStatus.ts'
 import { visibleAgentForSession } from './graph.ts'
 import { AgentIcon } from './AgentIcon.tsx'
 import { createTerminalLinkProvider } from './terminalLinks.ts'
+import { checkFileNote } from './fileNoteStatus.ts'
 import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachment } from './imageAttachments.ts'
 import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
@@ -106,6 +107,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       { cwd: session.cwd, sessionId: session.id },
       undefined,
       (link) => {
+        void checkFileNote(link.url)
         void api(`/api/nodes/${node.id}/notes`, {
           method: 'POST',
           headers: { 'x-muxmap-updated-by': `terminal:${session.id}` },

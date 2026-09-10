@@ -1029,6 +1029,7 @@ kbd {
 .node-note-provider.is-gitlab { border-color: color-mix(in srgb, #e97835 42%, var(--line)); color: #ed8f55; }
 .node-note-provider.is-lark { border-color: color-mix(in srgb, #45b5eb 42%, var(--line)); color: #62c2ef; }
 .node-note-provider.is-agent { border-color: color-mix(in srgb, #b48bea 42%, var(--line)); color: #c4a3ef; }
+.node-note-provider.is-unavailable { border-color: #c87070; color: #c87070; }
 
 .node-step-summary span {
   display: flex !important;

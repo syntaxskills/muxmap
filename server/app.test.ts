@@ -420,6 +420,15 @@ test('file preview API opens files inside allowed roots and rejects outside path
     assert.match(html, /<tr id="L2" class="is-selected">/)
     assert.match(html, /const value = 1/)
 
+    for (const [path, expected] of [['src/missing.tsx', 404], ['src/App.tsx', 200], [file, 200], [join(outside, 'secret.ts'), 400]] as const) {
+      const checked = await fetch(`${base}/api/files/open?${new URLSearchParams({ path, cwd: root })}`, { method: 'HEAD', headers: { cookie } })
+      assert.equal(checked.status, expected)
+      assert.equal(await checked.text(), '')
+      assert.equal(checked.headers.get('cache-control'), 'no-store')
+    }
+    const unauthorizedCheck = await fetch(`${base}/api/files/open?path=${encodeURIComponent(file)}`, { method: 'HEAD' })
+    assert.equal(unauthorizedCheck.status, 401)
+
     const missing = await fetch(`${base}/api/files/open?${new URLSearchParams({ path: 'src/missing.tsx', cwd: root, sessionId: 'sess_missing' })}`, { headers: { cookie, accept: 'text/html' } })
     assert.equal(missing.status, 404)
     assert.match(missing.headers.get('content-type') ?? '', /^text\/html/)

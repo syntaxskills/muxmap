@@ -543,13 +543,14 @@ export function createMuxMapServer(options: ServerOptions) {
 
       if (url.pathname.startsWith('/api/')) {
         if (cookieValue(request, 'muxmap_token') !== token) return sendJson(response, 401, { error: 'Unauthorized' })
-        if (request.method !== 'GET' && !isAllowedOrigin(request, allowedOrigins)) {
+        if (request.method !== 'GET' && request.method !== 'HEAD' && !isAllowedOrigin(request, allowedOrigins)) {
           return sendJson(response, 403, { error: 'Origin not allowed' })
         }
 
-        if (request.method === 'GET' && url.pathname === '/api/files/open') {
+        if ((request.method === 'GET' || request.method === 'HEAD') && url.pathname === '/api/files/open') {
           const sessionCwd = url.searchParams.get('sessionId') ? sessions.currentWorkingDirectory(url.searchParams.get('sessionId')!) : undefined
           const file = safeFilePath(url.searchParams.get('path'), [sessionCwd, url.searchParams.get('cwd') ?? undefined], options.allowedRoots)
+          if (request.method === 'HEAD') return response.writeHead(200, { 'cache-control': 'no-store' }).end()
           const extension = extname(file.path).toLowerCase()
           const browserMimeType = browserPreviewMimeTypes[extension]
           if (browserMimeType) {
@@ -943,9 +944,10 @@ export function createMuxMapServer(options: ServerOptions) {
       response.end(request.method === 'HEAD' ? undefined : readFileSync(file))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unexpected error'
-      const filePreview = request.method === 'GET' && url.pathname === '/api/files/open'
+      const filePreview = (request.method === 'GET' || request.method === 'HEAD') && url.pathname === '/api/files/open'
       const missingFile = filePreview && error instanceof Error && 'code' in error && ['ENOENT', 'ENOTDIR'].includes(String(error.code))
       const status = error instanceof StoreValidationError ? error.statusCode : missingFile || /not found/i.test(message) ? 404 : 400
+      if (filePreview && request.method === 'HEAD') return response.writeHead(status, { 'cache-control': 'no-store' }).end()
       if (filePreview && request.headers.accept?.includes('text/html')) {
         response.writeHead(status, { 'content-type': 'text/html; charset=utf-8' })
         return response.end(fileErrorHtml(url, message, status === 404, options.allowedRoots[0] ?? ''))
