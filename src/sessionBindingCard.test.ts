@@ -15,7 +15,7 @@ test('session binding rows are selectable and copyable in details and terminal p
   assert.match(component, /className="session-binding-copy"/)
   assert.match(app, /<SessionBindingCard session=\{session\} \/>/)
   assert.match(terminal, /const visibleAgent = visibleAgentForSession\(session\)/)
-  assert.match(terminal, /<SessionBindingCard session=\{session\} statusLabel=\{visibleAgent \? agentStatusText\(visibleAgent\) : status\} className="terminal-agent-session is-wide" \/>/)
+  assert.match(terminal, /<SessionBindingCard session=\{session\} statusLabel=\{statusLabel\} className="terminal-agent-session is-wide" \/>/)
   assert.match(css, /\.session-binding-value\s*\{[^}]*user-select:\s*text/s)
   assert.match(css, /\.session-binding-copy\s*\{[^}]*cursor:\s*pointer/s)
 })

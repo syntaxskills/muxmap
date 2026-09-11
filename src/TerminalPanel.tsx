@@ -48,6 +48,7 @@ type Props = {
   onStop(): void
   onToggleFloating(): void
   onStatus(id: string, status: TerminalStatus): void
+  onError(message: string): void
   onUpdate(changes: Partial<WorkNode>): void
 }
 
@@ -56,10 +57,12 @@ const nodeTypes: Array<[NodeType, string]> = [
   ['note', 'Note'], ['todo', 'Todo'], ['terminal', 'Terminal task'],
 ]
 
-export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, scrollback, wheelMode, precisionScrollMultiplier, discreteScrollMultiplier, dedupeRepeatedInput, floating, disabled, onClose, onStop, onToggleFloating, onStatus, onUpdate }: Props) {
+export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, scrollback, wheelMode, precisionScrollMultiplier, discreteScrollMultiplier, dedupeRepeatedInput, floating, disabled, onClose, onStop, onToggleFloating, onStatus, onError, onUpdate }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const drag = useRef<{ pointerId: number; origin: { x: number; y: number }; start: { x: number; y: number } } | null>(null)
   const [status, setStatus] = useState<TerminalStatus>(session.status)
+  const [connection, setConnection] = useState<'connecting' | 'ready' | 'closed'>('connecting')
+  const [connectionError, setConnectionError] = useState('')
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [isFullscreen, setFullscreen] = useState(false)
   const [showNodeEditor, setShowNodeEditor] = useState(false)
@@ -89,8 +92,11 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
 
   useEffect(() => {
     if (!container.current) return
+    setConnection('connecting')
+    setConnectionError('')
     const terminal = new Terminal({
       cursorBlink,
+      disableStdin: true,
       fontFamily: 'SFMono-Regular, Consolas, Liberation Mono, monospace',
       fontSize,
       scrollback: terminalScrollbackLimit(scrollback),
@@ -142,14 +148,14 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     let scrollTimer: number | undefined
     const flushScroll = () => {
       scrollTimer = undefined
-      if (pendingScroll && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'scroll', lines: pendingScroll }))
+      if (pendingScroll && lifecycle.canInput() && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'scroll', lines: pendingScroll }))
       pendingScroll = 0
     }
     const flushSgrWheel = () => {
       sgrWheelFrame = undefined
       const data = terminalSgrWheelReports(pendingSgrWheelLines)
       pendingSgrWheelLines = 0
-      if (data && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))
+      if (data && lifecycle.canInput() && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))
     }
     const scroll = (event: WheelEvent) => {
       event.preventDefault()
@@ -180,10 +186,12 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       }
       const data = terminalShortcutData(event)
       if (!data) return true
-      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))
+      if (lifecycle.canInput() && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))
       return false
     })
     const lifecycle = createTerminalLifecycle((nextStatus) => {
+      setConnection('closed')
+      terminal.options.disableStdin = true
       setStatus(nextStatus)
       onStatus(session.id, nextStatus)
     })
@@ -202,12 +210,11 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       const now = Date.now()
       if (shouldDropDuplicateTerminalInput(data, recentInput, now, dedupeRepeatedInput)) return
       recentInput = { data, at: now }
-      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))
+      if (lifecycle.canInput() && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))
     })
     socket.addEventListener('open', () => {
       lifecycle.open()
       sendResize()
-      terminal.focus()
     })
     socket.addEventListener('message', (event) => {
       if (lifecycle.disposed()) return
@@ -219,12 +226,33 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       if (message.type === 'status' && message.status) {
         setStatus(message.status)
         onStatus(session.id, message.status)
+        if (message.status === 'running') {
+          terminal.write('', () => {
+            if (!lifecycle.ready()) return
+            setConnection('ready')
+            terminal.options.disableStdin = false
+            terminal.focus()
+          })
+        } else {
+          lifecycle.close()
+        }
       }
-      if (message.type === 'error' && message.message) terminal.writeln(`\r\nMuxMap: ${message.message}`)
+      if (message.type === 'error' && message.message) {
+        lifecycle.fail()
+        setConnection('closed')
+        setConnectionError(message.message)
+        onError(message.message)
+        terminal.options.disableStdin = true
+        terminal.writeln(`\r\nMuxMap: ${message.message}`)
+      }
     })
     socket.addEventListener('close', () => lifecycle.close())
     socket.addEventListener('error', () => {
       if (!lifecycle.fail()) return
+      setConnection('closed')
+      setConnectionError('Unable to connect to this terminal. Close it and try again.')
+      onError('Unable to connect to this terminal. Try opening it again.')
+      terminal.options.disableStdin = true
       terminal.writeln('\r\nMuxMap: session unavailable. Restart the terminal.')
     })
 
@@ -243,7 +271,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       webglRenderer?.dispose()
       terminal.dispose()
     }
-  }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, node.id, onStatus, precisionScrollMultiplier, scrollback, session.cwd, session.id, wheelMode])
+  }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, node.id, onError, onStatus, precisionScrollMultiplier, scrollback, session.cwd, session.id, wheelMode])
 
   function beginDrag(event: ReactPointerEvent<HTMLDivElement>) {
     if (!floating || isFullscreen || event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea')) return
@@ -297,8 +325,8 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
 
   async function submitCommandInput() {
     const value = commandInput.trim()
-    if (!value) return
     const socket = socketRef.current
+    if (!value || disabled || connection !== 'ready' || socket?.readyState !== WebSocket.OPEN) return
     const [text, enter] = commandInputSubmissionWrites(value)
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: 'input', data: text }))
@@ -337,13 +365,15 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     opacity: opacity / 100,
   } as CSSProperties
   const visibleAgent = visibleAgentForSession(session)
+  const inputDisabled = disabled || connection !== 'ready'
+  const statusLabel = connection === 'connecting' ? 'Connecting…' : connection === 'closed' ? 'Disconnected' : visibleAgent ? agentStatusText(visibleAgent) : status
 
   return (
-    <section className={`terminal terminal-window ${floating ? 'is-floating' : 'is-docked'} ${isFullscreen ? 'is-fullscreen' : ''}`} role="dialog" aria-label={`Terminal for ${node.title}`} style={style}>
+    <section className={`terminal terminal-window ${floating ? 'is-floating' : 'is-docked'} ${isFullscreen ? 'is-fullscreen' : ''}`} role="dialog" aria-label={`Terminal for ${node.title}`} aria-busy={connection === 'connecting'} style={style}>
       <div className={`terminal-header ${showNodeEditor ? 'has-node-editor' : ''} ${stopConfirming ? 'has-stop-confirm' : ''}`} onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
         <button className="terminal-title" type="button" onClick={() => setShowNodeEditor((value) => !value)} aria-expanded={showNodeEditor} title={[node.type, node.project, node.jiraKey, node.repoPath, node.note].filter(Boolean).join('\n')}><span className="terminal-node-link"><Link2Icon /> linked</span><strong>{node.title}</strong><span className="terminal-session-name">{session.runtimeName}</span><span className="terminal-details-hint">Details <ChevronDownIcon aria-hidden="true" /></span></button>
         <div className="terminal-actions">
-          <span className={`runtime-state ${visibleAgent ? `is-${visibleAgent.state}` : `is-${status}`}`} title={visibleAgent ? `${agentStatusTooltip(visibleAgent)} · detected from this ${session.backend} session` : `Terminal ${status}`}>{visibleAgent && <AgentIcon kind={visibleAgent.kind} />}{visibleAgent ? agentStatusText(visibleAgent) : status}</span>
+          <span className={`runtime-state ${connection !== 'ready' ? `is-${connection}` : visibleAgent ? `is-${visibleAgent.state}` : `is-${status}`}`} title={connection === 'ready' && visibleAgent ? `${agentStatusTooltip(visibleAgent)} · detected from this ${session.backend} session` : statusLabel}>{connection === 'ready' && visibleAgent && <AgentIcon kind={visibleAgent.kind} />}{statusLabel}</span>
           <span className="terminal-action-divider" aria-hidden="true" />
           <button className="terminal-icon-button is-danger" type="button" onClick={requestStop} disabled={disabled} aria-expanded={stopConfirming} aria-label="Stop terminal session" title="Stop terminal session"><StopIcon /></button>
           <button className="terminal-icon-button terminal-float-action" type="button" onClick={onToggleFloating} aria-label={floating ? 'Dock terminal' : 'Float terminal'} title={floating ? 'Dock terminal' : 'Float terminal'}>{floating ? <DrawingPinIcon /> : <OpenInNewWindowIcon />}</button>
@@ -356,7 +386,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
           <div><button type="button" onClick={() => setStopConfirming(false)} autoFocus>Cancel</button><button className="is-danger" type="button" onClick={requestStop} disabled={disabled}>Stop session</button></div>
         </div>}
         {showNodeEditor && <div className="terminal-node-editor">
-          <SessionBindingCard session={session} statusLabel={visibleAgent ? agentStatusText(visibleAgent) : status} className="terminal-agent-session is-wide" />
+          <SessionBindingCard session={session} statusLabel={statusLabel} className="terminal-agent-session is-wide" />
           <div className="is-wide"><AgentEventList events={session.agentEvents} sessionId={session.id} /></div>
           <label className="is-wide">Title<input defaultValue={node.title} onBlur={(event) => { if (event.target.value !== node.title) onUpdate({ title: event.target.value }) }} /></label>
           <label>Type<select value={node.type} onChange={(event) => onUpdate({ type: event.target.value as NodeType })}>{nodeTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -368,18 +398,26 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
           <NoteImagePreview note={node.note} />
         </div>}
       </div>
-      <div className="terminal-screen"><div className="terminal-mount" ref={container} /></div>
+      <div className="terminal-screen">
+        <div className="terminal-mount" ref={container} />
+        {connection !== 'ready' && <div className="terminal-connection-status" role={connection === 'closed' ? 'alert' : 'status'}>
+          {connection === 'connecting' && <progress aria-label="Connecting to terminal" />}
+          <strong>{connection === 'connecting' ? 'Connecting to terminal…' : 'Terminal disconnected'}</strong>
+          <span>{connection === 'connecting' ? 'Waiting for the terminal to be ready. Input will be enabled automatically.' : connectionError || 'Close this panel and reopen the terminal to reconnect.'}</span>
+        </div>}
+      </div>
       <form className={`terminal-command-box ${commandEnterArmed ? 'is-enter-armed' : ''}`} onSubmit={(event) => { event.preventDefault(); void submitCommandInput() }}>
         <label>
           <textarea
             value={commandInput}
+            disabled={inputDisabled}
             rows={3}
             placeholder="Type or paste… double Enter to send"
             title="Double Enter sends; Shift+Enter adds a line"
             onChange={(event) => { setCommandInput(event.target.value); setHistoryIndex(-1); updateCommandEnterArm(null) }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
-                const action = commandInputEnterAction({ value: commandInput, disabled, shiftKey: event.shiftKey, lastEnterAt: lastCommandEnterAt.current, now: Date.now() })
+                const action = commandInputEnterAction({ value: commandInput, disabled: inputDisabled, shiftKey: event.shiftKey, lastEnterAt: lastCommandEnterAt.current, now: Date.now() })
                 updateCommandEnterArm(action.nextLastEnterAt)
                 if (action.preventDefault) event.preventDefault()
                 if (action.submit) void submitCommandInput()
@@ -405,7 +443,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
         <div className="terminal-command-actions">
           {inputHistory.length > 0 && <button className="is-history" type="button" onClick={() => navigateCommandHistory(1)} title="Previous input">↑</button>}
           {historyIndex >= 0 && <button className="is-history" type="button" onClick={() => navigateCommandHistory(-1)} title="Next input">↓</button>}
-          <button className="is-send" type="submit" disabled={!commandInput.trim() || disabled}>Send</button>
+          <button className="is-send" type="submit" disabled={!commandInput.trim() || inputDisabled}>Send</button>
         </div>
       </form>
     </section>

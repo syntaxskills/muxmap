@@ -3603,8 +3603,40 @@ kbd {
 
 .terminal-loading {
   align-content: start;
+  grid-template-rows: auto auto auto;
   gap: 10px;
   padding: 18px;
+}
+
+.terminal-loading strong {
+  color: #d8ddd7;
+  font: 13px var(--mono);
+}
+
+.terminal-request-status {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.terminal-request-status progress,
+.terminal-connection-status progress {
+  width: min(260px, 100%);
+  height: 4px;
+  accent-color: var(--accent);
+}
+
+.terminal-connection-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+  background: #101311;
+  color: #d8ddd7;
+  text-align: center;
+  font: 12px/1.6 var(--mono);
 }
 
 .terminal-loading span {
@@ -3614,7 +3646,7 @@ kbd {
   animation: loading-pulse 900ms ease-in-out infinite alternate;
 }
 
-.terminal-loading span:first-child {
+.terminal-loading span:first-of-type {
   width: min(260px, 55%);
 }
 
@@ -4085,6 +4117,7 @@ kbd {
 }
 
 .terminal-screen {
+  position: relative;
   min-height: 0;
   padding: 8px;
   overflow: hidden;

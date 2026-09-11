@@ -213,6 +213,7 @@ function App() {
   const [bulkRecoveryToast, setBulkRecoveryToast] = useState<{ title: string; body: string } | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [terminalRequest, setTerminalRequest] = useState<{ nodeId: string; title: string; label: string } | null>(null)
   const workspaceRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
@@ -1110,40 +1111,26 @@ function App() {
     if (splitDragRef.current === event.pointerId) splitDragRef.current = null
   }
 
-  async function attachTerminal(startFresh = false) {
-    if (!selected) return
-    setBusy(true)
-    setError('')
-    try {
-      const response = await api<{ session: TerminalSession }>(`/api/nodes/${selected.id}/session${startFresh ? '/new' : ''}`, {
-        method: 'POST',
-        body: JSON.stringify({ cwd: selected.repoPath, backend: settings['terminal.backend'] }),
-      })
-      await loadWorkspace()
-      openTerminal(response.session.id)
-    } catch (attachError) {
-      setError(attachError instanceof Error ? attachError.message : 'Unable to attach terminal')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function resumeTerminalForNode(nodeId: string) {
+  async function attachTerminal(startFresh = false, nodeId = selected?.id) {
     const target = graph?.nodes.find((node) => node.id === nodeId)
-    if (!target) return
+    if (!target || terminalRequest) return
     setBusy(true)
     setError('')
+    const suspended = graph?.sessions.some((item) => item.nodeId === target.id && item.status === 'suspended')
+    setTerminalRequest({ nodeId: target.id, title: target.title, label: startFresh ? 'Starting terminal…' : suspended ? 'Resuming terminal…' : 'Attaching terminal…' })
     try {
-      const response = await api<{ session: TerminalSession }>(`/api/nodes/${target.id}/session`, {
+      const response = await api<{ session: TerminalSession }>(`/api/nodes/${target.id}/session${startFresh ? '/new' : ''}`, {
         method: 'POST',
         body: JSON.stringify({ cwd: target.repoPath, backend: settings['terminal.backend'] }),
       })
+      setTerminalRequest({ nodeId: target.id, title: target.title, label: 'Loading terminal…' })
       await loadWorkspace()
       setSelectedId(target.id)
       openTerminal(response.session.id)
     } catch (attachError) {
-      setError(attachError instanceof Error ? attachError.message : 'Unable to resume terminal')
+      setError(attachError instanceof Error ? attachError.message : 'Unable to attach terminal')
     } finally {
+      setTerminalRequest(null)
       setBusy(false)
     }
   }
@@ -1180,6 +1167,8 @@ function App() {
   }
 
   async function recoverAgentSession(sessionId: string) {
+    const target = graph?.nodes.find((node) => node.id === graph.sessions.find((item) => item.id === sessionId)?.nodeId)
+    if (target) setTerminalRequest({ nodeId: target.id, title: target.title, label: 'Resuming agent…' })
     setBusy(true)
     setError('')
     try {
@@ -1189,6 +1178,7 @@ function App() {
     } catch (recoverError) {
       setError(recoverError instanceof Error ? recoverError.message : 'Unable to recover agent session')
     } finally {
+      setTerminalRequest(null)
       setBusy(false)
     }
   }
@@ -1391,7 +1381,7 @@ function App() {
         <div className="terminal-command-box is-demo"><label><textarea value="Demo mode uses synthetic data for screenshots." readOnly rows={3} /></label><div className="terminal-command-actions"><button className="is-send" type="button" disabled>Send</button></div></div>
       </section>
     ) : nodeHasLiveSession(activeTerminal) ? (
-      <Suspense fallback={<section className={`terminal terminal-window terminal-loading ${terminalFloating ? 'is-floating' : 'is-docked'}`} aria-label="Loading terminal"><span /><span /></section>}>
+      <Suspense fallback={<section className={`terminal terminal-window terminal-loading ${terminalFloating ? 'is-floating' : 'is-docked'}`} role="status" aria-busy="true" aria-label="Loading terminal"><strong>Loading terminal…</strong><span /><span /></section>}>
         <TerminalPanel
           key={activeTerminal.id}
           session={activeTerminal}
@@ -1407,6 +1397,7 @@ function App() {
           floating={terminalFloating}
           onToggleFloating={() => setSurface(floatTerminal)}
           onStatus={updateSessionStatus}
+          onError={setError}
           onStop={() => void stopSession(activeTerminal.id)}
           onClose={() => setSurface(closeTerminal)}
           onUpdate={(changes) => void saveNode(activeTerminalNode.id, changes)}
@@ -1434,7 +1425,7 @@ function App() {
             <span className="terminal-suspended-icon">{activeTerminal.agent ? <AgentIcon kind={activeTerminal.agent.kind} /> : <PauseIcon />}</span>
             <h3>Terminal suspended</h3>
             <p>MuxMap released this {activeTerminal.backend} runtime to save memory. Resume will recreate the terminal with the same session binding.</p>
-            <button className="attach-button" type="button" onClick={() => void resumeTerminalForNode(activeTerminalNode.id)} disabled={busy}>Resume terminal</button>
+            <button className="attach-button" type="button" onClick={() => void attachTerminal(false, activeTerminalNode.id)} disabled={busy}>Resume terminal</button>
           </div>
         </div>
       </section>
@@ -1482,6 +1473,8 @@ function App() {
           ))}
         </div>
       )}
+
+      {terminalRequest && <div className="bulk-recovery-toast terminal-request-status" role="status"><div><strong>{terminalRequest.label}</strong><span>{terminalRequest.title}</span><progress aria-label={terminalRequest.label} /></div></div>}
 
       {bulkRecoveryToast && (
         <div className="bulk-recovery-toast" role="status">
@@ -1786,12 +1779,12 @@ function App() {
               <div className="recover-codex-card">
                 <div className="recover-codex-actions">
                   <button className="attach-button recover-codex-button" type="button" onClick={() => void recoverAgentSession(session.id)} disabled={busy}>Resume {recoverableAgentLabel(session)}</button>
-                  <button className="attach-button" type="button" onClick={() => void attachTerminal(session.status !== 'suspended')} disabled={busy}>{session.status === 'suspended' ? 'Resume terminal' : 'Start new terminal'}</button>
+                  <button className="attach-button" type="button" onClick={() => void attachTerminal(session.status !== 'suspended')} disabled={busy}>{terminalRequest?.nodeId === selected.id ? terminalRequest.label : session.status === 'suspended' ? 'Resume terminal' : 'Start new terminal'}</button>
                 </div>
                 <small>{agentSessionSummary(session)} · {session.agent?.externalCwd ?? session.cwd}</small>
               </div>
             ) : (
-              <button className="attach-button" type="button" onClick={() => void attachTerminal(Boolean(session && session.status !== 'suspended'))} disabled={busy}>{session?.status === 'suspended' ? 'Resume terminal' : session ? 'Start new terminal' : 'Attach terminal'}</button>
+              <button className="attach-button" type="button" onClick={() => void attachTerminal(Boolean(session && session.status !== 'suspended'))} disabled={busy}>{terminalRequest?.nodeId === selected.id ? terminalRequest.label : session?.status === 'suspended' ? 'Resume terminal' : session ? 'Start new terminal' : 'Attach terminal'}</button>
             )}
             <button className="add-child-button" type="button" onClick={() => void addChild(selected)}>+ Add child node</button>
           </div>
@@ -1853,7 +1846,7 @@ function App() {
                   <article className={`session-row ${terminalSessionId === item.id || selected?.id === item.nodeId ? 'is-current' : ''}`} key={item.id}>
                     <div><strong>{node?.title ?? item.name}</strong><code>{item.runtimeName}</code><small className={statusAgent ? `is-${item.status === 'suspended' ? 'suspended-agent' : statusAgent.state}` : undefined}>{statusAgent && <AgentIcon kind={statusAgent.kind} />}{statusText}</small></div>
                     <div className="session-row-actions">
-                      {isArchived ? <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))}>Archived</button> : nodeHasLiveSession(item) ? <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button> : canRecoverAgentSession(item) ? <button type="button" onClick={() => { setSelectedId(item.nodeId); void recoverAgentSession(item.id) }} disabled={busy}>Resume {recoverableAgentLabel(item)}</button> : item.status === 'suspended' ? <button type="button" onClick={() => void resumeTerminalForNode(item.nodeId)} disabled={busy}>Resume terminal</button> : null}
+                      {isArchived ? <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))}>Archived</button> : nodeHasLiveSession(item) ? <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button> : canRecoverAgentSession(item) ? <button type="button" onClick={() => { setSelectedId(item.nodeId); void recoverAgentSession(item.id) }} disabled={busy}>Resume {recoverableAgentLabel(item)}</button> : item.status === 'suspended' ? <button type="button" onClick={() => void attachTerminal(false, item.nodeId)} disabled={busy}>Resume terminal</button> : null}
                       {nodeHasLiveSession(item) && <button type="button" onClick={() => void suspendSession(item.id)} disabled={busy}>Suspend</button>}
                       {nodeHasLiveSession(item) && (confirmStopSession === `${item.backend}:${item.runtimeName}` ? (
                         <><button className="danger-button" type="button" onClick={() => void stopSession(item.id)} disabled={busy}>Confirm stop</button><button type="button" onClick={() => setConfirmStopSession(null)}>Cancel</button></>
