@@ -104,7 +104,7 @@ export const demoWorkspaceGraph: WorkspaceGraph = {
       project: 'Product',
       jiraKey: 'DEV-1760',
       repoPath: '/Users/example/dev/product-platform/test/e2e/login-regression/harness',
-      note: 'Completed-but-unread state should show the completed edge pulse and a jumping agent icon.',
+      note: 'Completed work shows two outward ripples, then a green border and Done badge until opened.',
       sortOrder: 2,
     }),
 

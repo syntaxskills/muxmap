@@ -1637,6 +1637,7 @@ function App() {
                       </button>
                       {hasOpenTodo && <span className="node-todo-marker" aria-label="Todo open" title="Todo" />}
                       {channelNodeIds.has(node.id) && <span className="node-channel-marker" aria-label="Agent channel linked" title="Agent channel linked"><Link2Icon /></span>}
+                      {agentState === 'completed' && <span className="agent-completed-marker" role="img" aria-label={`Completed, unread: ${node.title}`} title="Completed · open terminal to mark as read">✓ Done</span>}
                       {agentState === 'needs_input' && <span className="agent-needs-input-marker" role="img" aria-label={`Agent needs input for ${node.title}`} title="Agent needs input">?</span>}
                       {expanded && <NodeNotesPreview notes={node.notes} />}
                       <button className="node-add-action" type="button" onClick={() => void addChild(node)} aria-label={`Add child to ${node.title}`}>+</button>
