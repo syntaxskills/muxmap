@@ -484,7 +484,7 @@ test('file preview API opens files inside allowed roots and rejects outside path
 
 test('file preview API renders markdown and html with MuxMap actions', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-rendered-files-')))
-  writeFileSync(join(root, 'README.md'), '# Title\n\n[Local](http://localhost:4782)\n\n```mermaid\ngraph TD\n  A --> B\n```\n\n<script>alert(1)</script>\n')
+  writeFileSync(join(root, 'README.md'), '# Title\n\n[Local](http://localhost:4782)\n\n| File | Status |\n| --- | ---: |\n| README.md | Ready |\n\n```mermaid\ngraph TD\n  A --> B\n```\n\n<script>alert(1)</script>\n')
   writeFileSync(join(root, 'page.html'), '<!doctype html><h1>Preview me</h1>')
   const server = createMuxMapServer({
     databasePath: ':memory:',
@@ -503,6 +503,9 @@ test('file preview API renders markdown and html with MuxMap actions', async () 
     assert.equal(markdown.status, 200)
     const markdownHtml = await markdown.text()
     assert.match(markdownHtml, /<main class="markdown-body"><h1>Title<\/h1>/)
+    assert.match(markdownHtml, /<div class="markdown-table-scroll" role="region" aria-label="Scrollable table" tabindex="0"><table>/)
+    assert.match(markdownHtml, /<td style="text-align:right">Ready<\/td>/)
+    assert.match(markdownHtml, /<\/table>\s*<\/div>/)
     assert.match(markdownHtml, /Open in Zed/)
     assert.match(markdownHtml, /Open in VS Code/)
     assert.match(markdownHtml, /Copy content/)
