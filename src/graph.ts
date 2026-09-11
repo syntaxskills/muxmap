@@ -5,6 +5,21 @@ import { NODE_WIDTH } from './nodeDimensions.ts'
 
 export type ReorderPosition = 'before' | 'after'
 
+export function canReparentNode(nodes: WorkNode[], movedId: string, parentId: string) {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const moved = byId.get(movedId)
+  const parent = byId.get(parentId)
+  if (!moved?.parentId || !parent || moved.parentId === parentId || moved.workspaceId !== parent.workspaceId) return false
+  const archived = effectiveArchivedNodeIds(nodes)
+  if (archived.has(movedId) || archived.has(parentId)) return false
+  let current: WorkNode | undefined = parent
+  while (current) {
+    if (current.id === movedId) return false
+    current = current.parentId ? byId.get(current.parentId) : undefined
+  }
+  return true
+}
+
 export type ArchivedNodeEntry = {
   node: WorkNode
   depth: number

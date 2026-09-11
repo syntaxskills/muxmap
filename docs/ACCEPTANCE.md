@@ -18,7 +18,7 @@
 - [x] Hover expansion and layout reflow use reduced-motion-aware transitions
 - [x] Expanded node click target opens its linked terminal from the full node surface
 - [x] Blank-canvas click collapses the currently pinned node
-- [x] Dragging reorders siblings without allowing arbitrary free placement
+- [x] Dragging over a node previews and changes the branch's parent; sibling top/bottom edges reorder
 - [x] Search by title, project, or Jira key
 - [x] Collapse and expand branches
 - [x] Keyboard shortcuts for search, creation, zoom, and fit

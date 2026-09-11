@@ -465,6 +465,29 @@ kbd {
   user-select: none;
 }
 
+.map-node.drop-inside .node-select {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-soft);
+}
+
+.map-node.node-drop-preview {
+  opacity: .5;
+  pointer-events: none;
+  z-index: 3;
+  transition: none;
+}
+
+.node-drop-preview .node-select {
+  border: 1px dashed var(--accent);
+}
+
+.edges path.node-drop-edge {
+  stroke: var(--accent);
+  stroke-dasharray: 5 4;
+  opacity: .5;
+  pointer-events: none;
+}
+
 .map-node.is-activity-aging:not(.is-selected):not(.is-terminal-active):not(:hover):not(:focus-within) {
   opacity: .72;
   filter: saturate(.72) contrast(.96);

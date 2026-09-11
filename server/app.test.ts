@@ -192,6 +192,22 @@ test('secured workspace and node APIs return persisted graph data', async () => 
     const reorderedNodes = await reordered.json() as { nodes: Array<{ id: string }> }
     assert.deepEqual(reorderedNodes.nodes.filter((node) => node.id === createdNode.id || node.id === secondNode.id).map((node) => node.id), [secondNode.id, createdNode.id])
 
+    const reparented = await fetch(`${base}/api/nodes/${secondNode.id}/reparent`, {
+      method: 'POST',
+      headers: { cookie, origin: base, 'content-type': 'application/json' },
+      body: JSON.stringify({ parentId: createdNode.id }),
+    })
+    assert.equal(reparented.status, 200)
+    assert.equal((await reparented.json() as { parentId: string }).parentId, createdNode.id)
+    for (const parentId of [secondNode.id, null, 'missing']) {
+      const rejected: Response = await fetch(`${base}/api/nodes/${createdNode.id}/reparent`, {
+        method: 'POST',
+        headers: { cookie, origin: base, 'content-type': 'application/json' },
+        body: JSON.stringify({ parentId }),
+      })
+      assert.equal(rejected.status, 400)
+    }
+
     const workspace = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } })
     const graph = await workspace.json() as { nodes: Array<{ id: string; title: string; type: string; doneAt?: string; steps?: Array<{ key: string; ref?: string }>; notes?: Array<{ id: string }> }>; runtime: { platform: string; terminalBackends: string[] } }
     assert.equal(graph.nodes.some((node) => node.id === createdNode.id), true)

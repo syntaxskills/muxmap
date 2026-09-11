@@ -496,6 +496,37 @@ test('sibling order can change without changing hierarchy', () => {
   store.close()
 })
 
+test('reparenting persists the whole branch and rejects cycles, roots, and archived destinations', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'muxmap-reparent-'))
+  const path = join(directory, 'muxmap.db')
+  const store = createStore(path)
+  try {
+    const branch = store.createNode('default', { parentId: 'workspace', title: 'Branch', type: 'note', repoPath: '/original' })
+    const child = store.createNode('default', { parentId: branch.id, title: 'Child', type: 'note' })
+    const target = store.createNode('default', { parentId: 'workspace', title: 'Target', type: 'note' })
+    const sibling = store.createNode('default', { parentId: target.id, title: 'Existing child', type: 'note' })
+    store.createNodeNote(branch.id, { kind: 'text', body: 'Keep this note' })
+    for (const [id, parentId] of [[branch.id, branch.id], [branch.id, child.id], ['workspace', target.id], [branch.id, 'missing']]) {
+      assert.throws(() => store.reparentNode(id, parentId), /Invalid parent/)
+    }
+    const moved = store.reparentNode(branch.id, target.id)
+    assert.equal(moved.parentId, target.id)
+    assert.ok(moved.sortOrder > sibling.sortOrder)
+    assert.equal(moved.repoPath, '/original')
+    assert.equal(store.getNode(child.id)?.parentId, branch.id)
+    assert.equal(store.listNodeNotes(branch.id)[0].body, 'Keep this note')
+    store.archiveNode(target.id)
+    assert.throws(() => store.reparentNode(sibling.id, 'workspace'), /Invalid parent/)
+    const other = store.createNode('default', { parentId: 'workspace', title: 'Other', type: 'note' })
+    assert.throws(() => store.reparentNode(other.id, branch.id), /Invalid parent/)
+    const reopened = createStore(path)
+    try { assert.equal(reopened.getNode(branch.id)?.parentId, target.id) } finally { reopened.close() }
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('deleting a node removes its branch records but never the workspace root', () => {
   const store = createStore(':memory:')
   const parent = store.createNode('default', { parentId: 'workspace', title: 'Branch', type: 'note' })

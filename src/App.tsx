@@ -22,7 +22,7 @@ import { readViewState, writeViewState } from './viewState.ts'
 import { agentStatusText, agentStatusTooltip } from './agentStatus.ts'
 import { canAcknowledgeAgentOnOpen } from './agentStaleness.ts'
 import { IN_PAGE_NOTIFICATION_LIFETIME_MS, mergeAgentNotifications, routeAgentNotifications, scanAgentNotifications, type AgentNotification } from './agentNotifications.ts'
-import { dragIntent, dropPositionAt, pointerReleaseIntent } from './nodeReorderInteraction.ts'
+import { dragIntent, nodeDropTarget, pointerReleaseIntent, type NodeDropTarget } from './nodeReorderInteraction.ts'
 import { clampMenuPosition, contextMenuConfirmationText, duplicateNodeInput, type ContextMenuConfirmation } from './nodeContextMenu.ts'
 import { AgentIcon } from './AgentIcon.tsx'
 import { SettingsPanel } from './SettingsPanel.tsx'
@@ -189,7 +189,7 @@ function App() {
   const [contextMenu, setContextMenu] = useState<{ nodeId: string; x: number; y: number; confirm?: ContextMenuConfirmation } | null>(null)
   const [pendingChannelNodeId, setPendingChannelNodeId] = useState<string | null>(null)
   const [draggedId, setDraggedId] = useState<string | null>(null)
-  const [dropTarget, setDropTarget] = useState<{ id: string; position: ReorderPosition } | null>(null)
+  const [dropTarget, setDropTarget] = useState<NodeDropTarget | null>(null)
   const [surface, setSurface] = useState<WorkspaceSurface>(() => ({
     rightPanel: initialView.terminalSessionId && !initialView.terminalFloating ? null : 'details',
     terminalSessionId: initialView.terminalSessionId,
@@ -221,8 +221,8 @@ function App() {
   const centeredOnce = useRef(false)
   const dragRef = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null)
   const nodeDragRef = useRef<string | null>(null)
-  const nodePointerRef = useRef<{ pointerId: number; nodeId: string; parentId: string; x: number; y: number; dragging: boolean } | null>(null)
-  const nodeDropRef = useRef<{ id: string; position: ReorderPosition } | null>(null)
+  const nodePointerRef = useRef<{ pointerId: number; nodeId: string; x: number; y: number; dragging: boolean } | null>(null)
+  const nodeDropRef = useRef<NodeDropTarget | null>(null)
   const suppressNodeClick = useRef(false)
   const notifiedAgentEvents = useRef(new Map<string, string>())
   const notificationBaselineReady = useRef(false)
@@ -523,6 +523,26 @@ function App() {
     .join('|')
   const activityNow = Date.now()
   const nodeWidth = useCallback((id: string) => nodeWidths.get(id) ?? NODE_WIDTH, [nodeWidths])
+  const dropPreview = useMemo(() => {
+    if (dropTarget?.position !== 'inside') return null
+    const parent = nodes.find((node) => node.id === dropTarget.id)
+    const moved = nodes.find((node) => node.id === draggedId)
+    const from = positions.get(dropTarget.id)
+    if (!parent || !moved || !from) return null
+    const x1 = from.x + nodeWidth(parent.id) + 48
+    const y1 = from.y + (nodeHeights.get(parent.id) ?? NODE_HEIGHT) / 2 + 48
+    const x = from.x + Math.max(settings['mindmap.columnGap'], nodeWidth(parent.id)) + 48
+    let y = y1 - NODE_HEIGHT / 2
+    const occupied = nodes.map((node) => ({ node, point: positions.get(node.id) }))
+      .filter(({ node, point }) => point && point.x + 48 < x + NODE_WIDTH && point.x + nodeWidth(node.id) + 48 > x)
+      .sort((a, b) => a.point!.y - b.point!.y)
+    for (const { node, point } of occupied) {
+      const bottom = point!.y + 48 + (nodeHeights.get(node.id) ?? NODE_HEIGHT)
+      if (y < bottom + settings['mindmap.rowGap'] && y + NODE_HEIGHT > point!.y + 48 - settings['mindmap.rowGap']) y = bottom + settings['mindmap.rowGap']
+    }
+    const bend = (x1 + x) / 2
+    return { moved, parent, x, y, path: `M ${x1} ${y1} C ${bend} ${y1}, ${bend} ${y + NODE_HEIGHT / 2}, ${x} ${y + NODE_HEIGHT / 2}` }
+  }, [draggedId, dropTarget, nodeHeights, nodeWidth, nodes, positions, settings])
   const width = Math.max(0, ...nodes.map((node) => (positions.get(node.id)?.x ?? 0) + nodeWidth(node.id))) + 96
   const height = Math.max(0, ...nodes.map((node) => (positions.get(node.id)?.y ?? 0) + (nodeHeights.get(node.id) ?? NODE_HEIGHT))) + 96
 
@@ -594,6 +614,11 @@ function App() {
   }, [])
   useEffect(() => {
     function shortcuts(event: KeyboardEvent) {
+      if (event.key === 'Escape' && nodePointerRef.current) {
+        event.preventDefault()
+        resetNodeDrag()
+        return
+      }
       const target = event.target as HTMLElement | null
       const tag = target?.tagName ?? ''
       const typing = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA'
@@ -857,6 +882,7 @@ function App() {
 
   async function reorderNode(movedId: string, targetId: string, position: ReorderPosition) {
     setGraph((current) => current ? { ...current, nodes: reorderSiblings(current.nodes, movedId, targetId, position) } : current)
+    if (demoMode) return
     try {
       const response = await api<{ nodes: WorkNode[] }>(`/api/nodes/${movedId}/reorder`, {
         method: 'POST',
@@ -870,10 +896,32 @@ function App() {
     }
   }
 
+  async function reparentNode(movedId: string, parentId: string) {
+    setError('')
+    setGraph((current) => current ? {
+      ...current,
+      nodes: current.nodes.map((node) => node.id === movedId ? {
+        ...node, parentId,
+        sortOrder: Math.max(-1, ...current.nodes.filter((child) => child.parentId === parentId).map((child) => child.sortOrder)) + 1,
+      } : node),
+    } : current)
+    setCollapsed((current) => { const next = new Set(current); next.delete(parentId); return next })
+    if (demoMode) return
+    try {
+      const updated = await api<WorkNode>(`/api/nodes/${movedId}/reparent`, {
+        method: 'POST', body: JSON.stringify({ parentId }),
+      })
+      setGraph((current) => current ? { ...current, nodes: current.nodes.map((node) => node.id === movedId ? { ...node, ...updated, notes: node.notes, steps: node.steps } : node) } : current)
+    } catch (moveError) {
+      await loadWorkspace()
+      setError(moveError instanceof Error ? moveError.message : 'Unable to move node')
+    }
+  }
+
   function beginNodeReorder(event: ReactPointerEvent<HTMLElement>, node: WorkNode) {
     const target = event.target as HTMLElement
     if (event.button !== 0 || !node.parentId || renamingId === node.id || target.closest('input, .node-add-action')) return
-    nodePointerRef.current = { pointerId: event.pointerId, nodeId: node.id, parentId: node.parentId, x: event.clientX, y: event.clientY, dragging: false }
+    nodePointerRef.current = { pointerId: event.pointerId, nodeId: node.id, x: event.clientX, y: event.clientY, dragging: false }
     target.setPointerCapture(event.pointerId)
   }
 
@@ -884,20 +932,15 @@ function App() {
       if (!dragIntent({ x: drag.x, y: drag.y }, { x: event.clientX, y: event.clientY })) return
       drag.dragging = true
       nodeDragRef.current = drag.nodeId
+      clearHoverLeaveTimer()
       suppressNodeClick.current = true
       setDraggedId(drag.nodeId)
     }
     event.preventDefault()
-    const candidates = activeGraphNodes.filter((node) => node.parentId === drag.parentId && node.id !== drag.nodeId)
-      .map((node) => {
-        const element = canvasRef.current?.querySelector<HTMLElement>(`[data-node-id="${node.id}"]`)
-        const bounds = element?.getBoundingClientRect()
-        return bounds ? { id: node.id, bounds, distance: Math.abs(event.clientY - (bounds.top + bounds.height / 2)) } : null
-      })
-      .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
-      .sort((a, b) => a.distance - b.distance)
-    const nearest = candidates[0]
-    const next = nearest ? { id: nearest.id, position: dropPositionAt(event.clientY, nearest.bounds) } : null
+    const element = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-node-id]')
+    const next = element?.dataset.nodeId && canvasRef.current?.contains(element)
+      ? nodeDropTarget(activeGraphNodes, drag.nodeId, element.dataset.nodeId, event.clientY, element.getBoundingClientRect())
+      : null
     nodeDropRef.current = next
     setDropTarget(next)
   }
@@ -905,25 +948,27 @@ function App() {
   function endNodeReorder(event: ReactPointerEvent<HTMLElement>) {
     const drag = nodePointerRef.current
     if (!drag || drag.pointerId !== event.pointerId) return
+    if (drag.dragging) moveNodeReorder(event)
     const target = nodeDropRef.current
     const intent = pointerReleaseIntent(drag.dragging, Boolean(target))
-    if (intent === 'reorder' && target) void reorderNode(drag.nodeId, target.id, target.position)
+    if (intent === 'reorder' && target) {
+      if (target.position === 'inside') void reparentNode(drag.nodeId, target.id)
+      else void reorderNode(drag.nodeId, target.id, target.position)
+    }
     if (intent === 'activate') {
       const node = activeGraphNodes.find((item) => item.id === drag.nodeId)
       if (node) selectNode(node)
       suppressNodeClick.current = true
     }
-    nodePointerRef.current = null
-    nodeDragRef.current = null
-    nodeDropRef.current = null
-    setDraggedId(null)
-    setDropTarget(null)
-    setHoveredId(null)
-    window.setTimeout(() => { suppressNodeClick.current = false }, 0)
+    resetNodeDrag()
   }
 
   function cancelNodeReorder(event: ReactPointerEvent<HTMLElement>) {
     if (nodePointerRef.current?.pointerId !== event.pointerId) return
+    resetNodeDrag()
+  }
+
+  function resetNodeDrag() {
     nodePointerRef.current = null
     nodeDragRef.current = null
     nodeDropRef.current = null
@@ -1471,6 +1516,7 @@ function App() {
             <div className="stage-shell">
               <div className="graph-stage" style={{ width, height, transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})` }}>
                 <svg className="edges" width={width} height={height} aria-hidden="true">
+                  {dropPreview && <path className="node-drop-edge" d={dropPreview.path} />}
                   {nodes.map((node) => {
                     if (!node.parentId) return null
                     const from = positions.get(node.parentId)
@@ -1497,6 +1543,12 @@ function App() {
                     return <path className="agent-channel-edge" key={channel.id} d={`M ${x1} ${y1} C ${bend} ${y1 - 40}, ${bend} ${y2 + 40}, ${x2} ${y2}`} />
                   })}
                 </svg>
+
+                {dropPreview && (
+                  <div className="map-node node-drop-preview" role="status" aria-label={`Move ${dropPreview.moved.title} under ${dropPreview.parent.title}`} style={{ left: dropPreview.x, top: dropPreview.y, width: NODE_WIDTH, height: NODE_HEIGHT, '--node-color': dropPreview.moved.color } as CSSProperties}>
+                    <div className="node-select"><span className="node-color" /><span className="node-copy"><span className="node-title">{dropPreview.moved.title}</span><span className="node-type">Move under {dropPreview.parent.title}</span></span></div>
+                  </div>
+                )}
 
                 {nodes.map((node) => {
                   const point = positions.get(node.id)
@@ -1546,6 +1598,7 @@ function App() {
                       onPointerMove={moveNodeReorder}
                       onPointerUp={endNodeReorder}
                       onPointerCancel={cancelNodeReorder}
+                      onLostPointerCapture={cancelNodeReorder}
                       onContextMenu={(event) => openNodeContextMenu(event, node)}
                     >
                       <button

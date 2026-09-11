@@ -786,6 +786,13 @@ export function createMuxMapServer(options: ServerOptions) {
           return sendJson(response, 201, { session: sessions.startNew(newSessionMatch[1], typeof body.cwd === 'string' ? body.cwd : undefined, body.backend as TerminalBackend | undefined) })
         }
 
+        const reparentMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/reparent$/)
+        if (request.method === 'POST' && reparentMatch) {
+          const body = await readJson(request)
+          if (typeof body.parentId !== 'string' || !body.parentId) throw new Error('parentId is required')
+          return sendJson(response, 200, store.reparentNode(reparentMatch[1], body.parentId))
+        }
+
         const reorderMatch = url.pathname.match(/^\/api\/nodes\/([^/]+)\/reorder$/)
         if (request.method === 'POST' && reorderMatch) {
           const body = await readJson(request)

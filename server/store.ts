@@ -23,7 +23,7 @@ import {
   type Workspace,
   type WorkspaceGraph,
 } from '../src/model.ts'
-import { reorderSiblings, type ReorderPosition } from '../src/graph.ts'
+import { canReparentNode, reorderSiblings, type ReorderPosition } from '../src/graph.ts'
 import { agentActivityFromRecordedEvent } from './agents.ts'
 import { defaultNodeStepDefinitions, nodeStepKeys, normalizedNodeSteps } from '../src/nodeSteps.ts'
 import { validateNodeStepDefinitions } from './config.ts'
@@ -1010,6 +1010,25 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
       )
       database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, updated.workspaceId)
       return updated
+    },
+
+    reparentNode(id: string, parentId: string) {
+      const node = this.getNode(id)
+      if (!node) throw new Error('Node not found')
+      const rows = database.prepare('SELECT * FROM nodes WHERE workspace_id = ?').all(node.workspaceId) as Record<string, unknown>[]
+      if (!canReparentNode(rows.map(mapNode), id, parentId)) throw new Error('Invalid parent: choose an active node outside this branch')
+      const next = database.prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS value FROM nodes WHERE parent_id = ?').get(parentId) as { value: number }
+      const now = new Date().toISOString()
+      database.exec('BEGIN')
+      try {
+        database.prepare('UPDATE nodes SET parent_id = ?, sort_order = ?, updated_at = ? WHERE id = ?').run(parentId, next.value, now, id)
+        database.prepare('UPDATE workspaces SET updated_at = ? WHERE id = ?').run(now, node.workspaceId)
+        database.exec('COMMIT')
+      } catch (error) {
+        database.exec('ROLLBACK')
+        throw error
+      }
+      return this.getNode(id)!
     },
 
     reorderNode(id: string, targetId: string, position: ReorderPosition) {
