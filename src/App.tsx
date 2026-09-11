@@ -42,7 +42,7 @@ import { AgentEventList } from './AgentEventList.tsx'
 import { demoWorkspaceGraph } from './demoGraph.ts'
 import { clearHoveredNodeAfterGrace, containsPoint, inflateRect, NODE_HOVER_LEAVE_GRACE_MS, nodeUsesExpandedLayout } from './nodeHover.ts'
 import { defaultNodeStepDefinitions, nodeStepperModel, nodeStepSummary, type NodeStepperItem } from './nodeSteps.ts'
-import { parseWorkspacePayloadIfChanged } from './workspacePolling.ts'
+import { parseWorkspacePayloadIfChanged, withAttachedSession } from './workspacePolling.ts'
 import { ArchiveIcon, BoxIcon, CheckboxIcon, CheckCircledIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, CopyIcon, Cross2Icon, DesktopIcon, DrawingPinIcon, EyeOpenIcon, GearIcon, Link2Icon, OpenInNewWindowIcon, PauseIcon, Pencil2Icon, PlayIcon, PlusIcon, ReloadIcon, TrashIcon } from '@radix-ui/react-icons'
 import { autoUpdate, flip, offset, safePolygon, useDismiss, useFloating, useFocus, useHover, useInteractions } from '@floating-ui/react'
 import {
@@ -234,11 +234,13 @@ function App() {
   const settingsPlatformRef = useRef(clientPlatform)
   const keyboardOwnerRef = useRef<KeyboardOwner>('mindmap')
   const workspacePayloadRef = useRef<string | null>(demoMode ? JSON.stringify(demoWorkspaceGraph) : null)
+  const workspaceRevisionRef = useRef(0)
   const [contextMenuPosition, setContextMenuPosition] = useState<{ nodeId: string; rawX: number; rawY: number; x: number; y: number } | null>(null)
   const { rightPanel, terminalSessionId, terminalFloating } = surface
   const inPageNotificationsEnabled = notificationDeliveryTargets(settings['notifications.delivery']).inPage
 
   const loadWorkspace = useCallback(async () => {
+    const revision = workspaceRevisionRef.current
     setError('')
     if (demoMode) {
       setGraph(demoWorkspaceGraph)
@@ -247,9 +249,11 @@ function App() {
     try {
       await api('/api/auth')
       const text = await apiText('/api/workspaces/default')
+      if (revision !== workspaceRevisionRef.current) return
       workspacePayloadRef.current = text
       setGraph(JSON.parse(text) as WorkspaceGraph)
     } catch (loadError) {
+      if (revision !== workspaceRevisionRef.current) return
       setError(loadError instanceof Error ? loadError.message : 'Unable to load workspace')
     }
   }, [demoMode])
@@ -309,7 +313,9 @@ function App() {
     if (demoMode) return
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'hidden') return
+      const revision = workspaceRevisionRef.current
       void apiText('/api/workspaces/default').then((text) => {
+        if (revision !== workspaceRevisionRef.current) return
         const result = parseWorkspacePayloadIfChanged<WorkspaceGraph>(workspacePayloadRef.current, text)
         if (!result.changed) return
         workspacePayloadRef.current = text
@@ -1078,6 +1084,13 @@ function App() {
       : openTerminalSurface(current, id))
   }
 
+  function openAttachedTerminal(attached: TerminalSession, node?: WorkNode) {
+    workspaceRevisionRef.current += 1
+    setGraph((current) => current ? withAttachedSession(current, attached, node) : current)
+    setSelectedId(attached.nodeId)
+    openTerminal(attached.id)
+  }
+
   async function enableAgentNotifications() {
     if (!('Notification' in window)) return
     setNotificationPermission(await Notification.requestPermission())
@@ -1123,10 +1136,7 @@ function App() {
         method: 'POST',
         body: JSON.stringify({ cwd: target.repoPath, backend: settings['terminal.backend'] }),
       })
-      setTerminalRequest({ nodeId: target.id, title: target.title, label: 'Loading terminal…' })
-      await loadWorkspace()
-      setSelectedId(target.id)
-      openTerminal(response.session.id)
+      openAttachedTerminal(response.session)
     } catch (attachError) {
       setError(attachError instanceof Error ? attachError.message : 'Unable to attach terminal')
     } finally {
@@ -1173,8 +1183,7 @@ function App() {
     setError('')
     try {
       const response = await api<{ session: TerminalSession }>(`/api/sessions/${sessionId}/recover-agent`, { method: 'POST', body: '{}' })
-      await loadWorkspace()
-      openTerminal(response.session.id)
+      openAttachedTerminal(response.session)
     } catch (recoverError) {
       setError(recoverError instanceof Error ? recoverError.message : 'Unable to recover agent session')
     } finally {
@@ -1242,9 +1251,7 @@ function App() {
         method: 'POST',
         body: JSON.stringify({ nodeId: target.id, backend, runtimeName }),
       })
-      setSelectedId(target.id)
-      openTerminal(response.session.id)
-      await loadWorkspace()
+      openAttachedTerminal(response.session, target)
     } catch (adoptError) {
       setError(adoptError instanceof Error ? adoptError.message : 'Unable to adopt terminal session')
     } finally {
