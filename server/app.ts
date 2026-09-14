@@ -295,13 +295,15 @@ function fileHeaderHtml(path: string, content: string, line: number | undefined,
     path,
     line,
     column,
+    zedCommand: zedCopyCommand(path, line, column),
+    zedPowerShellCommand: zedCopyCommand(path, line, column, 'win32'),
   }
   return `<header><div class="file-info"><strong>${htmlEscape(basename(path))}</strong><span>${htmlEscape(path)}${line ? `:${line}${column ? `:${column}` : ''}` : ''}</span>${fileNodesHtml(nodes)}</div><nav aria-label="File actions">
 ${sourceHref ? `<a href="${htmlEscape(sourceHref)}">Source</a>` : ''}
 <button type="button" data-copy="path">Copy path</button>
 <button type="button" data-copy="content">Copy content</button>
 <details class="file-editors"><summary>Open in…</summary><div class="file-editor-options">
-<button type="button" data-editor="zed">Zed</button>
+<div class="file-editor-row"><a href="${htmlEscape(zedFileUrl(path, line, column))}" data-editor-link="zed" title="Open in Zed on this computer">Zed</a><button type="button" class="file-editor-copy" data-copy="zed-command" aria-label="Copy command to open in Zed" title="Copy command to open in Zed"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg></button></div>
 <button type="button" data-editor="vscode">VS Code</button>
 </div></details>
 </nav></header><textarea id="muxmap-file-content" hidden>${htmlEscape(content)}</textarea><script>
@@ -323,12 +325,19 @@ async function copyText(value) {
   setTimeout(() => { status.textContent = ''; }, 1400);
 }
 document.addEventListener('click', async (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) return;
+  const target = event.target instanceof Element ? event.target.closest('button,a,summary') : null;
   if (!editors.contains(target)) editors.open = false;
+  if (!(target instanceof HTMLElement)) return;
   try {
     if (target.dataset.copy === 'path') await copyText(muxmapFile.path);
     if (target.dataset.copy === 'content') await copyText(document.getElementById('muxmap-file-content')?.value ?? '');
+    if (target.dataset.copy === 'zed-command') await copyText(/Win/i.test(navigator.platform) ? muxmapFile.zedPowerShellCommand : muxmapFile.zedCommand);
+    if (target.dataset.editorLink === 'zed') {
+      editors.open = false;
+      editors.querySelector('summary').focus();
+      status.textContent = 'Opening Zed…';
+      setTimeout(() => { status.textContent = ''; }, 1400);
+    }
     if (target.dataset.editor) {
       editors.open = false;
       editors.querySelector('summary').focus();
@@ -357,7 +366,7 @@ header{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:12px 16px
 .file-info{flex:1 1 300px;min-width:0;overflow-wrap:anywhere}header strong{display:block;color:#f0f4ef;font-size:14px}header span{font-size:12px;word-break:break-all}header nav{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end;max-width:100%}
 button,a,summary{border:1px solid #3d483b;border-radius:9px;background:#20261f;color:#edf3eb;padding:5px 8px;font:12px ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer}
 button:hover,a:hover,summary:hover{background:#2a3328;border-color:#596756}button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid #86a667;outline-offset:2px}.muxmap-file-status{color:#bde68b;font:12px ui-sans-serif,system-ui,sans-serif}.muxmap-file-status:empty{display:none}
-.file-nodes{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px}.file-nodes a{min-width:0;overflow-wrap:anywhere}.file-nodes span{word-break:normal}.file-editors{position:relative}.file-editor-options{position:absolute;right:0;top:calc(100% + 6px);display:grid;gap:4px;min-width:140px;padding:6px;background:#20261f;border:1px solid #657064;border-radius:10px;box-shadow:0 8px 24px #0004}.file-editor-options button{text-align:left}
+.file-nodes{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px}.file-nodes a{min-width:0;overflow-wrap:anywhere}.file-nodes span{word-break:normal}.file-editors{position:relative}.file-editor-options{position:absolute;right:0;top:calc(100% + 6px);display:grid;gap:4px;min-width:140px;padding:6px;background:#20261f;border:1px solid #657064;border-radius:10px;box-shadow:0 8px 24px #0004}.file-editor-options button{text-align:left}.file-editor-row{display:flex;gap:4px}.file-editor-row>:first-child{flex:1}.file-editor-copy{display:flex;align-items:center;justify-content:center;flex:none;padding:6px}
 @media (prefers-color-scheme:light){body{background:#f7f8f5;color:#20251f}header{background:rgba(247,248,245,.96);border-bottom-color:#d9dfd5;color:#657064}header strong{color:#111411}button,a,summary,.file-editor-options{background:#fff;color:#20251f;border-color:#ccd5c8}button:hover,a:hover,summary:hover{background:#f0f5ed}.muxmap-file-status{color:#426a1c}}
 ${extra}</style>`
 }
@@ -403,6 +412,15 @@ function htmlDocumentPreview(path: string, content: string, header: string) {
 
 export function editorTarget(path: string, line?: number, column?: number) {
   return `${path}${line ? `:${line}${column ? `:${column}` : ''}` : ''}`
+}
+
+export function zedFileUrl(path: string, line?: number, column?: number) {
+  return `zed://file${editorTarget(path, line, column).split('/').map(encodeURIComponent).join('/')}`
+}
+
+export function zedCopyCommand(path: string, line?: number, column?: number, platform = 'posix') {
+  const target = editorTarget(path, line, column)
+  return `zed ${platform === 'win32' ? `'${target.replace(/'/g, "''")}'` : shellQuote(target)}`
 }
 
 export function editorCommand(editor: FileEditor, path: string, line?: number, column?: number) {

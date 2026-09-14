@@ -61,7 +61,7 @@ Open <http://127.0.0.1:4782>.
 
 ## File previews
 
-Terminal file links open in a MuxMap browser preview and are saved to the node's Notes & artifacts stream. Markdown is rendered with `markdown-it`, including Mermaid diagrams; HTML files open in a sandboxed preview with a MuxMap header. The preview header can copy the path/content or open the file in Zed or VS Code when their CLI commands are installed.
+Terminal file links open in a MuxMap browser preview and are saved to the node's Notes & artifacts stream. Markdown is rendered with `markdown-it`, including Mermaid diagrams; HTML files open in a sandboxed preview with a MuxMap header. The preview header can copy the path/content. Under **Open in…**, Zed uses a `zed://file` link to open the file on the browser’s computer; the adjacent copy icon copies a quoted `zed` command, including the line and column. The file must be accessible on that computer. If needed, register the link handler with Zed’s `cli: register zed scheme` action, or install its CLI with `cli: install cli binary` on macOS. VS Code uses the `code` CLI on the MuxMap server.
 
 By default, file previews and terminal working directories can use any path accessible to the MuxMap process on Windows, macOS, and Linux, including Windows drives and UNC shares. Relative file paths use the terminal's working directory, the supplied `cwd`, or MuxMap's working directory when neither is available.
 

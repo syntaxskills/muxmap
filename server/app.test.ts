@@ -6,7 +6,7 @@ import { join, relative } from 'node:path'
 import test from 'node:test'
 import xterm from '@xterm/xterm'
 import WebSocket from 'ws'
-import { createMuxMapServer, defaultPtyFactory, tmuxPtyFallbackCommand, type PtyFactory, type PtyHandle } from './app.ts'
+import { createMuxMapServer, defaultPtyFactory, tmuxPtyFallbackCommand, zedCopyCommand, zedFileUrl, type PtyFactory, type PtyHandle } from './app.ts'
 import { realTmux, realZellij, zellijConfigPath, zellijExecutable, type TmuxAdapter } from './sessions.ts'
 import type { TerminalSession } from '../src/model.ts'
 
@@ -557,7 +557,8 @@ test('file preview API renders markdown and html with MuxMap actions', async () 
     assert.match(markdownHtml, /<td style="text-align:right">Ready<\/td>/)
     assert.match(markdownHtml, /<\/table>\s*<\/div>/)
     assert.match(markdownHtml, /<details class="file-editors"><summary>Open in…<\/summary>/)
-    assert.match(markdownHtml, /data-editor="zed">Zed/)
+    assert.ok(markdownHtml.includes(`href="${zedFileUrl(join(root, 'README.md'))}" data-editor-link="zed"`))
+    assert.match(markdownHtml, /aria-label="Copy command to open in Zed"[^>]*><svg/)
     assert.match(markdownHtml, /data-editor="vscode">VS Code/)
     assert.match(markdownHtml, /Copy content/)
     assert.match(markdownHtml, /<pre class="mermaid">graph TD/)
@@ -584,6 +585,36 @@ test('file preview API renders markdown and html with MuxMap actions', async () 
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('Zed links and copied commands preserve full paths and positions without shell expansion', () => {
+  const paths = [
+    '/home/user/project/guide.md',
+    '/home/user/a b/it\'s $HOME `whoami` $(pwd) #100%? & [draft].md',
+    String.raw`C:\Users\Alice\Project files\it's $env:HOME [draft].md`,
+    String.raw`\\server\shared files\guide.md`,
+  ]
+  for (const path of paths) {
+    for (const [line, column] of [[undefined, undefined], [42, undefined], [42, 3]]) {
+      const target = `${path}${line ? `:${line}${column ? `:${column}` : ''}` : ''}`
+      // Zed strips the literal prefix, then URL-decodes the remaining path.
+      const link = new URL(zedFileUrl(path, line, column))
+      assert.equal(decodeURIComponent(link.href.slice('zed://file'.length)), target)
+      assert.equal(link.search, '')
+      assert.equal(link.hash, '')
+      if (process.platform !== 'win32') {
+        const command = zedCopyCommand(path, line, column)
+        const parsed = spawnSync('/bin/sh', ['-c', `set -- ${command}; printf '%s\\n' "$#" "$1" "$2"`], { encoding: 'utf8' })
+        assert.equal(parsed.status, 0, parsed.stderr)
+        assert.equal(parsed.stdout, `2\nzed\n${target}\n`)
+      } else {
+        const command = zedCopyCommand(path, line, column, 'win32')
+        const parsed = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `function zed { $args | ConvertTo-Json -Compress }; ${command}`], { encoding: 'utf8' })
+        assert.equal(parsed.status, 0, parsed.stderr)
+        assert.equal(JSON.parse(parsed.stdout), target)
+      }
+    }
   }
 })
 
