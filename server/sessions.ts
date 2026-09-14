@@ -265,9 +265,9 @@ function expandHome(path: string) {
   return path === '~' ? homedir() : path.startsWith(`~${sep}`) ? join(homedir(), path.slice(2)) : path
 }
 
-function safePath(path: string, roots: string[]) {
-  const candidate = realpathSync(resolve(expandHome(path)))
-  const allowed = roots.some((root) => {
+function safePath(path: string | undefined, roots: string[]) {
+  const candidate = realpathSync(resolve(expandHome(path ?? roots[0] ?? process.cwd())))
+  const allowed = roots.length === 0 || roots.some((root) => {
     const resolvedRoot = realpathSync(isAbsolute(root) ? root : resolve(root))
     const child = relative(resolvedRoot, candidate)
     return child === '' || (!child.startsWith('..') && !isAbsolute(child))
@@ -477,7 +477,7 @@ export function createSessionManager(
     attach(nodeId: string, requestedCwd?: string, requestedBackend = selectedDefaultBackend): TerminalSession {
       const node = store.getNode(nodeId)
       if (!node) throw new Error('Node not found')
-      const cwd = safePath(requestedCwd ?? node.repoPath ?? allowedRoots[0], allowedRoots)
+      const cwd = safePath(requestedCwd ?? node.repoPath, allowedRoots)
       const existing = store.getSessionByNode(nodeId)
       const backend = existing?.backend ?? requestedBackend
       const adapter = adapterFor(backend)
@@ -510,7 +510,7 @@ export function createSessionManager(
       invalidateRuntimeDiscovery()
       const node = store.getNode(nodeId)
       if (!node) throw new Error('Node not found')
-      const cwd = safePath(requestedCwd ?? node.repoPath ?? allowedRoots[0], allowedRoots)
+      const cwd = safePath(requestedCwd ?? node.repoPath, allowedRoots)
       const existing = store.getSessionByNode(nodeId)
       const backend = requestedBackend
       const adapter = adapterFor(backend)
@@ -759,7 +759,7 @@ export function createSessionManager(
       if (!node) throw new Error('Node not found')
       const existing = store.getSessionByNode(nodeId)
       if (existing && existing.status !== 'stopped') throw new Error('Node already has a terminal session')
-      const cwd = safePath(node.repoPath ?? allowedRoots[0], allowedRoots)
+      const cwd = safePath(node.repoPath, allowedRoots)
       return store.upsertSession({
         id: existing?.id ?? `sess_${randomUUID()}`,
         workspaceId: node.workspaceId,

@@ -45,7 +45,7 @@ export type PtyFactory = (session: TerminalSession, size?: TerminalSize) => PtyH
 
 type ServerOptions = {
   databasePath: string
-  allowedRoots: string[]
+  allowedRoots: string[] // Empty means unrestricted on every drive and network share.
   token?: string
   requireBasicAuth?: boolean
   tmux?: TmuxAdapter
@@ -242,17 +242,17 @@ function cwdInputs(inputCwd: string | null | Array<string | undefined>) {
 function safeFilePath(inputPath: string | null, inputCwd: string | null | Array<string | undefined>, allowedRoots: string[]) {
   if (!inputPath?.trim()) throw new Error('File path is required')
   const roots = allowedRoots.map((root) => realpathSync(resolve(expandHome(root)))).filter(Boolean)
-  if (roots.length === 0) throw new Error('No allowed file roots configured')
   const rawPath = expandHome(inputPath)
   const cwdCandidates = cwdInputs(inputCwd)
-  const attempts = isAbsolute(rawPath) ? [roots[0]] : cwdCandidates.length > 0 ? cwdCandidates : [roots[0]]
+  const defaultCwd = roots[0] ?? process.cwd()
+  const attempts = isAbsolute(rawPath) ? [defaultCwd] : cwdCandidates.length > 0 ? cwdCandidates : [defaultCwd]
   const errors: Error[] = []
   for (const attempt of attempts) {
     try {
       const cwd = realpathSync(resolve(expandHome(attempt)))
-      if (!roots.some((root) => isWithinRoot(cwd, root))) throw new Error('Working directory is outside allowed roots')
+      if (roots.length > 0 && !roots.some((root) => isWithinRoot(cwd, root))) throw new Error('Working directory is outside allowed roots')
       const candidate = realpathSync(isAbsolute(rawPath) ? resolve(rawPath) : resolve(cwd, rawPath))
-      if (!roots.some((root) => isWithinRoot(candidate, root))) throw new Error('File path is outside allowed roots')
+      if (roots.length > 0 && !roots.some((root) => isWithinRoot(candidate, root))) throw new Error('File path is outside allowed roots')
       const stat = statSync(candidate)
       if (!stat.isFile()) throw new Error('Path is not a file')
       return { path: candidate, size: stat.size }
@@ -961,7 +961,7 @@ export function createMuxMapServer(options: ServerOptions) {
       if (filePreview && request.method === 'HEAD') return response.writeHead(status, { 'cache-control': 'no-store' }).end()
       if (filePreview && request.headers.accept?.includes('text/html')) {
         response.writeHead(status, { 'content-type': 'text/html; charset=utf-8' })
-        return response.end(fileErrorHtml(url, message, status === 404, options.allowedRoots[0] ?? ''))
+        return response.end(fileErrorHtml(url, message, status === 404, options.allowedRoots[0] ?? process.cwd()))
       }
       sendJson(response, status, { error: message })
     }

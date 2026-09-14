@@ -63,6 +63,10 @@ Open <http://127.0.0.1:4782>.
 
 Terminal file links open in a MuxMap browser preview and are saved to the node's Notes & artifacts stream. Markdown is rendered with `markdown-it`, including Mermaid diagrams; HTML files open in a sandboxed preview with a MuxMap header. The preview header can copy the path/content or open the file in Zed or VS Code when their CLI commands are installed.
 
+By default, file previews and terminal working directories can use any path accessible to the MuxMap process on Windows, macOS, and Linux, including Windows drives and UNC shares. Relative file paths use the terminal's working directory, the supplied `cwd`, or MuxMap's working directory when neither is available.
+
+To restrict access, set `MUXMAP_ALLOWED_ROOTS` to comma-separated directories, such as `/Users/you/projects,/Volumes/work` on macOS, `/home/you/projects,/mnt/work` on Linux, or `C:\Users\you\projects,D:\work,\\server\share` on Windows. With restrictions enabled, the first root is the default working directory. Leave the variable unset or empty for unrestricted access.
+
 ## Agent hooks
 
 Agent hooks are optional. They let MuxMap mark agent sessions as working, completed, read, unavailable, or needing input.

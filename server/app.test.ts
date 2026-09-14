@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import test from 'node:test'
 import xterm from '@xterm/xterm'
 import WebSocket from 'ws'
@@ -479,6 +479,56 @@ test('file preview API opens files inside allowed roots and rejects outside path
     await server.close()
     rmSync(root, { recursive: true, force: true })
     rmSync(outside, { recursive: true, force: true })
+  }
+})
+
+test('empty allowed roots permit file previews, checks and editor actions outside the server directory', async () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-unrestricted-files-')))
+  const file = join(directory, 'example.txt')
+  writeFileSync(file, 'Unrestricted file preview\n')
+  const opened: string[] = []
+  const server = createMuxMapServer({
+    databasePath: ':memory:',
+    allowedRoots: [],
+    platform: 'linux',
+    token: 'test-token',
+    tmux: fakeTmux(),
+    fileEditorLauncher: async (_editor, target) => { opened.push(target) },
+  })
+
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const cookie = (await fetch(`${base}/api/auth`)).headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const queries: Array<Record<string, string>> = [
+      { path: file },
+      { path: 'example.txt', cwd: directory },
+      { path: relative(process.cwd(), file) },
+    ]
+    for (const query of queries) {
+      const url = `${base}/api/files/open?${new URLSearchParams(query)}`
+      const preview = await fetch(url, { headers })
+      assert.equal(preview.status, 200)
+      assert.match(await preview.text(), /Unrestricted file preview/)
+      assert.equal((await fetch(url, { method: 'HEAD', headers })).status, 200)
+      const action = await fetch(`${base}/api/files/action`, {
+        method: 'POST', headers, body: JSON.stringify({ action: 'vscode', ...query }),
+      })
+      assert.equal(action.status, 200)
+      assert.equal(opened.at(-1), file)
+    }
+    const missing = await fetch(`${base}/api/files/open?path=${encodeURIComponent(join(directory, 'missing.txt'))}`, { headers: { cookie, accept: 'text/html' } })
+    assert.equal(missing.status, 404)
+    const errorHtml = await missing.text()
+    assert.ok(errorHtml.includes(`name="cwd" value="${process.cwd()}"`))
+    const invalid = await fetch(`${base}/api/files/open?path=${encodeURIComponent(directory)}`, { headers })
+    assert.equal(invalid.status, 400)
+    assert.deepEqual(await invalid.json(), { error: 'Path is not a file' })
+    assert.equal((await fetch(`${base}/api/files/open?path=${encodeURIComponent(file)}`)).status, 401)
+  } finally {
+    await server.close()
+    rmSync(directory, { recursive: true, force: true })
   }
 })
 

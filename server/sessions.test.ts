@@ -511,6 +511,34 @@ test('workspace decoration reuses one runtime snapshot instead of checking each 
   }
 })
 
+test('empty allowed roots allow terminal directories and default to the server working directory', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-unrestricted-session-')))
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  adapter.currentWorkingDirectory = () => directory
+  const manager = createSessionManager(store, adapter, [], () => [])
+
+  try {
+    const node = store.createNode('default', { parentId: 'workspace', title: 'Any directory', type: 'terminal' })
+    const session = manager.attach(node.id)
+    assert.equal(session.cwd, realpathSync(process.cwd()))
+    assert.equal(manager.currentWorkingDirectory(session.id), directory)
+    assert.equal(manager.attach(node.id, directory).cwd, directory)
+    assert.equal(manager.startNew(node.id, directory).cwd, directory)
+    assert.equal(manager.startNew(node.id).cwd, realpathSync(process.cwd()))
+
+    const repoNode = store.createNode('default', { parentId: 'workspace', title: 'Repo directory', type: 'terminal', repoPath: directory })
+    assert.equal(manager.attach(repoNode.id).cwd, directory)
+    const adoptedNode = store.createNode('default', { parentId: 'workspace', title: 'Adopt directory', type: 'terminal' })
+    adapter.live.add('muxmap-unrestricted-orphan')
+    assert.equal(manager.adopt(adoptedNode.id, 'tmux', 'muxmap-unrestricted-orphan').cwd, realpathSync(process.cwd()))
+    assert.throws(() => manager.attach(node.id, join(directory, 'missing')), /ENOENT/)
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('terminal cwd is restricted to configured repository roots', () => {
   const allowed = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-allowed-')))
   const outside = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-outside-')))
