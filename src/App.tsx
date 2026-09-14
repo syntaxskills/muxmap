@@ -14,7 +14,7 @@ import {
 import './App.css'
 import { api, apiText } from './api.ts'
 import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canBulkRecoverAgentSession, canRecoverAgentSession, effectiveArchivedNodeIds, expandedNodeHeight, expandedNodeWidth, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
-import { centerPan, dragPan, gridBackground, isCanvasBlankTarget, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
+import { centerPan, dragPan, gridBackground, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
 import type { NodeNoteEntry, NodeStepDefinition, NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { normalizeTerminalOpacity, normalizeTerminalSplit } from './terminalInteraction.ts'
@@ -1056,23 +1056,9 @@ function App() {
   }
 
   function endPan(event: ReactPointerEvent<HTMLDivElement>) {
-    if (dragRef.current?.pointerId !== event.pointerId) return false
-    const distance = Math.hypot(event.clientX - dragRef.current.x, event.clientY - dragRef.current.y)
+    if (dragRef.current?.pointerId !== event.pointerId) return
     dragRef.current = null
     setPanning(false)
-    return distance < 4
-  }
-
-  function collapseMindmapSelection(event: ReactPointerEvent<HTMLDivElement>) {
-    const target = event.target as HTMLElement
-    const targetClassName = typeof target.className === 'string' ? target.className : ''
-    if (!isCanvasBlankTarget(targetClassName, event.currentTarget.className)) return
-    setHoveredId(null)
-    setSelectedId(null)
-    setContextMenu(null)
-    setRenamingId(null)
-    setDeleteNodeId(null)
-    setSurface((current) => current.rightPanel === 'details' ? { ...current, rightPanel: null } : current)
   }
 
   function openTerminal(id: string) {
@@ -1495,7 +1481,7 @@ function App() {
           style={{ backgroundPosition: background.position, backgroundSize: background.size, backgroundImage: settings['canvas.showGrid'] ? undefined : 'none' }}
           onPointerDown={beginPan}
           onPointerMove={movePan}
-          onPointerUp={(event) => { if (endPan(event)) collapseMindmapSelection(event) }}
+          onPointerUp={endPan}
           onPointerCancel={endPan}
         >
           <div className="canvas-toolbar" aria-label="Canvas controls">

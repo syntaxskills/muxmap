@@ -32,10 +32,6 @@ export function gridBackground(pan: Point, scale: number, gridSize = 20) {
   return { position: `${pan.x}px ${pan.y}px`, size: `${size}px ${size}px` }
 }
 
-export function isCanvasBlankTarget(targetClassName: string, currentTargetClassName: string) {
-  return targetClassName === currentTargetClassName || ['stage-shell', 'graph-stage'].includes(targetClassName)
-}
-
 export function layoutTree(
   nodes: TreeNode[],
   rootId: string,
