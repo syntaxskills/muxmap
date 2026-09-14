@@ -707,6 +707,7 @@ test('file previews link every referring node by resolved path and preserve navi
     const stale = makeNode('Stale reference')
     const external = makeNode('External reference')
     const archived = makeNode('Archived reference')
+    const archivedChild = server.store.createNode('default', { parentId: archived.id, title: 'Inside archived branch', type: 'note' })
     const fileUrl = (path: string, cwd = root) => `/api/files/open?${new URLSearchParams({ path, cwd })}`
     const addLink = (id: string, url: string) => server.store.createNodeNote(id, { url })
     addLink(older.id, fileUrl('./shared.md'))
@@ -718,6 +719,7 @@ test('file previews link every referring node by resolved path and preserve navi
     addLink(stale.id, fileUrl('shared.md', join(root, 'gone')))
     addLink(external.id, `https://example.com${fileUrl(shared)}`)
     addLink(archived.id, fileUrl(shared))
+    addLink(archivedChild.id, fileUrl(shared))
     server.store.archiveNode(archived.id)
 
     const previewUrl = `${base}${fileUrl('shared.md')}&nodeId=${origin.id}&sessionId=gone-session&line=1&column=2`
@@ -748,6 +750,10 @@ test('file previews link every referring node by resolved path and preserve navi
     const missingHtml = await missing.text()
     assert.ok(missingHtml.includes(`name="nodeId" value="${origin.id}"`))
     assert.ok(missingHtml.includes(`href="/?node=${origin.id}"`))
+    const hiddenOrigin = await fetch(`${base}${fileUrl(shared)}&nodeId=${archivedChild.id}`, { headers: { cookie } })
+    const hiddenOriginHtml = await hiddenOrigin.text()
+    assert.doesNotMatch(hiddenOriginHtml, /From node/)
+    assert.ok(!hiddenOriginHtml.includes(`href="/?node=${archivedChild.id}"`))
   } finally {
     await server.close()
     rmSync(root, { recursive: true, force: true })

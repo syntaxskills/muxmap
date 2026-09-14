@@ -505,14 +505,15 @@ export function createMuxMapServer(options: ServerOptions) {
 
   function fileNodeReferences(url: URL, filePath?: string): FileNodeReference[] {
     const nodeId = url.searchParams.get('nodeId') || store.getSession(url.searchParams.get('sessionId') ?? '')?.nodeId
-    const origin = nodeId ? store.getNode(nodeId) : undefined
+    const activeNodes = new Map(store.listActiveNodes().map((node) => [node.id, node]))
+    const origin = nodeId ? activeNodes.get(nodeId) : undefined
     const nodes = new Map<string, FileNodeReference>()
-    if (origin && !origin.archivedAt) nodes.set(origin.id, { id: origin.id, title: origin.title, origin: true })
+    if (origin) nodes.set(origin.id, { id: origin.id, title: origin.title, origin: true })
     if (!filePath) return [...nodes.values()]
     const cwds = new Map<string, string | undefined>()
     // ponytail: scan saved file links per preview; index canonical paths if the note library gets large.
     for (const note of store.listFileNoteLinks()) {
-      if (nodes.has(note.id)) continue
+      if (nodes.has(note.id) || !activeNodes.has(note.id)) continue
       try {
         const link = new URL(note.url, url)
         if (link.origin !== url.origin || link.pathname !== '/api/files/open') continue

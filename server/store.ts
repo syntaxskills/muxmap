@@ -23,7 +23,7 @@ import {
   type Workspace,
   type WorkspaceGraph,
 } from '../src/model.ts'
-import { canReparentNode, reorderSiblings, type ReorderPosition } from '../src/graph.ts'
+import { activeNodes, canReparentNode, reorderSiblings, type ReorderPosition } from '../src/graph.ts'
 import { agentActivityFromRecordedEvent } from './agents.ts'
 import { defaultNodeStepDefinitions, nodeStepKeys, normalizedNodeSteps } from '../src/nodeSteps.ts'
 import { validateNodeStepDefinitions } from './config.ts'
@@ -845,6 +845,11 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
     getNode(id: string) {
       const row = database.prepare('SELECT * FROM nodes WHERE id = ?').get(id) as Record<string, unknown> | undefined
       return row ? mapNode(row) : undefined
+    },
+
+    listActiveNodes() {
+      const rows = database.prepare('SELECT * FROM nodes').all() as Record<string, unknown>[]
+      return activeNodes(rows.map(mapNode))
     },
 
     getNodeSteps(id: string) {
