@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { NodeNoteEntry } from './model.ts'
-import { mergeNodeNotes, nodeNoteDisplayText, nodeNoteProviderLabel, visibleNodeNotes } from './nodeNotes.ts'
+import { mergeNodeNotes, nodeNoteDisplayText, nodeNoteLinkUrl, nodeNoteProviderLabel, visibleNodeNotes } from './nodeNotes.ts'
 
 const note = (patch: Partial<NodeNoteEntry>): NodeNoteEntry => ({
   id: 'note-1', nodeId: 'node-1', kind: 'text', provider: 'note',
@@ -24,4 +24,22 @@ test('node note preview stays compact and keeps newest ordering', () => {
   assert.deepEqual(mergeNodeNotes(notes.slice(0, 2), [note({ id: 'note-2', body: 'Newer copy', updatedAt: '2026-09-04T11:00:00.000Z' }), notes[3]]).map((item) => [item.id, item.body]), [
     ['note-2', 'Newer copy'], ['note-4', undefined], ['note-1', undefined],
   ])
+})
+
+test('file note navigation carries the clicked node without changing saved URLs or external links', () => {
+  const origin = 'http://localhost:4782'
+  for (const prefix of ['', origin]) {
+    const saved = note({ url: `${prefix}/api/files/open?path=docs%2Fguide.md&cwd=%2Frepo&sessionId=other-session&nodeId=other-node&line=3#L3` })
+    const link = new URL(nodeNoteLinkUrl(saved, origin)!, origin)
+    assert.equal(link.searchParams.get('nodeId'), saved.nodeId)
+    assert.equal(link.searchParams.get('path'), 'docs/guide.md')
+    assert.equal(link.searchParams.get('cwd'), '/repo')
+    assert.equal(link.searchParams.get('sessionId'), 'other-session')
+    assert.equal(link.searchParams.get('line'), '3')
+    assert.equal(link.hash, '#L3')
+    assert.ok(saved.url?.includes('nodeId=other-node'))
+  }
+  const external = 'https://example.com/api/files/open?path=guide.md'
+  assert.equal(nodeNoteLinkUrl(note({ url: external }), origin), external)
+  assert.equal(nodeNoteLinkUrl(note({}), origin), undefined)
 })

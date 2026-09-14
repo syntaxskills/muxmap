@@ -8,6 +8,14 @@ export function nodeNoteProviderLabel(provider: NodeNoteProvider) {
   return providerLabels[provider]
 }
 
+export function nodeNoteLinkUrl(note: NodeNoteEntry, origin: string) {
+  if (!note.url) return note.url
+  const url = new URL(note.url, origin)
+  if (url.origin !== origin || url.pathname !== '/api/files/open') return note.url
+  url.searchParams.set('nodeId', note.nodeId)
+  return `${url.pathname}${url.search}${url.hash}`
+}
+
 export function nodeNoteDisplayText(note: NodeNoteEntry) {
   if (note.label) return note.label
   if (note.body) return note.body

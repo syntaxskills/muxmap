@@ -564,11 +564,11 @@ function App() {
     setPan(centerPan(viewport.clientWidth, viewport.clientHeight, width, height, scale))
   }, [height, scale, width])
 
-  const focusSelectedOnMobile = useCallback(() => {
+  const focusSelectedOnLoad = useCallback(() => {
     const viewport = canvasRef.current
     const point = positions.get(selected?.id ?? graph?.workspace.rootNodeId ?? '')
-    if (!viewport || !point || viewport.clientWidth > 640) return false
-    const nextScale = 0.82
+    if (!viewport || !point || (viewport.clientWidth > 640 && !initialView.selectedId)) return false
+    const nextScale = viewport.clientWidth > 640 ? 0.9 : 0.82
     const nodeHeight = nodeHeights.get(selected?.id ?? '') ?? NODE_HEIGHT
     setScale(nextScale)
     setPan({
@@ -576,13 +576,13 @@ function App() {
       y: viewport.clientHeight / 2 - (point.y + 48 + nodeHeight / 2) * nextScale,
     })
     return true
-  }, [graph?.workspace.rootNodeId, nodeHeights, nodeWidth, positions, selected?.id])
+  }, [graph?.workspace.rootNodeId, initialView.selectedId, nodeHeights, nodeWidth, positions, selected?.id])
 
   useEffect(() => {
-    if (!graph || centeredOnce.current || !settings['canvas.autoFitOnLoad']) return
+    if (!graph || centeredOnce.current || (!settings['canvas.autoFitOnLoad'] && !initialView.selectedId)) return
     centeredOnce.current = true
-    requestAnimationFrame(() => { if (!focusSelectedOnMobile()) fitView() })
-  }, [fitView, focusSelectedOnMobile, graph, settings])
+    requestAnimationFrame(() => { if (!focusSelectedOnLoad()) fitView() })
+  }, [fitView, focusSelectedOnLoad, graph, initialView.selectedId, settings])
 
   useEffect(() => {
     if (!workingAgentNodeKey || settings['workbench.reduceMotion']) return

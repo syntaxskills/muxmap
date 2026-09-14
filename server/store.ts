@@ -882,6 +882,15 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
       return listNodeNotesForNode(id, Math.max(1, Math.min(200, Math.trunc(limit))))
     },
 
+    listFileNoteLinks() {
+      return database.prepare(`
+        SELECT DISTINCT nodes.id, nodes.title, node_notes.url
+        FROM node_notes JOIN nodes ON nodes.id = node_notes.node_id
+        WHERE nodes.archived_at IS NULL AND node_notes.url LIKE '%/api/files/open?%'
+        ORDER BY nodes.title, nodes.id
+      `).all() as Array<{ id: string; title: string; url: string }>
+    },
+
     createNodeNote(id: string, input: NodeNoteInput, createdBy = 'human') {
       const node = this.getNode(id)
       if (!node) throw new StoreValidationError('Node not found', 404)

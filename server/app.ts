@@ -283,23 +283,40 @@ markdown.renderer.rules.table_open = (tokens, index, options, _env, self) =>
 markdown.renderer.rules.table_close = (tokens, index, options, _env, self) =>
   `${self.renderToken(tokens, index, options)}</div>`
 
-function fileHeaderHtml(path: string, content: string, line: number | undefined, column: number | undefined, sourceHref?: string) {
+type FileNodeReference = { id: string; title: string; origin?: boolean }
+
+function fileNodesHtml(nodes: FileNodeReference[]) {
+  if (nodes.length === 0) return '<div class="file-nodes"><span>No linked nodes</span></div>'
+  return `<div class="file-nodes" aria-label="Linked nodes">${nodes.map((node, index) => `${index === 0 ? `<span>${node.origin ? 'From node' : 'Used by'}</span>` : index === 1 && nodes[0].origin ? '<span>Also used by</span>' : ''}<a href="/?node=${encodeURIComponent(node.id)}" title="Go to node: ${htmlEscape(node.title)}">${htmlEscape(node.title)}</a>`).join('')}</div>`
+}
+
+function fileHeaderHtml(path: string, content: string, line: number | undefined, column: number | undefined, nodes: FileNodeReference[], sourceHref?: string) {
   const metadata = {
     path,
     line,
     column,
   }
-  return `<header><div><strong>${htmlEscape(basename(path))}</strong><span>${htmlEscape(path)}${line ? `:${line}${column ? `:${column}` : ''}` : ''}</span></div><nav>
+  return `<header><div class="file-info"><strong>${htmlEscape(basename(path))}</strong><span>${htmlEscape(path)}${line ? `:${line}${column ? `:${column}` : ''}` : ''}</span>${fileNodesHtml(nodes)}</div><nav aria-label="File actions">
 ${sourceHref ? `<a href="${htmlEscape(sourceHref)}">Source</a>` : ''}
 <button type="button" data-copy="path">Copy path</button>
 <button type="button" data-copy="content">Copy content</button>
-<button type="button" data-editor="zed">Open in Zed</button>
-<button type="button" data-editor="vscode">Open in VS Code</button>
+<details class="file-editors"><summary>Open in…</summary><div class="file-editor-options">
+<button type="button" data-editor="zed">Zed</button>
+<button type="button" data-editor="vscode">VS Code</button>
+</div></details>
 </nav></header><textarea id="muxmap-file-content" hidden>${htmlEscape(content)}</textarea><script>
 const muxmapFile = ${jsLiteral(metadata)};
 const status = document.createElement('span');
 status.className = 'muxmap-file-status';
+status.setAttribute('role', 'status');
 document.querySelector('header nav')?.append(status);
+const editors = document.querySelector('.file-editors');
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && editors.open) {
+    editors.open = false;
+    editors.querySelector('summary').focus();
+  }
+});
 async function copyText(value) {
   await navigator.clipboard.writeText(value);
   status.textContent = 'Copied';
@@ -308,10 +325,14 @@ async function copyText(value) {
 document.addEventListener('click', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
+  if (!editors.contains(target)) editors.open = false;
   try {
     if (target.dataset.copy === 'path') await copyText(muxmapFile.path);
     if (target.dataset.copy === 'content') await copyText(document.getElementById('muxmap-file-content')?.value ?? '');
     if (target.dataset.editor) {
+      editors.open = false;
+      editors.querySelector('summary').focus();
+      status.textContent = 'Opening…';
       const response = await fetch('/api/files/action', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -332,51 +353,52 @@ document.addEventListener('click', async (event) => {
 function filePreviewStyles(extra = '') {
   return `<style>
 :root{color-scheme:dark light}body{margin:0;background:#111411;color:#dce2db;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-header{position:sticky;top:0;z-index:2;display:flex;gap:16px;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(25,29,24,.96);border-bottom:1px solid #2d352c;color:#aeb8ad;backdrop-filter:blur(10px)}
-header strong{display:block;color:#f0f4ef;font-size:14px}header span{font-size:12px;word-break:break-all}header nav{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
-button,a{border:1px solid #3d483b;border-radius:9px;background:#20261f;color:#edf3eb;padding:5px 8px;font:12px ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer}
-button:hover,a:hover{background:#2a3328;border-color:#596756}.muxmap-file-status{min-width:72px;color:#bde68b;font:12px ui-sans-serif,system-ui,sans-serif}
-@media (prefers-color-scheme:light){body{background:#f7f8f5;color:#20251f}header{background:rgba(247,248,245,.96);border-bottom-color:#d9dfd5;color:#657064}header strong{color:#111411}button,a{background:#fff;color:#20251f;border-color:#ccd5c8}button:hover,a:hover{background:#f0f5ed}.muxmap-file-status{color:#426a1c}}
+header{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:12px 16px;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(25,29,24,.96);border-bottom:1px solid #2d352c;color:#aeb8ad;backdrop-filter:blur(10px)}
+.file-info{flex:1 1 300px;min-width:0;overflow-wrap:anywhere}header strong{display:block;color:#f0f4ef;font-size:14px}header span{font-size:12px;word-break:break-all}header nav{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end;max-width:100%}
+button,a,summary{border:1px solid #3d483b;border-radius:9px;background:#20261f;color:#edf3eb;padding:5px 8px;font:12px ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer}
+button:hover,a:hover,summary:hover{background:#2a3328;border-color:#596756}button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid #86a667;outline-offset:2px}.muxmap-file-status{color:#bde68b;font:12px ui-sans-serif,system-ui,sans-serif}.muxmap-file-status:empty{display:none}
+.file-nodes{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px}.file-nodes a{min-width:0;overflow-wrap:anywhere}.file-nodes span{word-break:normal}.file-editors{position:relative}.file-editor-options{position:absolute;right:0;top:calc(100% + 6px);display:grid;gap:4px;min-width:140px;padding:6px;background:#20261f;border:1px solid #657064;border-radius:10px;box-shadow:0 8px 24px #0004}.file-editor-options button{text-align:left}
+@media (prefers-color-scheme:light){body{background:#f7f8f5;color:#20251f}header{background:rgba(247,248,245,.96);border-bottom-color:#d9dfd5;color:#657064}header strong{color:#111411}button,a,summary,.file-editor-options{background:#fff;color:#20251f;border-color:#ccd5c8}button:hover,a:hover,summary:hover{background:#f0f5ed}.muxmap-file-status{color:#426a1c}}
 ${extra}</style>`
 }
 
-function fileErrorHtml(url: URL, message: string, missing: boolean, defaultCwd: string) {
+function fileErrorHtml(url: URL, message: string, missing: boolean, defaultCwd: string, nodes: FileNodeReference[]) {
   const title = missing ? 'File not found' : 'Unable to open file'
   const cwd = url.searchParams.get('cwd') || defaultCwd
   const context = new URLSearchParams({ cwd })
-  for (const key of ['sessionId', 'renderer']) {
+  for (const key of ['sessionId', 'nodeId', 'renderer']) {
     const value = url.searchParams.get(key)
     if (value) context.set(key, value)
   }
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title} · MuxMap</title>${filePreviewStyles(`main{max-width:720px;margin:8vh auto;padding:24px;font:15px/1.6 ui-sans-serif,system-ui,sans-serif}h1{font-size:28px;line-height:1.2}p,code{overflow-wrap:anywhere}form{margin-top:28px}label{display:block;font-weight:600;margin-bottom:8px}.path-entry{display:flex;gap:10px;flex-wrap:wrap}input{box-sizing:border-box;flex:1;min-width:0;width:100%;border:1px solid #657064;border-radius:9px;background:transparent;color:inherit;padding:12px;font:14px ui-monospace,monospace}input:focus-visible,button:focus-visible{outline:2px solid #86a667;outline-offset:3px}button{padding:12px 18px;font-size:14px}.hint{font-size:13px}`)}</head><body><header><strong>MuxMap · File preview</strong></header><main>
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title} · MuxMap</title>${filePreviewStyles(`main{max-width:720px;margin:8vh auto;padding:24px;font:15px/1.6 ui-sans-serif,system-ui,sans-serif}h1{font-size:28px;line-height:1.2}p,code{overflow-wrap:anywhere}form{margin-top:28px}label{display:block;font-weight:600;margin-bottom:8px}.path-entry{display:flex;gap:10px;flex-wrap:wrap}input{box-sizing:border-box;flex:1;min-width:0;width:100%;border:1px solid #657064;border-radius:9px;background:transparent;color:inherit;padding:12px;font:14px ui-monospace,monospace}input:focus-visible,button:focus-visible{outline:2px solid #86a667;outline-offset:3px}button{padding:12px 18px;font-size:14px}.hint{font-size:13px}`)}</head><body><header><div class="file-info"><strong>MuxMap · File preview</strong>${fileNodesHtml(nodes)}</div></header><main>
 <h1>${title}</h1><p>${missing ? 'Check the path below, or enter another file to open.' : htmlEscape(message)}</p>
 <form action="/api/files/open" method="get"><label for="file-path">File path</label><div class="path-entry"><input id="file-path" name="path" value="${htmlEscape(url.searchParams.get('path') ?? '')}" placeholder="src/App.tsx or /home/you/project/src/App.tsx" aria-describedby="path-help" required autofocus spellcheck="false"><button type="submit">Open file</button></div>
 ${[...context].map(([key, value]) => `<input type="hidden" name="${key}" value="${htmlEscape(value)}">`).join('')}
 <p id="path-help" class="hint">Enter a relative or full path. ${context.has('sessionId') ? 'Relative paths use the terminal’s current working directory.' : `Relative paths start from <code>${htmlEscape(cwd)}</code>.`}</p></form></main></body></html>`
 }
 
-function fileSourcePreviewHtml(path: string, content: string, line: number | undefined, column: number | undefined) {
+function fileSourcePreviewHtml(path: string, content: string, line: number | undefined, header: string) {
   const rows = content.split(/\r?\n/).map((row, index) => {
     const number = index + 1
     const selected = line === number
     return `<tr id="L${number}"${selected ? ' class="is-selected"' : ''}><th>${number}</th><td><code>${htmlEscape(row || ' ')}</code></td></tr>`
   }).join('')
   const script = line ? `<script>document.getElementById('L${line}')?.scrollIntoView({block:'center'});</script>` : ''
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`table{border-collapse:collapse;width:100%}th{width:1%;padding:0 12px;color:#657064;text-align:right;user-select:none;border-right:1px solid #262d25}
-td{padding:0 14px;white-space:pre}tr.is-selected{background:#31401f}tr.is-selected th{color:#d8ef9a}`)}</head><body>${fileHeaderHtml(path, content, line, column)}<table>${rows}</table>${script}</body></html>`
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`table{border-collapse:collapse;width:100%}th{width:1%;padding:0 12px;color:#657064;text-align:right;user-select:none;border-right:1px solid #262d25}
+td{padding:0 14px;white-space:pre}tr.is-selected{background:#31401f}tr.is-selected th{color:#d8ef9a}`)}</head><body>${header}<table>${rows}</table>${script}</body></html>`
 }
 
-function markdownPreviewHtml(path: string, content: string, line: number | undefined, column: number | undefined) {
+function markdownPreviewHtml(path: string, content: string, header: string) {
   const rendered = markdown.render(content)
   const mermaidScript = rendered.includes('class="mermaid"') ? `<script type="module">
 import mermaid from '/api/vendor/mermaid.esm.min.mjs';
 mermaid.initialize({ startOnLoad: true, securityLevel: 'strict', theme: matchMedia('(prefers-color-scheme: light)').matches ? 'default' : 'dark' });
 </script>` : ''
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`main{box-sizing:border-box;max-width:920px;margin:0 auto;padding:28px 22px 64px;font:15px/1.68 ui-sans-serif,system-ui,sans-serif}.markdown-body h1,.markdown-body h2,.markdown-body h3{line-height:1.2;color:#f4f7f2}.markdown-body h1{font-size:32px}.markdown-body h2{font-size:23px;border-top:1px solid #2d352c;padding-top:24px}.markdown-body a{all:unset;color:#bde68b;text-decoration:underline;cursor:pointer}.markdown-body code{border-radius:5px;background:#20261f;padding:2px 5px;font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.markdown-body pre{overflow:auto;border:1px solid #2d352c;border-radius:14px;background:#0b0d0b;padding:14px}.markdown-body pre code{background:transparent;padding:0}.markdown-body blockquote{margin-left:0;border-left:3px solid #586b3f;padding-left:14px;color:#b7c0b4}.markdown-table-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;margin:16px 0}.markdown-table-scroll:focus-visible{outline:2px solid #86a667;outline-offset:2px}.markdown-body table{border-collapse:collapse}.markdown-body th,.markdown-body td{border:1px solid #657064;padding:8px 12px}.markdown-body th{background:#20261f}.markdown-body img{max-width:100%;border-radius:12px}.markdown-body .mermaid{border:1px solid #2d352c;border-radius:14px;background:#151914;padding:18px;overflow:auto;text-align:center}@media (prefers-color-scheme:light){.markdown-body h1,.markdown-body h2,.markdown-body h3{color:#111411}.markdown-body h2{border-top-color:#d9dfd5}.markdown-body a{color:#426a1c}.markdown-body code{background:#eef2ea}.markdown-body pre{background:#fff;border-color:#d9dfd5}.markdown-body th,.markdown-body td{border-color:#929e8c}.markdown-body th{background:#eef2ea}.markdown-body blockquote{color:#586155}.markdown-body .mermaid{background:#fff;border-color:#d9dfd5}}`)}</head><body>${fileHeaderHtml(path, content, line, column, '?renderer=source')}<main class="markdown-body">${rendered}</main>${mermaidScript}</body></html>`
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`main{box-sizing:border-box;max-width:920px;margin:0 auto;padding:28px 22px 64px;font:15px/1.68 ui-sans-serif,system-ui,sans-serif}.markdown-body h1,.markdown-body h2,.markdown-body h3{line-height:1.2;color:#f4f7f2}.markdown-body h1{font-size:32px}.markdown-body h2{font-size:23px;border-top:1px solid #2d352c;padding-top:24px}.markdown-body a{all:unset;color:#bde68b;text-decoration:underline;cursor:pointer}.markdown-body code{border-radius:5px;background:#20261f;padding:2px 5px;font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.markdown-body pre{overflow:auto;border:1px solid #2d352c;border-radius:14px;background:#0b0d0b;padding:14px}.markdown-body pre code{background:transparent;padding:0}.markdown-body blockquote{margin-left:0;border-left:3px solid #586b3f;padding-left:14px;color:#b7c0b4}.markdown-table-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;margin:16px 0}.markdown-table-scroll:focus-visible{outline:2px solid #86a667;outline-offset:2px}.markdown-body table{border-collapse:collapse}.markdown-body th,.markdown-body td{border:1px solid #657064;padding:8px 12px}.markdown-body th{background:#20261f}.markdown-body img{max-width:100%;border-radius:12px}.markdown-body .mermaid{border:1px solid #2d352c;border-radius:14px;background:#151914;padding:18px;overflow:auto;text-align:center}@media (prefers-color-scheme:light){.markdown-body h1,.markdown-body h2,.markdown-body h3{color:#111411}.markdown-body h2{border-top-color:#d9dfd5}.markdown-body a{color:#426a1c}.markdown-body code{background:#eef2ea}.markdown-body pre{background:#fff;border-color:#d9dfd5}.markdown-body th,.markdown-body td{border-color:#929e8c}.markdown-body th{background:#eef2ea}.markdown-body blockquote{color:#586155}.markdown-body .mermaid{background:#fff;border-color:#d9dfd5}}`)}</head><body>${header}<main class="markdown-body">${rendered}</main>${mermaidScript}</body></html>`
 }
 
-function htmlDocumentPreview(path: string, content: string, line: number | undefined, column: number | undefined) {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`body{display:flex;flex-direction:column;height:100vh;overflow:hidden}iframe{flex:1;display:block;width:100%;border:0;background:white}`)}</head><body>${fileHeaderHtml(path, content, line, column, '?renderer=source')}<iframe sandbox="allow-scripts" srcdoc="${htmlEscape(content)}"></iframe></body></html>`
+function htmlDocumentPreview(path: string, content: string, header: string) {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`body{display:flex;flex-direction:column;height:100vh;overflow:hidden}iframe{flex:1;display:block;width:100%;border:0;background:white}`)}</head><body>${header}<iframe sandbox="allow-scripts" srcdoc="${htmlEscape(content)}"></iframe></body></html>`
 }
 
 export function editorTarget(path: string, line?: number, column?: number) {
@@ -481,6 +503,35 @@ export function createMuxMapServer(options: ServerOptions) {
   let closing = false
   let loggedPtyLifecycleError = false
 
+  function fileNodeReferences(url: URL, filePath?: string): FileNodeReference[] {
+    const nodeId = url.searchParams.get('nodeId') || store.getSession(url.searchParams.get('sessionId') ?? '')?.nodeId
+    const origin = nodeId ? store.getNode(nodeId) : undefined
+    const nodes = new Map<string, FileNodeReference>()
+    if (origin && !origin.archivedAt) nodes.set(origin.id, { id: origin.id, title: origin.title, origin: true })
+    if (!filePath) return [...nodes.values()]
+    const cwds = new Map<string, string | undefined>()
+    // ponytail: scan saved file links per preview; index canonical paths if the note library gets large.
+    for (const note of store.listFileNoteLinks()) {
+      if (nodes.has(note.id)) continue
+      try {
+        const link = new URL(note.url, url)
+        if (link.origin !== url.origin || link.pathname !== '/api/files/open') continue
+        const path = link.searchParams.get('path')
+        const sessionId = link.searchParams.get('sessionId')
+        let sessionCwd: string | undefined
+        if (sessionId && path && !isAbsolute(expandHome(path))) {
+          if (!cwds.has(sessionId)) cwds.set(sessionId, sessions.currentWorkingDirectory(sessionId))
+          sessionCwd = cwds.get(sessionId)
+        }
+        const file = safeFilePath(path, [sessionCwd, link.searchParams.get('cwd') ?? undefined], options.allowedRoots)
+        if (relative(filePath, file.path) === '') nodes.set(note.id, { id: note.id, title: note.title })
+      } catch {
+        // A stale or inaccessible note must not prevent another file from opening.
+      }
+    }
+    return [...nodes.values()]
+  }
+
   const logPtyLifecycleErrorOnce = (operation: 'resize' | 'kill', error: unknown) => {
     if (loggedPtyLifecycleError) return
     loggedPtyLifecycleError = true
@@ -562,29 +613,19 @@ export function createMuxMapServer(options: ServerOptions) {
             return response.end(readFileSync(file.path))
           }
           if (!textPreviewExtensions.has(extension) && file.size > 1024 * 1024) throw new Error('File is too large to preview')
-          const line = Number(url.searchParams.get('line'))
-          const column = Number(url.searchParams.get('column'))
+          const line = positiveInteger(url.searchParams.get('line'))
+          const column = positiveInteger(url.searchParams.get('column'))
           const content = readFileSync(file.path, 'utf8')
           const renderer = url.searchParams.get('renderer')
+          const rendered = renderer !== 'source' && ['.md', '.mdx', '.html'].includes(extension)
+          const source = new URLSearchParams(url.searchParams)
+          source.set('path', file.path)
+          source.set('renderer', 'source')
+          const header = fileHeaderHtml(file.path, content, line, column, fileNodeReferences(url, file.path), rendered ? `?${source}` : undefined)
           response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-          if ((extension === '.md' || extension === '.mdx') && renderer !== 'source') return response.end(markdownPreviewHtml(
-            file.path,
-            content,
-            Number.isInteger(line) && line > 0 ? line : undefined,
-            Number.isInteger(column) && column > 0 ? column : undefined,
-          ))
-          if (extension === '.html' && renderer !== 'source') return response.end(htmlDocumentPreview(
-            file.path,
-            content,
-            Number.isInteger(line) && line > 0 ? line : undefined,
-            Number.isInteger(column) && column > 0 ? column : undefined,
-          ))
-          return response.end(fileSourcePreviewHtml(
-            file.path,
-            content,
-            Number.isInteger(line) && line > 0 ? line : undefined,
-            Number.isInteger(column) && column > 0 ? column : undefined,
-          ))
+          if ((extension === '.md' || extension === '.mdx') && rendered) return response.end(markdownPreviewHtml(file.path, content, header))
+          if (extension === '.html' && rendered) return response.end(htmlDocumentPreview(file.path, content, header))
+          return response.end(fileSourcePreviewHtml(file.path, content, line, header))
         }
 
         if (request.method === 'GET' && url.pathname === '/api/vendor/mermaid.esm.min.mjs') {
@@ -961,7 +1002,7 @@ export function createMuxMapServer(options: ServerOptions) {
       if (filePreview && request.method === 'HEAD') return response.writeHead(status, { 'cache-control': 'no-store' }).end()
       if (filePreview && request.headers.accept?.includes('text/html')) {
         response.writeHead(status, { 'content-type': 'text/html; charset=utf-8' })
-        return response.end(fileErrorHtml(url, message, status === 404, options.allowedRoots[0] ?? process.cwd()))
+        return response.end(fileErrorHtml(url, message, status === 404, options.allowedRoots[0] ?? process.cwd(), fileNodeReferences(url)))
       }
       sendJson(response, status, { error: message })
     }
