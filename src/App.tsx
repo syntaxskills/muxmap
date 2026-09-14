@@ -173,11 +173,11 @@ function App() {
   const [clientPlatform] = useState(() => /Win/i.test(navigator.platform) ? 'win32' : /Mac/i.test(navigator.platform) ? 'darwin' : 'linux')
   const [initialView] = useState(() => {
     const view = readViewState(window.location.search)
-    return demoMode && !view.selectedId ? { ...view, selectedId: 'demo-api-contract' } : view
+    return demoMode && !view.selectedId && !view.terminalSessionId ? { ...view, selectedId: 'demo-api-contract' } : view
   })
   const [graph, setGraph] = useState<WorkspaceGraph | null>(() => demoMode ? demoWorkspaceGraph : null)
   const [fullNodeNotes, setFullNodeNotes] = useState<Record<string, NodeNoteEntry[]>>({})
-  const [selectedId, setSelectedId] = useState<string | null>(initialView.selectedId ?? 'dev-1420')
+  const [selectedId, setSelectedId] = useState<string | null>(initialView.selectedId ?? (initialView.terminalSessionId ? null : 'dev-1420'))
   const [collapsed, setCollapsed] = useState(new Set<string>())
   const [query, setQuery] = useState('')
   const [scale, setScale] = useState(0.9)
@@ -436,9 +436,6 @@ function App() {
     if (!restored || archivedIds.has(restored.nodeId)) {
       setSurface(closeTerminal)
       return
-    }
-    if (restored.nodeId !== selectedId) {
-      setSelectedId(restored.nodeId)
     }
     if (canAcknowledgeAgentOnOpen(restored.agent)) {
       setGraph((current) => current ? {

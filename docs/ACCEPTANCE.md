@@ -17,7 +17,7 @@
 - [x] Deterministic auto-layout after creation
 - [x] Hover expansion and layout reflow use reduced-motion-aware transitions
 - [x] Expanded node click target opens its linked terminal from the full node surface
-- [x] Blank-canvas click collapses the currently pinned node
+- [x] Blank-canvas click collapses the currently pinned node, keeps its terminal open, and stays deselected through workspace polling and refresh
 - [x] Dragging over a node previews and changes the branch's parent; sibling top/bottom edges reorder
 - [x] Search by title, project, or Jira key
 - [x] Collapse and expand branches

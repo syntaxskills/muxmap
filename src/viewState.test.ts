@@ -22,3 +22,12 @@ test('closing a terminal removes terminal-only URL state', () => {
     terminalFloating: false,
   }), '?node=plain-node')
 })
+
+test('clearing the selected node preserves the open terminal across refresh', () => {
+  for (const terminalFloating of [false, true]) {
+    const state = { selectedId: null, terminalSessionId: 'session-1', terminalFloating }
+    const search = writeViewState('?node=ticket&terminal=session-1', state)
+    assert.equal(new URLSearchParams(search).has('node'), false)
+    assert.deepEqual(readViewState(search), state)
+  }
+})
