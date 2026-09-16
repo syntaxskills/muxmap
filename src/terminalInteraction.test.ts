@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, MAX_BROWSER_TERMINAL_SCROLLBACK, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelBatchReports, terminalSgrWheelReports, terminalWheelHandledByApplication } from './terminalInteraction.ts'
+import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, MAX_BROWSER_TERMINAL_SCROLLBACK, attachTerminalTouchScroll, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelBatchReports, terminalSgrWheelReports, terminalWheelHandledByApplication } from './terminalInteraction.ts'
 
 test('terminal dragging follows the pointer without changing its starting offset', () => {
   assert.deepEqual(dragOffset({ x: 20, y: -10 }, { x: 100, y: 80 }, { x: 145, y: 55 }), { x: 65, y: -35 })
@@ -60,6 +60,56 @@ test('terminal wheel auto mode lets fullscreen terminal apps handle scrolling', 
   assert.equal(terminalWheelHandledByApplication(false, 'auto'), false)
   assert.equal(terminalWheelHandledByApplication(false, 'application'), true)
   assert.equal(terminalWheelHandledByApplication(true, 'muxmap'), false)
+})
+
+test('terminal touch scrolling follows the finger without turning taps, pinches or cancelled gestures into input', () => {
+  const element = new EventTarget() as HTMLElement
+  const lines: number[] = []
+  const dispose = attachTerminalTouchScroll(element, () => 20, (value) => lines.push(value))
+  const touch = (y: number, x = 100, identifier = 1) => ({ clientX: x, clientY: y, identifier })
+  const send = (type: string, touches: ReturnType<typeof touch>[]) => {
+    const event = new Event(type, { cancelable: true })
+    Object.defineProperty(event, 'touches', { value: touches })
+    element.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+  assert.equal(send('touchstart', [touch(100)]), false)
+  assert.equal(send('touchmove', [touch(102)]), false)
+  assert.equal(send('touchend', []), false)
+  assert.deepEqual(lines, [], 'a tap must still focus the terminal or activate a link')
+
+  send('touchstart', [touch(100)])
+  assert.equal(send('touchmove', [touch(112)]), true)
+  send('touchmove', [touch(140)])
+  send('touchmove', [touch(120)])
+  assert.equal(send('touchend', []), true, 'a swipe must not also click a terminal link')
+  assert.deepEqual(lines.splice(0), [-2, 1], 'drag down into history and up toward the latest output')
+
+  send('touchstart', [touch(100)])
+  send('touchmove', [touch(112)])
+  send('touchcancel', [])
+  send('touchmove', [touch(160)])
+  send('touchstart', [touch(100)])
+  send('touchmove', [touch(112)])
+  send('touchend', [])
+  assert.deepEqual(lines, [], 'fractional movement must not leak between gestures')
+
+  send('touchstart', [touch(100)])
+  send('touchstart', [touch(100), touch(150, 140, 2)])
+  assert.equal(send('touchmove', [touch(140), touch(180, 140, 2)]), false)
+  send('touchend', [touch(180, 140, 2)])
+  send('touchmove', [touch(220, 140, 2)])
+  send('touchend', [])
+  send('touchstart', [touch(100)])
+  assert.equal(send('touchmove', [touch(102, 140)]), false)
+  send('touchmove', [touch(160, 140)])
+  send('touchend', [])
+  assert.deepEqual(lines, [], 'pinches and horizontal gestures must not scroll the terminal')
+
+  dispose()
+  send('touchstart', [touch(100)])
+  send('touchmove', [touch(180)])
+  assert.deepEqual(lines, [], 'unmounting must remove touch listeners')
 })
 
 test('terminal wheel reports can be sent as proportional SGR mouse input', () => {

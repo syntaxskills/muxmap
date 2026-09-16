@@ -6,7 +6,7 @@ import '@xterm/xterm/css/xterm.css'
 import { api } from './api.ts'
 import type { NodeType, TerminalInputHistoryItem, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
-import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
+import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, attachTerminalTouchScroll, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { loadAddonWithFallback } from './terminalRenderer.ts'
 import { agentStatusText, agentStatusTooltip } from './agentStatus.ts'
@@ -157,26 +157,28 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       pendingSgrWheelLines = 0
       if (data && lifecycle.canInput() && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))
     }
+    const scrollLines = (lines: number) => {
+      if (terminalWheelHandledByApplication(applicationInteractive(), wheelMode)) {
+        pendingSgrWheelLines = coalesceTerminalSgrWheelLines(pendingSgrWheelLines, lines)
+        sgrWheelFrame ??= window.requestAnimationFrame(flushSgrWheel)
+        return
+      }
+      pendingScroll = Math.max(-200, Math.min(200, pendingScroll + lines))
+      scrollTimer ??= window.setTimeout(flushScroll, 32)
+    }
+    const cellHeight = () => (terminal.element?.querySelector('.xterm-screen')?.getBoundingClientRect().height ?? 0) / terminal.rows || fontSize * 1.4
     const scroll = (event: WheelEvent) => {
       event.preventDefault()
       event.stopImmediatePropagation()
-      const measuredCell = terminal.element?.querySelector('.xterm-rows > div')?.getBoundingClientRect().height
-      const cellHeight = measuredCell && Number.isFinite(measuredCell) ? measuredCell : fontSize * 1.4
-      const intent = consumeTerminalWheel(wheelRemainder, event.deltaY, event.deltaMode, terminal.rows, cellHeight, {
+      const intent = consumeTerminalWheel(wheelRemainder, event.deltaY, event.deltaMode, terminal.rows, cellHeight(), {
         precision: precisionScrollMultiplier,
         discrete: discreteScrollMultiplier,
       })
       wheelRemainder = intent.remainder
-      if (!intent.lines) return
-      if (terminalWheelHandledByApplication(applicationInteractive(), wheelMode)) {
-        pendingSgrWheelLines = coalesceTerminalSgrWheelLines(pendingSgrWheelLines, intent.lines)
-        sgrWheelFrame ??= window.requestAnimationFrame(flushSgrWheel)
-        return
-      }
-      pendingScroll = Math.max(-200, Math.min(200, pendingScroll + intent.lines))
-      scrollTimer ??= window.setTimeout(flushScroll, 32)
+      if (intent.lines) scrollLines(intent.lines)
     }
     terminal.element?.addEventListener('wheel', scroll, { capture: true, passive: false })
+    const detachTouchScroll = attachTerminalTouchScroll(container.current, cellHeight, scrollLines)
     terminal.attachCustomKeyEventHandler((event) => {
       if (shouldCopyTerminalSelection(event, terminal.hasSelection())) {
         event.preventDefault()
@@ -263,6 +265,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       links.dispose()
       terminal.element?.removeEventListener('mousedown', forceSelection, true)
       terminal.element?.removeEventListener('wheel', scroll, true)
+      detachTouchScroll()
       if (scrollTimer !== undefined) window.clearTimeout(scrollTimer)
       if (sgrWheelFrame !== undefined) window.cancelAnimationFrame(sgrWheelFrame)
       if (outputFrame !== undefined) window.cancelAnimationFrame(outputFrame)

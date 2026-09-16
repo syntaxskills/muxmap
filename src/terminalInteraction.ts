@@ -43,6 +43,54 @@ export function consumeTerminalWheel(
   return { lines, remainder: lines === rawLines ? total - lines * unit : 0 }
 }
 
+export function attachTerminalTouchScroll(element: HTMLElement, cellHeight: () => number, scroll: (lines: number) => void) {
+  let gesture: { id: number; x: number; y: number; lastY: number; remainder: number; scrolling: boolean } | null = null
+  const start = (event: TouchEvent) => {
+    event.stopImmediatePropagation()
+    const touch = event.touches.length === 1 ? event.touches[0] : null
+    gesture = touch ? { id: touch.identifier, x: touch.clientX, y: touch.clientY, lastY: touch.clientY, remainder: 0, scrolling: false } : null
+  }
+  const move = (event: TouchEvent) => {
+    event.stopImmediatePropagation()
+    const touch = event.touches.length === 1 ? event.touches[0] : null
+    if (!gesture || !touch || touch.identifier !== gesture.id) {
+      gesture = null
+      return
+    }
+    if (!gesture.scrolling) {
+      const dx = Math.abs(touch.clientX - gesture.x)
+      const dy = Math.abs(touch.clientY - gesture.y)
+      if (Math.max(dx, dy) < 6) return
+      if (dx >= dy) {
+        gesture = null
+        return
+      }
+      gesture.scrolling = true
+    }
+    event.preventDefault()
+    const intent = consumeTerminalWheel(gesture.remainder, gesture.lastY - touch.clientY, 0, 1, cellHeight(), { precision: 1, discrete: 1 })
+    gesture.lastY = touch.clientY
+    gesture.remainder = intent.remainder
+    if (intent.lines) scroll(intent.lines)
+  }
+  const end = (event: TouchEvent) => {
+    event.stopImmediatePropagation()
+    if (gesture?.scrolling) event.preventDefault()
+    gesture = null
+  }
+  // Capture before xterm: tmux history and fullscreen apps need the same route as wheel input.
+  element.addEventListener('touchstart', start, { capture: true, passive: true })
+  element.addEventListener('touchmove', move, { capture: true, passive: false })
+  element.addEventListener('touchend', end, { capture: true, passive: false })
+  element.addEventListener('touchcancel', end, { capture: true, passive: false })
+  return () => {
+    element.removeEventListener('touchstart', start, { capture: true })
+    element.removeEventListener('touchmove', move, { capture: true })
+    element.removeEventListener('touchend', end, { capture: true })
+    element.removeEventListener('touchcancel', end, { capture: true })
+  }
+}
+
 export function terminalWheelHandledByApplication(applicationInteractive: boolean, mode: TerminalWheelMode) {
   if (mode === 'application') return true
   if (mode === 'muxmap') return false

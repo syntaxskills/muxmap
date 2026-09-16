@@ -4230,6 +4230,7 @@ kbd {
   min-height: 0;
   display: grid;
   align-items: center;
+  touch-action: pinch-zoom;
 }
 
 .terminal-mount .xterm-viewport {
