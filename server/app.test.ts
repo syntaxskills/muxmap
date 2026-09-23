@@ -893,6 +893,78 @@ test('archive stops branch terminal sessions while restore keeps them stopped', 
   }
 })
 
+test('workspace polling cannot stop a new terminal using discovery from before its creation', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-startup-race-')))
+  const tmux = fakeTmux()
+  let holdDiscovery = false
+  let releaseDiscovery = () => {}
+  let discoveries = 0
+  const server = createMuxMapServer({
+    databasePath: ':memory:', allowedRoots: [root], platform: 'linux', token: 'test-token', tmux,
+    processReaderAsync: async () => {
+      discoveries++
+      if (holdDiscovery) await new Promise<void>((resolve) => { releaseDiscovery = resolve })
+      return []
+    },
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+  })
+  let ws: WebSocket | undefined
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const auth = await fetch(`${base}/api/auth`)
+    const headers = { cookie: auth.headers.get('set-cookie')!.split(';')[0], origin: base, 'content-type': 'application/json' }
+    const node = server.store.createNode('default', { parentId: 'workspace', title: 'Startup race', type: 'terminal', repoPath: root })
+    const start = async () => {
+      const response = await fetch(`${base}/api/nodes/${node.id}/session/new`, { method: 'POST', headers, body: '{}' })
+      assert.equal(response.status, 201)
+      return (await response.json() as { session: TerminalSession }).session
+    }
+    const first = await start()
+    holdDiscovery = true
+    const polling = fetch(`${base}/api/workspaces/default`, { headers }).then((response) => response.json())
+    await eventually(() => discoveries === 2)
+    assert.equal(server.store.getSession(first.id)?.status, 'running', 'pending discovery must not mark the new runtime stopped')
+    const latest = await start() // Also proves slow discovery does not block other HTTP requests.
+    assert.notEqual(latest.runtimeName, first.runtimeName)
+    holdDiscovery = false
+    releaseDiscovery()
+    const graph = await polling as { sessions: TerminalSession[] }
+    const visible = graph.sessions.find((item) => item.id === latest.id)
+    assert.equal(visible?.runtimeName, latest.runtimeName)
+    assert.equal(visible?.runtimeExists, true, 'a live replacement must not disappear from the workspace')
+    assert.equal(visible?.status, 'detached')
+    assert.equal(server.store.getSession(latest.id)?.status, 'detached')
+    assert.equal(discoveries, 3, 'discard discovery that started before the replacement')
+
+    ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/sessions/${latest.id}/attach`, { headers })
+    await new Promise<void>((resolve, reject) => {
+      ws!.on('message', (data) => {
+        const message = JSON.parse(String(data))
+        if (message.type === 'status' && message.status === 'running') resolve()
+      })
+      ws!.once('error', reject)
+    })
+    const ready = await fetch(`${base}/api/workspaces/default`, { headers }).then((response) => response.json()) as { sessions: TerminalSession[] }
+    assert.equal(ready.sessions.find((item) => item.id === latest.id)?.status, 'running')
+    assert.equal(ready.sessions.find((item) => item.id === latest.id)?.runtimeExists, true)
+    const reads = discoveries
+    await fetch(`${base}/api/workspaces/default`, { headers })
+    assert.equal(discoveries, reads, 'unchanged workspace polls still reuse the discovery cache')
+
+    await fetch(`${base}/api/sessions/${latest.id}/stop`, { method: 'POST', headers, body: '{}' })
+    const stopped = await fetch(`${base}/api/workspaces/default`, { headers }).then((response) => response.json()) as { sessions: TerminalSession[] }
+    assert.equal(stopped.sessions.find((item) => item.id === latest.id)?.status, 'stopped')
+    assert.equal(stopped.sessions.find((item) => item.id === latest.id)?.runtimeExists, false)
+  } finally {
+    holdDiscovery = false
+    releaseDiscovery()
+    ws?.terminate()
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('websocket detaches safely and workspace refresh surfaces a missing tmux session', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-ws-')))
   const tmux = fakeTmux()

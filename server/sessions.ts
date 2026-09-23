@@ -55,14 +55,20 @@ export function createShortTtlCache<T>(load: () => T, ttlMs: number, clock: () =
 export function createStaleWhileRevalidateCache<T>(load: () => Promise<T>, initialValue: T, ttlMs: number, clock: () => number = () => Date.now()) {
   let cached = { value: initialValue, expiresAt: 0 }
   let inFlight: Promise<T> | undefined
+  let revision = 0
 
   const refresh = () => {
     if (inFlight) return inFlight
     inFlight = Promise.resolve()
-      .then(load)
-      .then((value) => {
-        cached = { value, expiresAt: clock() + ttlMs }
-        return value
+      .then(async () => {
+        for (;;) {
+          const startedAtRevision = revision
+          const value = await load()
+          // A terminal may be created or stopped while discovery is awaiting subprocesses.
+          if (startedAtRevision !== revision) continue
+          cached = { value, expiresAt: clock() + ttlMs }
+          return value
+        }
       })
       .finally(() => {
         inFlight = undefined
@@ -89,6 +95,7 @@ export function createStaleWhileRevalidateCache<T>(load: () => Promise<T>, initi
     },
     refresh,
     invalidate() {
+      revision++
       cached = { ...cached, expiresAt: 0 }
     },
     inFlight() {
@@ -400,6 +407,12 @@ export function createSessionManager(
     return asyncRuntimeDiscovery?.get() ?? syncRuntimeDiscovery!.get()
   }
 
+  async function freshDiscoverySnapshot(): Promise<RuntimeDiscoverySnapshot> {
+    return asyncRuntimeDiscovery
+      ? asyncRuntimeDiscovery.peekFresh() ?? asyncRuntimeDiscovery.refresh()
+      : syncRuntimeDiscovery!.get()
+  }
+
   async function refreshRuntimeDiscovery(): Promise<RuntimeDiscoverySnapshot> {
     if (asyncRuntimeDiscovery) return asyncRuntimeDiscovery.refresh()
     syncRuntimeDiscovery!.invalidate()
@@ -678,6 +691,8 @@ export function createSessionManager(
     },
 
     discoverySnapshot,
+
+    freshDiscoverySnapshot,
 
     refreshRuntimeDiscovery,
 

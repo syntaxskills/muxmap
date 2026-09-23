@@ -96,6 +96,27 @@ test('stale runtime cache coalesces concurrent forced refreshes', async () => {
   assert.equal(loads, 1)
 })
 
+test('runtime mutations invalidate in-flight discovery before it can publish an obsolete snapshot', async () => {
+  let loads = 0
+  let release: (value: number) => void = () => {}
+  const cache = createStaleWhileRevalidateCache(() => new Promise<number>((resolve) => {
+    loads++
+    release = resolve
+  }), 0, 2500)
+  const first = cache.refresh()
+  await Promise.resolve()
+  cache.invalidate()
+  const second = cache.refresh()
+  release(1)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(cache.peekFresh(), undefined, 'a pre-mutation result must not become fresh')
+  assert.equal(cache.peek(), 0)
+  assert.equal(loads, 2, 'waiters share a new discovery after the mutation')
+  release(2)
+  assert.deepEqual(await Promise.all([first, second]), [2, 2])
+  assert.equal(cache.peekFresh(), 2)
+})
+
 test('attaching reuses a deterministic tmux session and stopping is explicit', () => {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-session-')))
   const store = createStore(':memory:')
