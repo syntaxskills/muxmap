@@ -739,6 +739,18 @@ export function createSessionManager(
       return store.upsertAgentActivity(runtimeName, activity)
     },
 
+    resumeAgentOnInput(id: string, data: string, now = new Date().toISOString()) {
+      // Only a submitted Enter counts; drafts, navigation and bracketed paste do not.
+      if (data !== '\r' && data !== '\n') return
+      const session = store.getSession(id)
+      if (!session) return
+      const activity = store.getAgentActivity(session.runtimeName)
+      if (activity?.state !== 'needs_input' || activity.kind === 'ssh') return
+      const next = store.upsertAgentActivity(session.runtimeName, { ...activity, state: 'working', since: now, standbyReason: undefined, staleTeammate: undefined })
+      store.recordAgentEvent(session.runtimeName, activity.kind, { type: 'terminal_input_submitted' }, next.state, now)
+      return next
+    },
+
     acknowledge(id: string, now = new Date().toISOString()) {
       const session = store.getSession(id)
       if (!session) throw new Error('Session not found')

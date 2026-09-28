@@ -15,7 +15,7 @@ import './App.css'
 import { api, apiText } from './api.ts'
 import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canBulkRecoverAgentSession, canRecoverAgentSession, effectiveArchivedNodeIds, expandedNodeHeight, expandedNodeWidth, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
 import { centerPan, dragPan, gridBackground, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
-import type { NodeNoteEntry, NodeStepDefinition, NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
+import type { AgentActivity, NodeNoteEntry, NodeStepDefinition, NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { normalizeTerminalOpacity, normalizeTerminalSplit } from './terminalInteraction.ts'
 import { readViewState, writeViewState } from './viewState.ts'
@@ -1322,6 +1322,14 @@ function App() {
     } : current)
   }, [])
 
+  const updateAgentActivity = useCallback((id: string, agent: AgentActivity) => {
+    workspaceRevisionRef.current += 1
+    setGraph((current) => current ? {
+      ...current,
+      sessions: current.sessions.map((item) => item.id === id ? { ...item, agent } : item),
+    } : current)
+  }, [])
+
   function toggleCollapsed() {
     if (!selected) return
     toggleNodeCollapsed(selected.id)
@@ -1387,6 +1395,7 @@ function App() {
           floating={terminalFloating}
           onToggleFloating={() => setSurface(floatTerminal)}
           onStatus={updateSessionStatus}
+          onAgentActivity={updateAgentActivity}
           onError={setError}
           onStop={() => void stopSession(activeTerminal.id)}
           onClose={() => setSurface(closeTerminal)}

@@ -1124,6 +1124,8 @@ export function createMuxMapServer(options: ServerOptions) {
         if (message.type === 'input' && typeof message.data === 'string' && message.data.length <= 64 * 1024) {
           pty.write(message.data)
           recordSessionActivity(session.id)
+          const agent = sessions.resumeAgentOnInput(session.id, message.data)
+          if (agent) send({ type: 'agent', agent })
         } else if (message.type === 'scroll') {
           const lines = Number(message.lines)
           if (Number.isInteger(lines) && lines !== 0 && Math.abs(lines) <= 200) pty.scroll(lines)

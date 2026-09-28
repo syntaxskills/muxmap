@@ -1044,6 +1044,61 @@ test('websocket detaches safely and workspace refresh surfaces a missing tmux se
   }
 })
 
+test('submitting terminal input clears needs-input immediately without treating drafts as answers', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-input-status-')))
+  const tmux = fakeTmux()
+  const record = { writes: [] as string[], resizes: [] as number[][], kills: [] as number[] }
+  const server = createMuxMapServer({ databasePath: ':memory:', allowedRoots: [root], platform: 'linux', token: 'test-token', tmux, ptyFactory: fakePtyFactory(record) })
+  let ws: WebSocket | undefined
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const auth = await fetch(`${base}/api/auth`)
+    const cookie = auth.headers.get('set-cookie')!.split(';')[0]
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const node = server.store.createNode('default', { parentId: 'workspace', title: 'Answer a question', type: 'terminal', repoPath: root })
+    const { session } = await fetch(`${base}/api/nodes/${node.id}/session`, { method: 'POST', headers, body: JSON.stringify({ backend: 'tmux', cwd: root }) }).then(response => response.json()) as { session: TerminalSession }
+    const waiting = { kind: 'codex' as const, state: 'needs_input' as const, since: '2026-08-07T10:00:00.000Z', externalSessionId: 'keep-session-binding' }
+    server.store.upsertAgentActivity(session.runtimeName, waiting)
+    const messages: Array<{ type: string; agent?: TerminalSession['agent'] }> = []
+    ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/sessions/${session.id}/attach`, { headers })
+    ws.on('message', data => messages.push(JSON.parse(data.toString())))
+    await new Promise<void>((resolve, reject) => { ws!.once('open', resolve); ws!.once('error', reject) })
+    const input = async (data: string) => {
+      const count = record.writes.length
+      ws!.send(JSON.stringify({ type: 'input', data }))
+      await eventually(() => record.writes.length > count)
+    }
+    assert.equal(server.store.getAgentActivity(session.runtimeName)?.state, 'needs_input', 'opening is not an answer')
+    for (const draft of ['yes', '\u001b[B', '\u001b[200~first\nsecond\u001b[201~', '\u001b\r']) {
+      await input(draft)
+      assert.equal(server.store.getAgentActivity(session.runtimeName)?.state, 'needs_input')
+    }
+    await input('\r')
+    assert.equal(server.store.getAgentActivity(session.runtimeName)?.state, 'working')
+    await eventually(() => messages.some(message => message.type === 'agent'))
+    assert.equal(messages.find(message => message.type === 'agent')?.agent?.state, 'working')
+    assert.equal(server.store.getAgentActivity(session.runtimeName)?.externalSessionId, waiting.externalSessionId)
+    const events = server.store.listAgentEvents(session.runtimeName)
+    assert.equal(events[0].eventName, 'terminal_input_submitted')
+    assert.deepEqual(events[0].payload, { type: 'terminal_input_submitted' }, 'answers are not copied into status events')
+    await input('\r')
+    assert.equal(server.store.listAgentEvents(session.runtimeName).length, events.length, 'extra Enter does not duplicate the transition')
+    const graph = await fetch(`${base}/api/workspaces/default`, { headers }).then(response => response.json()) as { sessions: TerminalSession[] }
+    assert.equal(graph.sessions.find(item => item.id === session.id)?.agent?.state, 'working')
+    server.store.upsertAgentActivity(session.runtimeName, waiting)
+    await input('\n')
+    assert.equal(server.store.getAgentActivity(session.runtimeName)?.state, 'working', 'a later question can be answered independently')
+    server.store.upsertAgentActivity(session.runtimeName, { ...waiting, state: 'completed' })
+    await input('\r')
+    assert.equal(server.store.getAgentActivity(session.runtimeName)?.state, 'completed', 'only needs-input uses the fallback')
+  } finally {
+    ws?.terminate()
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('websocket attaches at the current pane size and resizes after first output', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-ws-resize-')))
   const tmux = fakeTmux()

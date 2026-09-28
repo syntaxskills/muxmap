@@ -27,7 +27,7 @@ The hook sends the current terminal locator to MuxMap:
 - tmux: `TMUX_PANE`;
 - Zellij: `ZELLIJ_SESSION_NAME` and optional `ZELLIJ_PANE_ID`;
 - Codex: direct `session_id` when supplied by the event;
-- Claude Code: lifecycle, permission, `PreToolUse`, notification, task-created/completed, and subagent-start/stop fields when supplied.
+- Claude Code: lifecycle, permission, tool-start/result, elicitation-result, notification, task-created/completed, and subagent-start/stop fields when supplied.
 - Pi: lifecycle events plus optional session id/path fields when the extension API supplies them.
 
 MuxMap resolves the locator to a live runtime name. Only runtime names starting with `muxmap` are accepted for management.
@@ -38,13 +38,15 @@ If a tracked tmux runtime disappears, MuxMap can recreate it from saved agent me
 - Claude Code: `claude --resume <session-id>`;
 - Pi: `pi --session <session-path-or-id>`.
 
+When a user submits Enter through a MuxMap terminal while its agent is `needs_input`, MuxMap marks it `working` immediately and sends the update back over the terminal connection. Opening the terminal, typing a draft, navigating choices, or pasting text does not clear the question. This fallback covers missing resume hooks; later agent events still control the status. The status event records no answer text and survives a server restart.
+
 Claude Code notes:
 
 - `PermissionRequest` marks a node as `needs_input`.
-- Claude Code does not emit a separate "permission answered" hook; after approval, the next `PreToolUse` is the lightweight signal that work has resumed.
+- `PreToolUse` runs before permission checks, so approving a tool does not necessarily emit another one. `PostToolUse`, `PostToolUseFailure`, and `ElicitationResult` clear a pending `needs_input` state when the tool or question returns, including answers submitted outside the browser.
 - `Stop` fires whenever Claude finishes a response, not only when the whole task is done. `Stop.background_tasks` is the authoritative signal that the main session is paused while background work continues.
 - MuxMap treats non-empty `background_tasks` / `session_crons`, `TaskCreated`, `TaskCompleted`, `SubagentStart`, and `SubagentStop` as still `working` so a parent node does not flash as completed while a subagent or teammate is running or being integrated.
-- MuxMap intentionally does not install `PostToolUse` because it fires after every tool call and is not needed for the permission-approved transition.
+- Tool-result hooks only clear `needs_input`; they do not revive completed work or reset the timer of an already working agent.
 
 ## Outside MuxMap
 

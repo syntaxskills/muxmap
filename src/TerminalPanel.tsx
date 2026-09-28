@@ -4,7 +4,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { api } from './api.ts'
-import type { NodeType, TerminalInputHistoryItem, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
+import type { AgentActivity, NodeType, TerminalInputHistoryItem, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, attachTerminalTouchScroll, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
@@ -48,6 +48,7 @@ type Props = {
   onStop(): void
   onToggleFloating(): void
   onStatus(id: string, status: TerminalStatus): void
+  onAgentActivity(id: string, agent: AgentActivity): void
   onError(message: string): void
   onUpdate(changes: Partial<WorkNode>): void
 }
@@ -57,7 +58,7 @@ const nodeTypes: Array<[NodeType, string]> = [
   ['note', 'Note'], ['todo', 'Todo'], ['terminal', 'Terminal task'],
 ]
 
-export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, scrollback, wheelMode, precisionScrollMultiplier, discreteScrollMultiplier, dedupeRepeatedInput, floating, disabled, onClose, onStop, onToggleFloating, onStatus, onError, onUpdate }: Props) {
+export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, scrollback, wheelMode, precisionScrollMultiplier, discreteScrollMultiplier, dedupeRepeatedInput, floating, disabled, onClose, onStop, onToggleFloating, onStatus, onAgentActivity, onError, onUpdate }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const drag = useRef<{ pointerId: number; origin: { x: number; y: number }; start: { x: number; y: number } } | null>(null)
   const [status, setStatus] = useState<TerminalStatus>(session.status)
@@ -220,7 +221,8 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     })
     socket.addEventListener('message', (event) => {
       if (lifecycle.disposed()) return
-      const message = JSON.parse(String(event.data)) as { type: string; data?: string; status?: TerminalStatus; message?: string }
+      const message = JSON.parse(String(event.data)) as { type: string; data?: string; status?: TerminalStatus; message?: string; agent?: AgentActivity }
+      if (message.type === 'agent' && message.agent) onAgentActivity(session.id, message.agent)
       if (message.type === 'output' && message.data) {
         outputQueue.push(message.data)
         scheduleOutput()
@@ -274,7 +276,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       webglRenderer?.dispose()
       terminal.dispose()
     }
-  }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, node.id, onError, onStatus, precisionScrollMultiplier, scrollback, session.cwd, session.id, wheelMode])
+  }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, node.id, onAgentActivity, onError, onStatus, precisionScrollMultiplier, scrollback, session.cwd, session.id, wheelMode])
 
   function beginDrag(event: ReactPointerEvent<HTMLDivElement>) {
     if (!floating || isFullscreen || event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea')) return

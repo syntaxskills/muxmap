@@ -116,6 +116,9 @@ test('agent activity rebuilds from event log on startup instead of trusting stal
     first.recordAgentEvent('muxmap-claude-permission', 'claude', { payload: { hookEventName: 'PreToolUse' } }, 'working', '2026-08-07T10:03:00.000Z')
     first.upsertAgentActivity('muxmap-claude-permission', { kind: 'claude', state: 'needs_input', since: '2026-08-07T10:02:00.000Z' })
 
+    first.recordAgentEvent('muxmap-input-answered', 'codex', { hook_event_name: 'PermissionRequest' }, 'needs_input', '2026-08-07T10:02:00.000Z')
+    first.recordAgentEvent('muxmap-input-answered', 'codex', { type: 'terminal_input_submitted' }, 'working', '2026-08-07T10:03:00.000Z')
+
     first.recordAgentEvent('muxmap-manual-working', 'codex', { type: 'manual_status', state: 'working' }, 'working', '2026-08-07T10:04:00.000Z')
     first.recordAgentEvent('muxmap-manual-working', 'codex', { hook_event_name: 'Stop' }, 'completed', '2026-08-07T10:05:00.000Z')
     first.upsertAgentActivity('muxmap-manual-working', { kind: 'codex', state: 'working', since: '2026-08-07T10:04:00.000Z' })
@@ -132,6 +135,7 @@ test('agent activity rebuilds from event log on startup instead of trusting stal
     assert.equal(rebuilt.getAgentActivity('muxmap-claude-completed')?.state, 'completed')
     assert.equal(rebuilt.getAgentActivity('muxmap-claude-completed')?.since, '2026-08-07T10:00:00.000Z')
     assert.equal(rebuilt.getAgentActivity('muxmap-claude-permission')?.state, 'working')
+    assert.equal(rebuilt.getAgentActivity('muxmap-input-answered')?.state, 'working')
     assert.equal(rebuilt.getAgentActivity('muxmap-manual-working')?.state, 'completed')
     assert.equal(rebuilt.getAgentActivity('muxmap-claude-delegated')?.state, 'delegated')
     assert.equal(rebuilt.getAgentActivity('muxmap-claude-delegated')?.since, '2026-08-07T10:06:00.000Z')

@@ -230,6 +230,7 @@ export function agentActivityFromEvent(
   const notification = eventField(input, ['notification_type', 'notificationType']) ?? ''
   let state: AgentActivity['state'] | undefined
   if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'before_agent_start' || event === 'agent_start' || event === 'SubagentStart' || event === 'TaskCreated') state = 'working'
+  if (['terminal_input_submitted', 'PostToolUse', 'PostToolUseFailure', 'ElicitationResult'].includes(event)) state = 'working'
   if (event === 'Stop' || event === 'StopFailure' || event === 'agent_end' || notification === 'agent_completed') state = 'completed'
   if (event === 'Notification' && notification === 'idle_prompt') state = 'completed'
   const claudeStopBackground = kind === 'claude' && event === 'Stop' ? claudeStopBackgroundState(input, Date.parse(now), options.fs ?? realTranscriptFs) : undefined
@@ -245,6 +246,8 @@ export function shouldPreserveAgentState(current: AgentActivity | undefined, eve
   const eventName = eventField(event, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? ''
   const notification = eventField(event, ['notification_type', 'notificationType']) ?? ''
   if (!next) return true
+  // Recovery signals should not restart completed work or reset an active turn's timer.
+  if (['PostToolUse', 'PostToolUseFailure', 'ElicitationResult'].includes(eventName) && current?.state !== 'needs_input') return true
   if (eventName === 'Notification' && notification === 'idle_prompt' && current && ['delegated', 'standby', 'needs_input', 'completed', 'read'].includes(current.state)) return true
   if (next.state !== 'working') return false
   if (!current || !['completed', 'read', 'needs_input', 'delegated', 'standby'].includes(current.state)) return false

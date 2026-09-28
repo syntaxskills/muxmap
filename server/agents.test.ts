@@ -85,6 +85,18 @@ test('Claude PreToolUse clears permission prompts by marking the node working', 
   assert.equal(agentActivityFromEvent('claude', { payload: { hookEventName: 'Notification', notificationType: 'agent_needs_input' } })!.state, 'needs_input')
 })
 
+test('tool results clear answered prompts without reviving completed work', () => {
+  for (const hook_event_name of ['PostToolUse', 'PostToolUseFailure', 'ElicitationResult']) {
+    const event = { hook_event_name }
+    const next = agentActivityFromEvent('claude', event)
+    assert.equal(next?.state, 'working')
+    assert.equal(shouldPreserveAgentState({ kind: 'claude', state: 'needs_input' }, event, next), false)
+    for (const state of ['completed', 'read', 'delegated', 'standby', 'working'] as const) {
+      assert.equal(shouldPreserveAgentState({ kind: 'claude', state }, event, next), true)
+    }
+  }
+})
+
 test('Claude Stop distinguishes compute delegation from passive monitor standby', () => {
   assert.equal(agentActivityFromEvent('claude', {
     hook_event_name: 'Stop',
@@ -267,10 +279,9 @@ test('hook installation updates stale MuxMap hook paths without touching user ho
   assert.equal(isMuxMapAgentHookCommand('node "/new/repo/muxmap/server/agent-hook.mjs" claude', 'codex'), false)
 })
 
-test('Claude hook installer includes the lightweight PreToolUse transition hook', () => {
+test('Claude hook installer covers tool starts and answered permission or elicitation prompts', () => {
   const installer = readFileSync(new URL('../scripts/install-agent-hooks.ts', import.meta.url), 'utf8')
-  assert.match(installer, /'PermissionRequest', 'PreToolUse', 'Notification'/)
-  assert.doesNotMatch(installer, /PostToolUse/)
+  assert.match(installer, /'PermissionRequest', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'ElicitationResult', 'Notification'/)
 })
 
 test('Pi extension forwards optional session metadata for resume', () => {
