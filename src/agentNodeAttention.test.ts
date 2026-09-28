@@ -63,7 +63,7 @@ test('agent node attention distinguishes working, completed, and input-needed st
   assert.match(css, /\.is-working\s*>\s*\.agent-icon\.is-pi\s+\.pi-agent-cell\.is-lit\s*\{[^}]*animation:\s*agent-pi-matrix-cell/s)
   assert.doesNotMatch(css.match(/@keyframes agent-pi-matrix-cell\s*\{[\s\S]*?\n\}/)?.[0] ?? '', /rotate\(/)
   assert.match(css, /\.agent-needs-input-marker\s*\{[^}]*position:\s*absolute/s)
-  assert.match(app, /agent-needs-input-marker[\s\S]*>\?<\/span>/)
+  assert.match(app, /agent-needs-input-marker[\s\S]*>\? Needs input<\/span>/)
   assert.match(app, /const visibleAgent = visibleAgentForSession\(nodeSession\)/)
   assert.match(app, /const badgeAgent = nodeSession\?\.status === 'suspended' \? nodeSession\.agent : visibleAgent/)
   assert.match(app, /badgeAgent \? agentStatusTooltip\(badgeAgent\) : nodeSession\.runtimeExists === false \? 'Terminal runtime missing'/)

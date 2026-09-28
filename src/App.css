@@ -3,6 +3,7 @@
   --agent-delegated-color: #8aa18f;
   --agent-standby-color: #9aa69c;
   --agent-completed-color: #13785b;
+  --agent-needs-input-color: #edc34b;
   height: 100dvh;
   min-height: 100dvh;
   display: grid;
@@ -571,6 +572,7 @@ kbd {
 .map-node.is-agent-working .node-select,
 .map-node.is-agent-delegated .node-select,
 .map-node.is-agent-standby .node-select,
+.map-node.is-agent-needs_input .node-select,
 .map-node.is-agent-completed .node-select {
   position: relative;
   overflow: hidden;
@@ -642,6 +644,12 @@ kbd {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-completed-color) 18%, transparent), 0 5px 16px var(--shadow-soft);
 }
 
+.map-node.is-agent-needs_input .node-select {
+  border: 2px solid var(--agent-needs-input-color);
+  background: color-mix(in srgb, var(--agent-needs-input-color) 9%, var(--node-surface));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-needs-input-color) 18%, transparent), 0 5px 16px var(--shadow-soft);
+}
+
 .map-node.is-agent-completed::after {
   content: '';
   position: absolute;
@@ -653,7 +661,8 @@ kbd {
   animation: agent-completed-ripple 1.1s ease-out 2;
 }
 
-.agent-completed-marker {
+.agent-completed-marker,
+.agent-needs-input-marker {
   position: absolute;
   z-index: 4;
   top: -10px;
@@ -1547,21 +1556,8 @@ kbd {
 }
 
 .agent-needs-input-marker {
-  position: absolute;
-  z-index: 4;
-  top: -8px;
-  right: -9px;
-  width: 17px;
-  height: 17px;
-  display: grid;
-  place-items: center;
-  border: 1px solid color-mix(in srgb, #e2ad58 72%, var(--line-strong));
-  border-radius: 50%;
-  background: var(--surface-elevated);
-  color: #ad751e;
-  box-shadow: 0 3px 8px var(--shadow-soft);
-  font: 700 11px/1 var(--mono);
-  pointer-events: none;
+  background: var(--agent-needs-input-color);
+  color: #342600;
 }
 
 .runtime-state,
