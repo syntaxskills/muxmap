@@ -4540,6 +4540,15 @@ kbd {
   }
 }
 
+@media (pointer: coarse) {
+  /* Keep mobile browsers from zooming when an input receives focus. */
+  .app-shell input,
+  .app-shell select,
+  .app-shell textarea {
+    font-size: 16px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .terminal-window,
   .terminal-loading span,
