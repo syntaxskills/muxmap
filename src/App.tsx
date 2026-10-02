@@ -14,7 +14,7 @@ import {
 import './App.css'
 import { api, apiText } from './api.ts'
 import { activeNodes, archivedDirectChildren, archivedNodeEntries, branchHasLiveSession, canBulkRecoverAgentSession, canRecoverAgentSession, effectiveArchivedNodeIds, expandedNodeHeight, expandedNodeWidth, nodeCanOpenTerminal, nodeHasLiveSession, openableSessionIdForNode, recoverableAgentLabel, reorderSiblings, type ReorderPosition, visibleAgentForSession, visibleNodes } from './graph.ts'
-import { centerPan, dragPan, gridBackground, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
+import { centerPan, dragPan, gridBackground, layoutTree, pinchView, wheelPan, zoomAtPoint, type Point } from './layout.ts'
 import type { AgentActivity, NodeNoteEntry, NodeStepDefinition, NodeType, TerminalBackend, TerminalSession, WorkNode, WorkspaceGraph } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { normalizeTerminalOpacity, normalizeTerminalSplit } from './terminalInteraction.ts'
@@ -221,6 +221,9 @@ function App() {
   const searchRef = useRef<HTMLInputElement>(null)
   const centeredOnce = useRef(false)
   const dragRef = useRef<{ pointerId: number; x: number; y: number; panX: number; panY: number } | null>(null)
+  const touchPointersRef = useRef(new Map<number, Point>())
+  const touchPinchRef = useRef<{ points: [Point, Point]; pan: Point; scale: number } | null>(null)
+  const suppressPinchClickRef = useRef(false)
   const nodeDragRef = useRef<string | null>(null)
   const nodePointerRef = useRef<{ pointerId: number; nodeId: string; x: number; y: number; dragging: boolean } | null>(null)
   const nodeDropRef = useRef<NodeDropTarget | null>(null)
@@ -1061,6 +1064,57 @@ function App() {
     setPanning(false)
   }
 
+  function beginCanvasTouch(event: ReactPointerEvent<HTMLDivElement>) {
+    const pointers = touchPointersRef.current
+    if (!pointers.size) suppressPinchClickRef.current = false
+    if (event.pointerType !== 'touch' || (event.target as HTMLElement).closest('.canvas-toolbar, input, select, textarea, a')) return
+    const bounds = event.currentTarget.getBoundingClientRect()
+    pointers.set(event.pointerId, { x: event.clientX - bounds.left, y: event.clientY - bounds.top })
+    if (pointers.size < 2 && !touchPinchRef.current) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (pointers.size === 2) {
+      const [first, second] = pointers.values()
+      touchPinchRef.current = { points: [first, second], pan, scale }
+    }
+    // A second finger takes over from either canvas panning or node dragging.
+    dragRef.current = null
+    setPanning(false)
+    clearHoverLeaveTimer()
+    resetNodeDrag()
+    setContextMenu(null)
+    suppressPinchClickRef.current = true
+    for (const id of pointers.keys()) event.currentTarget.setPointerCapture(id)
+  }
+
+  function moveCanvasTouch(event: ReactPointerEvent<HTMLDivElement>) {
+    const pointers = touchPointersRef.current
+    if (!pointers.has(event.pointerId)) return
+    const bounds = event.currentTarget.getBoundingClientRect()
+    pointers.set(event.pointerId, { x: event.clientX - bounds.left, y: event.clientY - bounds.top })
+    const pinch = touchPinchRef.current
+    if (!pinch) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (pointers.size < 2) return
+    const [first, second] = pointers.values()
+    const next = pinchView(pinch.pan, pinch.scale, pinch.points, [first, second])
+    setPan(next.pan)
+    setScale(next.scale)
+  }
+
+  function endCanvasTouch(event: ReactPointerEvent<HTMLDivElement>) {
+    const pointers = touchPointersRef.current
+    if (!pointers.delete(event.pointerId) || !touchPinchRef.current) return
+    event.stopPropagation()
+    // Keep the remaining finger inert until released, so a pinch cannot drop or open a node.
+    if (!pointers.size) touchPinchRef.current = null
+    else if (pointers.size >= 2) {
+      const [first, second] = pointers.values()
+      touchPinchRef.current = { points: [first, second], pan, scale }
+    }
+  }
+
   function openTerminal(id: string) {
     setSurface((current) => settings['terminal.defaultPlacement'] === 'floating'
       ? { rightPanel: current.rightPanel ?? 'details', terminalSessionId: id, terminalFloating: true }
@@ -1492,6 +1546,12 @@ function App() {
           onPointerMove={movePan}
           onPointerUp={endPan}
           onPointerCancel={endPan}
+          onPointerDownCapture={beginCanvasTouch}
+          onPointerMoveCapture={moveCanvasTouch}
+          onPointerUpCapture={endCanvasTouch}
+          onPointerCancelCapture={endCanvasTouch}
+          onLostPointerCaptureCapture={(event) => { if (!event.currentTarget.hasPointerCapture(event.pointerId)) endCanvasTouch(event) }}
+          onClickCapture={(event) => { if (suppressPinchClickRef.current && event.detail) { event.preventDefault(); event.stopPropagation() } }}
         >
           <div className="canvas-toolbar" aria-label="Canvas controls">
             <button type="button" onClick={() => setScale((value) => Math.max(0.45, value - 0.1))} aria-label="Zoom out">−</button>

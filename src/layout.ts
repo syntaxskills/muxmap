@@ -23,6 +23,14 @@ export function zoomAtPoint(pan: Point, scale: number, nextScale: number, point:
   }
 }
 
+export function pinchView(pan: Point, scale: number, start: readonly [Point, Point], current: readonly [Point, Point]) {
+  const midpoint = ([a, b]: readonly [Point, Point]) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })
+  const distance = ([a, b]: readonly [Point, Point]) => Math.hypot(a.x - b.x, a.y - b.y)
+  const nextScale = Math.max(0.45, Math.min(1.4, scale * distance(current) / Math.max(1, distance(start))))
+  const anchor = midpoint(start)
+  return { scale: nextScale, pan: dragPan(zoomAtPoint(pan, scale, nextScale, anchor), anchor, midpoint(current)) }
+}
+
 export function wheelPan(pan: Point, delta: Point): Point {
   return { x: pan.x - delta.x, y: pan.y - delta.y }
 }

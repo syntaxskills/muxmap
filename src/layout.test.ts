@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { centerPan, dragPan, gridBackground, layoutTree, wheelPan, zoomAtPoint } from './layout.ts'
+import { centerPan, dragPan, gridBackground, layoutTree, pinchView, wheelPan, zoomAtPoint } from './layout.ts'
 import { NODE_WIDTH } from './nodeDimensions.ts'
 
 test('places parents midway between ordered children', () => {
@@ -81,4 +81,23 @@ test('trackpad pinch zoom keeps the point under the cursor anchored', () => {
 
 test('two-finger trackpad scrolling pans the mindmap', () => {
   assert.deepEqual(wheelPan({ x: 120, y: -40 }, { x: 25, y: -60 }), { x: 95, y: 20 })
+})
+
+test('touch pinch follows the midpoint, scales in both directions, and respects zoom limits', () => {
+  const pan = { x: 100, y: 50 }
+  const start = [{ x: 200, y: 200 }, { x: 400, y: 200 }] as const
+  assert.deepEqual(pinchView(pan, 0.7, start, [{ x: 120, y: 230 }, { x: 520, y: 230 }]), {
+    scale: 1.4, pan: { x: -80, y: -70 },
+  })
+  assert.deepEqual(pinchView(pan, 1, start, [{ x: 250, y: 200 }, { x: 350, y: 200 }]), {
+    scale: 0.5, pan: { x: 200, y: 125 },
+  })
+  for (const distance of [0, 1, 1000]) {
+    const next = pinchView(pan, 1, start, [{ x: 300 - distance / 2, y: 200 }, { x: 300 + distance / 2, y: 200 }])
+    assert.equal(next.scale, distance < 2 ? 0.45 : 1.4)
+    assert.equal((300 - next.pan.x) / next.scale, 200)
+    assert.equal((200 - next.pan.y) / next.scale, 150)
+  }
+  const coincident = pinchView(pan, 1, [start[0], start[0]], start)
+  assert.ok(Number.isFinite(coincident.scale) && Number.isFinite(coincident.pan.x) && Number.isFinite(coincident.pan.y))
 })
