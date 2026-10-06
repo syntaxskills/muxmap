@@ -29,6 +29,8 @@ Workspace state is persisted in SQLite under the configured data directory. The 
 
 The terminal process itself is not stored in SQLite. tmux or Zellij owns the live shell. On startup MuxMap reconciles the database with live sessions and marks missing sessions stopped. A suspended session is different from stopped: MuxMap intentionally releases the runtime to save memory while keeping the node/session metadata so the same runtime name, or saved Agent resume metadata when available, can be used later.
 
+The Sessions panel can restart one active linked session or all active linked sessions sequentially. Restart stops the runtime and resumes the saved agent conversation (or starts a new shell), retaining the session identity and idle timestamp. Missing agent resume metadata is rejected before stopping. Bulk restart skips stopped, suspended, archived, missing, unlinked, and self-hosting sessions and reports individual failures. Open browser terminals reconnect with a fresh renderer so stale terminal mouse modes cannot survive the restart. Restart and agent recovery preserve idle activity across startup output, terminal replies, hooks, and server restarts until an Enter submission, command submission, or agent prompt-start hook resumes activity tracking.
+
 ## Session naming
 
 MuxMap-managed runtime names start with `muxmap`.

@@ -964,3 +964,42 @@ test('tmux executable can be configured or resolved from PATH for PTY compatibil
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test('restart stops and resumes the same session without renewing idle activity', () => {
+  const store = createStore(':memory:')
+  const adapter = fakeTmux()
+  const manager = createSessionManager(store, adapter, [], () => [])
+  try {
+    const old = '2026-08-01T00:00:00.000Z'
+    for (const activity of [undefined, { kind: 'codex' as const, state: 'read' as const, externalSessionId: 'saved-thread' }, { kind: 'claude' as const, state: 'read' as const, externalSessionId: 'saved-claude' }, { kind: 'pi' as const, state: 'read' as const, externalSessionPath: '/tmp/saved-pi.jsonl' }]) {
+      const node = store.createNode('default', { parentId: 'workspace', title: activity?.kind ?? 'Shell', type: 'terminal' })
+      const original = manager.attach(node.id)
+      const session = store.upsertSession({ ...original, lastAttachedAt: old, lastActivityAt: old })
+      if (activity) store.upsertAgentActivity(session.runtimeName, activity)
+      const restarted = manager.restart(session.id)
+      assert.equal(restarted.id, session.id)
+      assert.equal(restarted.runtimeName, session.runtimeName)
+      assert.equal(restarted.status, 'running')
+      assert.equal(restarted.lastAttachedAt, old)
+      assert.equal(restarted.lastActivityAt, old)
+      assert.equal(adapter.stopped.at(-1), session.runtimeName)
+      assert.deepEqual(adapter.createCommands.at(-1), activity ? agentResumeCommand(activity) : undefined)
+      store.updateSessionActivity(session.id)
+      assert.equal(store.getSession(session.id)?.lastActivityAt, old, 'startup output must not renew activity')
+      if (activity) {
+        adapter.panes = () => [{ runtimeName: session.runtimeName, paneId: '%restart', pid: 123 }]
+        manager.recordAgentEvent({ backend: 'tmux', paneId: '%restart' }, activity.kind, { hook_event_name: 'SessionStart' })
+        assert.equal(store.getSession(session.id)?.lastActivityAt, old, 'startup hooks must not renew activity')
+        manager.recordAgentEvent({ backend: 'tmux', paneId: '%restart' }, activity.kind, { hook_event_name: 'UserPromptSubmit' })
+        assert.notEqual(store.getSession(session.id)?.lastActivityAt, old, 'a real prompt resumes activity tracking')
+      }
+    }
+    const unsafeNode = store.createNode('default', { parentId: 'workspace', title: 'Missing resume id', type: 'terminal' })
+    const unsafe = manager.attach(unsafeNode.id)
+    store.upsertAgentActivity(unsafe.runtimeName, { kind: 'codex', state: 'read' })
+    assert.throws(() => manager.restart(unsafe.id), /resume/i)
+    assert.equal(adapter.live.has(unsafe.runtimeName), true, 'validate resume metadata before stopping')
+    const oldest = store.listSessions().find((item) => item.nodeId !== unsafe.nodeId && !store.getAgentActivity(item.runtimeName))!
+    assert.deepEqual(manager.autoSuspend(store.listSessions().length - 1).map((item) => item.id), [oldest.id], 'restarting must not move the oldest quiet session to the end of the eviction order')
+  } finally { store.close() }
+})

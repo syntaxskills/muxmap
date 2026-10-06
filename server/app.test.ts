@@ -1971,3 +1971,101 @@ test('bulk agent recovery resumes only missing active sessions sequentially', as
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('restart APIs replace runtimes and browser attachments while preserving idle times', async () => {
+  const tmux = fakeTmux()
+  const ptyRecord = { writes: [] as string[], resizes: [] as number[][], kills: [] as number[], emitData: undefined as ((data: string) => void) | undefined }
+  const sequence: string[] = []
+  const root = process.cwd()
+  const server = createMuxMapServer({ databasePath: ':memory:', allowedRoots: [root], platform: 'linux', token: 'test-token', tmux,
+    processReader: () => [{ pid: 1000, ppid: 1, command: 'zsh' }, { pid: 1001, ppid: 1000, command: 'node --experimental-strip-types server/index.ts' }],
+    ptyFactory: fakePtyFactory(ptyRecord), activityWriteIntervalMs: 0, recoverAgentsDelayMs: 1,
+    recoverAgentsDelay: async () => { sequence.push('delay') },
+  })
+  const sockets: WebSocket[] = []
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const cookie = (await fetch(`${base}/api/auth`)).headers.get('set-cookie')!.split(';')[0]
+    const headers = { cookie, origin: base, 'content-type': 'application/json' }
+    const post = (path: string) => fetch(base + path, { method: 'POST', headers, body: '{}' })
+    const create = async (title: string) => {
+      const node = server.store.createNode('default', { parentId: 'workspace', title, type: 'terminal', repoPath: root })
+      const response = await post(`/api/nodes/${node.id}/session`)
+      assert.equal(response.status, 201)
+      return (await response.json() as { session: TerminalSession }).session
+    }
+    const first = await create('Restart agent')
+    const shell = await create('Restart shell')
+    const missingId = await create('Missing resume metadata')
+    const failing = await create('Failing restart')
+    const stopped = await create('Stopped')
+    const suspended = await create('Suspended')
+    const archived = await create('Archived')
+    const host = await create('Host')
+    const missing = await create('Missing runtime')
+    await post(`/api/sessions/${stopped.id}/stop`)
+    await post(`/api/sessions/${suspended.id}/suspend`)
+    server.store.archiveNode(archived.nodeId)
+    tmux.live.delete(missing.runtimeName)
+    tmux.live.add('muxmap-orphan')
+    tmux.panes = () => [{ runtimeName: host.runtimeName, paneId: '%host', pid: 1000 }, { runtimeName: first.runtimeName, paneId: '%agent', pid: 2000 }]
+    server.store.upsertAgentActivity(first.runtimeName, { kind: 'codex', state: 'read', externalSessionId: 'resume-thread' })
+    server.store.upsertAgentActivity(missingId.runtimeName, { kind: 'codex', state: 'read' })
+    const connect = async () => {
+      const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/sessions/${first.id}/attach`, { headers: { cookie, origin: base } })
+      sockets.push(ws)
+      await new Promise<void>((resolve, reject) => { ws.once('open', resolve); ws.once('error', reject) })
+      return ws
+    }
+    const socket = await connect()
+    const oldOutput = ptyRecord.emitData!
+    const old = '2026-08-01T00:00:00.000Z'
+    for (const item of [first, shell, failing]) server.store.upsertSession({ ...item, lastActivityAt: old, lastAttachedAt: old })
+    const closed = new Promise<{ code: number; reason: string }>((resolve) => socket.once('close', (code, reason) => resolve({ code, reason: reason.toString() })))
+    const restarted = await post(`/api/sessions/${first.id}/restart`)
+    assert.equal(restarted.status, 200)
+    assert.deepEqual(await closed, { code: 1012, reason: 'Session restarted' })
+    assert.ok(ptyRecord.kills.length > 0)
+    assert.deepEqual(tmux.createCommands.at(-1), ['codex', 'resume', 'resume-thread'])
+    assert.equal(server.store.getSession(first.id)?.lastActivityAt, old)
+    assert.equal(server.store.getSession(first.id)?.lastAttachedAt, old)
+    const fresh = await connect()
+    oldOutput('stale output from a retired PTY')
+    ptyRecord.emitData!('startup repaint\x1b[6n')
+    fresh.send(JSON.stringify({ type: 'input', data: '\x1b[1;1R' }))
+    await eventually(() => ptyRecord.writes.includes('\x1b[1;1R'))
+    assert.equal(server.store.getSession(first.id)?.lastActivityAt, old, 'repaint and terminal replies do not refresh idle time')
+    fresh.send(JSON.stringify({ type: 'input', data: '\r' }))
+    await eventually(() => server.store.getSession(first.id)?.lastActivityAt !== old)
+    assert.equal((await post(`/api/sessions/${host.id}/restart`)).status, 400)
+    assert.equal(tmux.live.has(host.runtimeName), true)
+    assert.equal((await post('/api/sessions/not-found/restart')).status, 404)
+    assert.equal((await post(`/api/sessions/${stopped.id}/restart`)).status, 400)
+    const createOriginal = tmux.create.bind(tmux)
+    tmux.create = (name, cwd, command) => {
+      sequence.push(`create:${name}`)
+      if (name === failing.runtimeName) throw new Error('fixture resume failed')
+      createOriginal(name, cwd, command)
+    }
+    const stopOriginal = tmux.stop.bind(tmux)
+    tmux.stop = (name) => { sequence.push(`stop:${name}`); stopOriginal(name) }
+    const response = await post('/api/workspaces/default/restart-sessions')
+    assert.equal(response.status, 200)
+    const result = await response.json() as { restarted: string[]; failed: Array<{ sessionId: string; error: string }> }
+    assert.deepEqual(new Set(result.restarted), new Set([first.id, shell.id]))
+    assert.deepEqual(new Set(result.failed.map((item) => item.sessionId)), new Set([missingId.id, failing.id]))
+    assert.match(result.failed.find((item) => item.sessionId === failing.id)!.error, /fixture resume failed/)
+    assert.equal(sequence.filter((step) => step === 'delay').length, 3)
+    for (const item of [first, shell, failing]) assert.equal(sequence.indexOf(`create:${item.runtimeName}`), sequence.indexOf(`stop:${item.runtimeName}`) + 1)
+    assert.equal(server.store.getSession(shell.id)?.lastActivityAt, old)
+    assert.equal(server.store.getSession(failing.id)?.status, 'stopped')
+    assert.equal(server.store.getAgentActivity(first.runtimeName)?.externalSessionId, 'resume-thread')
+    for (const item of [stopped, suspended, archived, host, missing, missingId]) assert.ok(!sequence.includes(`stop:${item.runtimeName}`))
+    assert.equal(tmux.live.has('muxmap-orphan'), true)
+    assert.equal(tmux.live.has(missingId.runtimeName), true)
+  } finally {
+    for (const socket of sockets) socket.close()
+    await server.close()
+  }
+})

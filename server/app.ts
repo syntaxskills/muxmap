@@ -28,7 +28,7 @@ import { createStore, StoreValidationError } from './store.ts'
 import type { ProcessInfo } from './agents.ts'
 import { terminalBackendsForPlatform, type RuntimePlatform } from '../src/settings.ts'
 import { defaultNodeStepDefinitions } from '../src/nodeSteps.ts'
-import { canBulkRecoverAgentSession } from '../src/graph.ts'
+import { canBulkRecoverAgentSession, effectiveArchivedNodeIds, nodeHasLiveSession } from '../src/graph.ts'
 
 export type PtyHandle = {
   onData(listener: (data: string) => void): void
@@ -510,6 +510,7 @@ export function createMuxMapServer(options: ServerOptions) {
   const allowedOrigins = options.allowedOrigins ?? []
   const webSockets = new WebSocketServer({ noServer: true })
   const clients = new Map<string, number>()
+  const socketSessions = new Map<WebSocket, string>()
   const ptys = new Map<string, Set<PtyHandle>>()
   const lastActivityWrites = new Map<string, number>()
   const activityWriteIntervalMs = options.activityWriteIntervalMs ?? 5_000
@@ -520,6 +521,7 @@ export function createMuxMapServer(options: ServerOptions) {
   const attachmentsDirectory = attachmentDirectory(options.databasePath, options.attachmentsDirectory)
   let closing = false
   let loggedPtyLifecycleError = false
+  let restartingAll = false
 
   function fileNodeReferences(url: URL, filePath?: string): FileNodeReference[] {
     const nodeId = url.searchParams.get('nodeId') || store.getSession(url.searchParams.get('sessionId') ?? '')?.nodeId
@@ -574,17 +576,37 @@ export function createMuxMapServer(options: ServerOptions) {
     }
   }
 
-  const recordSessionActivity = (sessionId: string) => {
+  const recordSessionActivity = (sessionId: string, submittedInput = false) => {
     if (closing) return
     const now = Date.now()
-    if (now - (lastActivityWrites.get(sessionId) ?? 0) < activityWriteIntervalMs) return
+    if (!submittedInput && now - (lastActivityWrites.get(sessionId) ?? 0) < activityWriteIntervalMs) return
     lastActivityWrites.set(sessionId, now)
-    store.updateSessionActivity(sessionId, new Date(now).toISOString())
+    store.updateSessionActivity(sessionId, new Date(now).toISOString(), submittedInput)
   }
 
-  const killSessionPtys = (sessionId: string) => {
-    for (const pty of ptys.get(sessionId) ?? []) safePtyKill(pty)
+  const killSessionPtys = (sessionId: string, restarting = false) => {
+    const handles = ptys.get(sessionId)
+    const retired = [...(handles ?? [])]
+    handles?.clear()
     ptys.delete(sessionId)
+    for (const pty of retired) safePtyKill(pty)
+    for (const [socket, id] of socketSessions) if (id === sessionId) socket.close(restarting ? 1012 : 1000, restarting ? 'Session restarted' : 'Session stopped')
+  }
+
+  const restartSession = (sessionId: string) => {
+    let session: TerminalSession
+    try {
+      session = sessions.restart(sessionId)
+    } catch (error) {
+      if (store.getSession(sessionId)?.status === 'stopped') {
+        killSessionPtys(sessionId)
+      }
+      throw error
+    }
+    // A new runtime also needs a fresh browser terminal: old mouse modes must not survive.
+    killSessionPtys(sessionId, true)
+    lastActivityWrites.delete(sessionId)
+    return session
   }
 
   const http = createServer(async (request, response) => {
@@ -717,6 +739,31 @@ export function createMuxMapServer(options: ServerOptions) {
             if (index < eligible.length - 1) await recoverAgentsDelay(recoverAgentsDelayMs)
           }
           return sendJson(response, 200, { recovered, failed })
+        }
+
+        const restartWorkspaceMatch = url.pathname.match(/^\/api\/workspaces\/([^/]+)\/restart-sessions$/)
+        if (request.method === 'POST' && restartWorkspaceMatch) {
+          if (restartingAll) throw new Error('Session restart is already in progress')
+          restartingAll = true
+          try {
+            const snapshot = await sessions.refreshRuntimeDiscovery()
+            const graph = store.getWorkspace(restartWorkspaceMatch[1])
+            const archived = effectiveArchivedNodeIds(graph.nodes)
+            const eligible = sessions.decorate(graph.sessions, snapshot.inventory, snapshot.live).filter((session) =>
+              nodeHasLiveSession(session) && !archived.has(session.nodeId) && !snapshot.selfHosting.has(`${session.backend}:${session.runtimeName}`))
+            const restarted: string[] = []
+            const failed: Array<{ sessionId: string; error: string }> = []
+            for (const [index, session] of eligible.entries()) {
+              try {
+                restartSession(session.id)
+                restarted.push(session.id)
+              } catch (error) {
+                failed.push({ sessionId: session.id, error: error instanceof Error ? error.message : 'Unable to restart session' })
+              }
+              if (index < eligible.length - 1) await recoverAgentsDelay(recoverAgentsDelayMs)
+            }
+            return sendJson(response, 200, { restarted, failed })
+          } finally { restartingAll = false }
         }
 
         if (request.method === 'GET' && url.pathname === '/api/node-step-definitions') {
@@ -987,6 +1034,14 @@ export function createMuxMapServer(options: ServerOptions) {
           return sendJson(response, 200, { session: sessions.recoverAgent(recoverAgentMatch[1]) })
         }
 
+        const restartMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/restart$/)
+        if (request.method === 'POST' && restartMatch) {
+          if (restartingAll) throw new Error('Session restart is already in progress')
+          await sessions.refreshRuntimeDiscovery()
+          if (restartingAll) throw new Error('Session restart is already in progress')
+          return sendJson(response, 200, { session: restartSession(restartMatch[1]) })
+        }
+
         const acknowledgeMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/agent\/read$/)
         if (request.method === 'POST' && acknowledgeMatch) {
           return sendJson(response, 200, { activity: sessions.acknowledge(acknowledgeMatch[1]) })
@@ -1064,6 +1119,7 @@ export function createMuxMapServer(options: ServerOptions) {
     }
     const handles = ptys.get(session.id) ?? new Set<PtyHandle>()
     handles.add(pty)
+    socketSessions.set(webSocket, session.id)
     ptys.set(session.id, handles)
     clients.set(session.id, (clients.get(session.id) ?? 0) + 1)
     sessions.markRunning(session.id)
@@ -1107,23 +1163,26 @@ export function createMuxMapServer(options: ServerOptions) {
       }
     }
     pty.onData((data) => {
+      if (!handles.has(pty)) return
       queueOutput(data)
       recordSessionActivity(session.id)
     })
     pty.onExit(() => {
       if (outputTimer) clearTimeout(outputTimer)
       clearInitialResizeTimer()
+      if (!handles.has(pty)) { outputBuffer = ''; return }
       flushOutput()
       send({ type: 'status', status: 'detached' })
     })
     send({ type: 'status', status: 'running' })
 
     webSocket.on('message', (raw) => {
+      if (!handles.has(pty)) return
       try {
         const message = JSON.parse(raw.toString()) as Record<string, unknown>
         if (message.type === 'input' && typeof message.data === 'string' && message.data.length <= 64 * 1024) {
           pty.write(message.data)
-          recordSessionActivity(session.id)
+          recordSessionActivity(session.id, message.data === '\r' || message.data === '\n')
           const agent = sessions.resumeAgentOnInput(session.id, message.data)
           if (agent) send({ type: 'agent', agent })
         } else if (message.type === 'scroll') {
@@ -1145,11 +1204,12 @@ export function createMuxMapServer(options: ServerOptions) {
     })
 
     webSocket.on('close', () => {
+      socketSessions.delete(webSocket)
       if (outputTimer) clearTimeout(outputTimer)
       clearInitialResizeTimer()
       safePtyKill(pty)
       handles.delete(pty)
-      if (handles.size === 0) ptys.delete(session.id)
+      if (handles.size === 0 && ptys.get(session.id) === handles) ptys.delete(session.id)
       if (closing) return
       const remaining = Math.max(0, (clients.get(session.id) ?? 1) - 1)
       if (remaining === 0) {

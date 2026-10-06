@@ -64,6 +64,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
   const [status, setStatus] = useState<TerminalStatus>(session.status)
   const [connection, setConnection] = useState<'connecting' | 'ready' | 'closed'>('connecting')
   const [connectionError, setConnectionError] = useState('')
+  const [restartCount, setRestartCount] = useState(0)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [isFullscreen, setFullscreen] = useState(false)
   const [showNodeEditor, setShowNodeEditor] = useState(false)
@@ -250,7 +251,13 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
         terminal.writeln(`\r\nMuxMap: ${message.message}`)
       }
     })
-    socket.addEventListener('close', () => lifecycle.close())
+    socket.addEventListener('close', (event) => {
+      if (event.code === 1012 && event.reason === 'Session restarted' && !lifecycle.disposed()) {
+        for (const timer of pendingCommandSubmitEnters.current) window.clearTimeout(timer)
+        pendingCommandSubmitEnters.current.clear()
+        setRestartCount((count) => count + 1)
+      } else lifecycle.close()
+    })
     socket.addEventListener('error', () => {
       if (!lifecycle.fail()) return
       setConnection('closed')
@@ -276,7 +283,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       webglRenderer?.dispose()
       terminal.dispose()
     }
-  }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, node.id, onAgentActivity, onError, onStatus, precisionScrollMultiplier, scrollback, session.cwd, session.id, wheelMode])
+  }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, node.id, onAgentActivity, onError, onStatus, precisionScrollMultiplier, restartCount, scrollback, session.cwd, session.id, wheelMode])
 
   function beginDrag(event: ReactPointerEvent<HTMLDivElement>) {
     if (!floating || isFullscreen || event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea')) return

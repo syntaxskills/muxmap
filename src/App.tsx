@@ -210,6 +210,7 @@ function App() {
   const [deleteNodeId, setDeleteNodeId] = useState<string | null>(null)
   const [confirmStopSession, setConfirmStopSession] = useState<string | null>(null)
   const [confirmRecoverAllAgents, setConfirmRecoverAllAgents] = useState(false)
+  const [restartingSession, setRestartingSession] = useState<string | null>(null)
   const [bulkRecoveryToast, setBulkRecoveryToast] = useState<{ title: string; body: string } | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -388,7 +389,7 @@ function App() {
     if (!inPageNotificationsEnabled) setAgentAlerts([])
   }, [inPageNotificationsEnabled])
   useEffect(() => {
-    if (demoMode || !graph || !settings['terminal.autoSuspend'] || autoSuspendRef.current) return
+    if (demoMode || !graph || restartingSession || !settings['terminal.autoSuspend'] || autoSuspendRef.current) return
     const maxActive = settings['terminal.maxActiveSessions']
     const liveCount = graph.sessions.filter(nodeHasLiveSession).length
     if (liveCount <= maxActive) return
@@ -403,7 +404,7 @@ function App() {
     }).finally(() => {
       autoSuspendRef.current = false
     })
-  }, [demoMode, graph, loadWorkspace, settings, terminalSessionId])
+  }, [demoMode, graph, loadWorkspace, restartingSession, settings, terminalSessionId])
   useEffect(() => {
     const active = new Set(agentAlerts.map((alert) => `${alert.sessionId}:${alert.key}`))
     for (const alert of agentAlerts) {
@@ -520,6 +521,8 @@ function App() {
   const orphans = graph?.orphans ?? []
   const selfHosting = graph?.selfHosting ?? []
   const bulkRecoverableAgentCount = useMemo(() => graph?.sessions.filter(canBulkRecoverAgentSession).length ?? 0, [graph?.sessions])
+  const restartableSessions = graph?.sessions.filter((item) => nodeHasLiveSession(item) && !archivedIds.has(item.nodeId)
+    && !selfHosting.some((host) => host.backend === item.backend && host.runtimeName === item.runtimeName)) ?? []
   const channels = useMemo(() => graph?.channels ?? [], [graph?.channels])
   const channelNodeIds = useMemo(() => new Set(channels.flatMap((channel) => [channel.sourceNodeId, channel.targetNodeId])), [channels])
   const selectedChannels = useMemo(() => channels.filter((channel) => selectedId && (channel.sourceNodeId === selectedId || channel.targetNodeId === selectedId)), [channels, selectedId])
@@ -1251,6 +1254,37 @@ function App() {
     }
   }
 
+  async function restartSessions(sessionId?: string) {
+    if (!graph || busy) return
+    setBusy(true)
+    setRestartingSession(sessionId ?? 'all')
+    workspaceRevisionRef.current += 1
+    setError('')
+    try {
+      let body: string
+      if (sessionId) {
+        await api(`/api/sessions/${sessionId}/restart`, { method: 'POST', body: '{}' })
+        body = 'Session restarted. Idle time preserved.'
+      } else {
+        const result = await api<{ restarted: string[]; failed: Array<{ sessionId: string; error: string }> }>(`/api/workspaces/${graph.workspace.id}/restart-sessions`, { method: 'POST', body: '{}' })
+        body = `Restarted ${result.restarted.length}, failed ${result.failed.length}. Idle times preserved.`
+        if (result.failed.length) body += ' ' + result.failed.map((failure) => {
+          const item = graph.sessions.find((candidate) => candidate.id === failure.sessionId)
+          return `${graph.nodes.find((node) => node.id === item?.nodeId)?.title ?? failure.sessionId}: ${failure.error}`
+        }).join('; ')
+      }
+      workspaceRevisionRef.current += 1
+      await loadWorkspace()
+      setBulkRecoveryToast({ title: 'Session restart finished', body })
+    } catch (restartError) {
+      await loadWorkspace()
+      setError(restartError instanceof Error ? restartError.message : 'Unable to restart sessions')
+    } finally {
+      setRestartingSession(null)
+      setBusy(false)
+    }
+  }
+
   async function stopOrphan(backend: TerminalBackend, runtimeName: string) {
     setBusy(true)
     setError('')
@@ -1871,6 +1905,18 @@ function App() {
               <button className="side-panel-close" type="button" onClick={() => setSurface((current) => ({ ...current, rightPanel: null }))} aria-label="Close session manager" title="Close panel"><Cross2Icon /></button>
             </header>
 
+            {restartableSessions.length > 0 && (
+              <section className="bulk-recovery-card" aria-label="Restart active sessions" aria-busy={restartingSession !== null}>
+                <div>
+                  <strong>Restart active sessions</strong>
+                  <span>Stop and resume active linked sessions. Running commands are interrupted; idle times are preserved.</span>
+                </div>
+                <div className="session-row-actions">
+                  <button type="button" onClick={() => void restartSessions()} disabled={busy || demoMode}>{restartingSession === 'all' ? 'Restarting active sessions…' : `Restart all active (${restartableSessions.length})`}</button>
+                </div>
+              </section>
+            )}
+
             {bulkRecoverableAgentCount >= 2 && (
               <section className="bulk-recovery-card" aria-label="Recover all agents">
                 <div>
@@ -1906,8 +1952,9 @@ function App() {
                   <article className={`session-row ${terminalSessionId === item.id || selected?.id === item.nodeId ? 'is-current' : ''}`} key={item.id}>
                     <div><strong>{node?.title ?? item.name}</strong><code>{item.runtimeName}</code><small className={statusAgent ? `is-${item.status === 'suspended' ? 'suspended-agent' : statusAgent.state}` : undefined}>{statusAgent && <AgentIcon kind={statusAgent.kind} />}{statusText}</small></div>
                     <div className="session-row-actions">
-                      {isArchived ? <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))}>Archived</button> : nodeHasLiveSession(item) ? <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button> : canRecoverAgentSession(item) ? <button type="button" onClick={() => { setSelectedId(item.nodeId); void recoverAgentSession(item.id) }} disabled={busy}>Resume {recoverableAgentLabel(item)}</button> : item.status === 'suspended' ? <button type="button" onClick={() => void attachTerminal(false, item.nodeId)} disabled={busy}>Resume terminal</button> : null}
+                      {isArchived ? <button type="button" onClick={() => setSurface((current) => openRightPanel(current, 'archive'))}>Archived</button> : nodeHasLiveSession(item) ? <button type="button" onClick={() => { setSelectedId(item.nodeId); openTerminal(item.id) }}>Open</button> : canRecoverAgentSession(item) ? <button type="button" onClick={() => { setSelectedId(item.nodeId); void recoverAgentSession(item.id) }} disabled={busy}>Resume {recoverableAgentLabel(item)}</button> : ['stopped', 'suspended'].includes(item.status) ? <button type="button" onClick={() => void attachTerminal(false, item.nodeId)} disabled={busy}>Resume terminal</button> : null}
                       {nodeHasLiveSession(item) && <button type="button" onClick={() => void suspendSession(item.id)} disabled={busy}>Suspend</button>}
+                      {restartableSessions.some((candidate) => candidate.id === item.id) && <button type="button" onClick={() => void restartSessions(item.id)} disabled={busy || demoMode} title="Stop and resume this session without resetting its idle time">{restartingSession === item.id ? 'Restarting…' : 'Restart'}</button>}
                       {nodeHasLiveSession(item) && (confirmStopSession === `${item.backend}:${item.runtimeName}` ? (
                         <><button className="danger-button" type="button" onClick={() => void stopSession(item.id)} disabled={busy}>Confirm stop</button><button type="button" onClick={() => setConfirmStopSession(null)}>Cancel</button></>
                       ) : <button type="button" onClick={() => setConfirmStopSession(`${item.backend}:${item.runtimeName}`)}>Stop</button>)}

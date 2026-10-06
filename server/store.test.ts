@@ -591,3 +591,25 @@ test('existing databases gain archive support without losing nodes', () => {
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test('restart activity preservation survives reopening and ends on submitted input', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'muxmap-preserve-activity-'))
+  const path = join(directory, 'muxmap.db')
+  const old = '2026-08-01T00:00:00.000Z'
+  let store = createStore(path)
+  try {
+    const node = store.createNode('default', { parentId: 'workspace', title: 'Idle shell', type: 'terminal' })
+    const session = store.upsertSession({ id: 'idle-shell', workspaceId: 'default', nodeId: node.id, name: 'idle', runtimeName: 'muxmap-idle', backend: 'tmux', cwd: directory, status: 'running', lastAttachedAt: old })
+    store.preserveSessionActivity(session.id)
+    store.close()
+    store = createStore(path)
+    store.updateSessionActivity(session.id)
+    store.updateSessionActivityByRuntimeName(session.runtimeName)
+    assert.equal(store.getSession(session.id)?.lastActivityAt, old)
+    store.recordTerminalInput(session.id, 'echo user input')
+    assert.notEqual(store.getSession(session.id)?.lastActivityAt, old)
+    const future = '2099-01-01T00:00:00.000Z'
+    store.updateSessionActivity(session.id, future)
+    assert.equal(store.getSession(session.id)?.lastActivityAt, future)
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }) }
+})

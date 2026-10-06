@@ -198,6 +198,11 @@ function eventField(input: Record<string, unknown>, keys: string[]) {
   return stringField(input, keys) ?? (payload ? stringField(payload, keys) : undefined)
 }
 
+export function agentEventSubmitsInput(input: Record<string, unknown>) {
+  return ['UserPromptSubmit', 'before_agent_start', 'agent_start', 'terminal_input_submitted']
+    .includes(eventField(input, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? '')
+}
+
 export function agentSessionInfoFromEvent(input: Record<string, unknown>) {
   const muxmap = input.muxmap && typeof input.muxmap === 'object' ? input.muxmap as Record<string, unknown> : undefined
   const payload = input.payload && typeof input.payload === 'object' ? input.payload as Record<string, unknown> : undefined

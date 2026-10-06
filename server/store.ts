@@ -417,6 +417,9 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
   if (!sessionColumns.some((column) => column.name === 'last_activity_at')) {
     database.exec('ALTER TABLE sessions ADD COLUMN last_activity_at TEXT')
   }
+  if (!sessionColumns.some((column) => column.name === 'preserve_activity_until_input')) {
+    database.exec('ALTER TABLE sessions ADD COLUMN preserve_activity_until_input INTEGER NOT NULL DEFAULT 0')
+  }
   database.exec('UPDATE sessions SET last_activity_at = COALESCE(last_attached_at, created_at) WHERE last_activity_at IS NULL')
 
   const storedNodeSteps = database.prepare('SELECT value_json FROM app_config WHERE key = ?').get('nodeSteps') as Record<string, unknown> | undefined
@@ -1213,20 +1216,25 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
       return this.getSession(id)
     },
 
-    updateSessionActivity(id: string, timestamp = new Date().toISOString()) {
+    preserveSessionActivity(id: string) {
+      // Repaint, terminal replies and startup hooks are not a new user interaction.
+      // Persist this until a submitted prompt so server restarts cannot renew idle sessions either.
+      database.prepare(`UPDATE sessions SET preserve_activity_until_input = 1,
+        last_activity_at = COALESCE(last_activity_at, last_attached_at, created_at) WHERE id = ?`).run(id)
+    },
+
+    updateSessionActivity(id: string, timestamp = new Date().toISOString(), submittedInput = false) {
       database.prepare(`
-        UPDATE sessions SET last_activity_at = ?
-        WHERE id = ? AND (last_activity_at IS NULL OR last_activity_at <= ?)
-      `).run(timestamp, id, timestamp)
+        UPDATE sessions SET last_activity_at = ?, preserve_activity_until_input = 0
+        WHERE id = ? AND (preserve_activity_until_input = 0 OR ?)
+          AND (last_activity_at IS NULL OR last_activity_at <= ?)
+      `).run(timestamp, id, Number(submittedInput), timestamp)
       return this.getSession(id)
     },
 
-    updateSessionActivityByRuntimeName(runtimeName: string, timestamp = new Date().toISOString()) {
-      database.prepare(`
-        UPDATE sessions SET last_activity_at = ?
-        WHERE tmux_name = ? AND (last_activity_at IS NULL OR last_activity_at <= ?)
-      `).run(timestamp, runtimeName, timestamp)
-      return this.getSessionByRuntimeName(runtimeName)
+    updateSessionActivityByRuntimeName(runtimeName: string, timestamp = new Date().toISOString(), submittedInput = false) {
+      const session = this.getSessionByRuntimeName(runtimeName)
+      return session ? this.updateSessionActivity(session.id, timestamp, submittedInput) : undefined
     },
 
     listTerminalInputHistory(sessionId: string, limit = 30) {
@@ -1257,7 +1265,7 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
           SELECT id FROM terminal_input_history WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 100
         )
       `).run(sessionId, sessionId)
-      this.updateSessionActivity(sessionId, now)
+      this.updateSessionActivity(sessionId, now, true)
       return mapTerminalInputHistory(database.prepare('SELECT * FROM terminal_input_history WHERE id = ?').get(id) as Record<string, unknown>)
     },
 

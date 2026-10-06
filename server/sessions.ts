@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 import type { AgentActivity, AgentEventLogEntry, AgentEventSummary, AgentKind, TerminalBackend, TerminalSession } from '../src/model.ts'
 import type { WorkspaceStore } from './store.ts'
-import { agentActivityFromEvent, detectAgentKind, detectMuxMapHost, readProcesses, readProcessesAsync, shouldPreserveAgentState, type ProcessInfo } from './agents.ts'
+import { agentActivityFromEvent, agentEventSubmitsInput, detectAgentKind, detectMuxMapHost, readProcesses, readProcessesAsync, shouldPreserveAgentState, type ProcessInfo } from './agents.ts'
 import { platformLabel, terminalBackendsForPlatform, type RuntimePlatform } from '../src/settings.ts'
 import { canAcknowledgeAgentOnOpen } from '../src/agentStaleness.ts'
 
@@ -618,6 +618,23 @@ export function createSessionManager(
       return this.recoverAgent(id, 'codex')
     },
 
+    restart(id: string) {
+      invalidateRuntimeDiscovery()
+      const session = store.getSession(id)
+      if (!session) throw new Error('Session not found')
+      if (['stopped', 'suspended'].includes(session.status)) throw new Error('Only active sessions can be restarted. Use Resume instead.')
+      const activity = agentFor(session.runtimeName, agentInventory())
+      const command = activity ? agentResumeCommand(activity) : undefined
+      if (activity && (!command || session.backend !== 'tmux')) throw new Error(`Cannot resume ${activity.kind}: saved resume metadata and a tmux session are required`)
+      const cwd = safePath(this.currentWorkingDirectory(id) ?? session.cwd, allowedRoots)
+      const adapter = adapterFor(session.backend)
+      this.stop(id)
+      store.preserveSessionActivity(id)
+      adapter.create(session.runtimeName, cwd, command, session.backend === 'tmux' ? contextEnv(session.nodeId, session.id) : undefined)
+      invalidateRuntimeDiscovery()
+      return store.upsertSession({ ...store.getSession(id)!, cwd, status: 'running' })
+    },
+
     recoverAgent(id: string, requestedKind?: Exclude<AgentKind, 'ssh'>) {
       invalidateRuntimeDiscovery()
       const session = store.getSession(id)
@@ -630,6 +647,7 @@ export function createSessionManager(
       if (session.backend !== 'tmux') throw new Error('Agent recovery currently requires a tmux-backed session')
       const adapter = adapterFor(session.backend)
       if (!adapter.exists(session.runtimeName)) {
+        store.preserveSessionActivity(id)
         adapter.create(session.runtimeName, session.cwd, command, contextEnv(session.nodeId, session.id))
         invalidateRuntimeDiscovery()
       }
@@ -734,7 +752,7 @@ export function createSessionManager(
         store.recordAgentEvent(runtimeName, kind, event, preserved.state, now)
         return preserved
       }
-      store.updateSessionActivityByRuntimeName(runtimeName, activity.since)
+      store.updateSessionActivityByRuntimeName(runtimeName, activity.since, agentEventSubmitsInput(event))
       store.recordAgentEvent(runtimeName, kind, event, activity.state, activity.since)
       return store.upsertAgentActivity(runtimeName, activity)
     },
