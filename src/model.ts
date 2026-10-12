@@ -73,6 +73,7 @@ export type AgentActivity = {
   kind: AgentKind
   state: 'unavailable' | 'working' | 'delegated' | 'standby' | 'needs_input' | 'completed' | 'read'
   since?: string
+  notificationPending?: boolean
   standbyReason?: string
   staleTeammate?: boolean
   externalSessionId?: string

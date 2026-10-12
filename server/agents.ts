@@ -251,6 +251,8 @@ export function shouldPreserveAgentState(current: AgentActivity | undefined, eve
   const eventName = eventField(event, ['hook_event_name', 'hookEventName', 'event', 'type']) ?? ''
   const notification = eventField(event, ['notification_type', 'notificationType']) ?? ''
   if (!next) return true
+  if (eventName === 'PermissionRequest' && next.kind === 'codex' && current?.kind === 'codex' && current.state === 'needs_input'
+    && (!next.externalSessionId || !current.externalSessionId || next.externalSessionId === current.externalSessionId)) return true
   // Recovery signals should not restart completed work or reset an active turn's timer.
   if (['PostToolUse', 'PostToolUseFailure', 'ElicitationResult'].includes(eventName) && current?.state !== 'needs_input') return true
   if (eventName === 'Notification' && notification === 'idle_prompt' && current && ['delegated', 'standby', 'needs_input', 'completed', 'read'].includes(current.state)) return true

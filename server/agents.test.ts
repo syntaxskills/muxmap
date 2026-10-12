@@ -284,6 +284,11 @@ test('Claude hook installer covers tool starts and answered permission or elicit
   assert.match(installer, /'PermissionRequest', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'ElicitationResult', 'Notification'/)
 })
 
+test('Codex hook installer covers tool progress so automatically resolved permissions clear', () => {
+  const installer = readFileSync(new URL('../scripts/install-agent-hooks.ts', import.meta.url), 'utf8')
+  assert.equal((installer.match(/'codex', \['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'Stop', 'SessionEnd'\]/g) ?? []).length, 2)
+})
+
 test('Pi extension forwards optional session metadata for resume', () => {
   const extension = readFileSync(new URL('../integrations/pi-status.ts', import.meta.url), 'utf8')
   assert.match(extension, /session_id: sessionId/)

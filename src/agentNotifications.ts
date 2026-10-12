@@ -35,6 +35,7 @@ export function scanAgentNotifications(graph: WorkspaceGraph, previous: Readonly
   for (const session of graph.sessions) {
     const agent = session.agent
     if (!agent || !['completed', 'needs_input'].includes(agent.state)) continue
+    if (emit && agent.notificationPending) continue
     const key = `${agent.state}:${agent.since ?? ''}`
     if (notified.get(session.id) === key) continue
     notified.set(session.id, key)

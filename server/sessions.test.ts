@@ -6,6 +6,7 @@ import test from 'node:test'
 import { agentResumeCommand, createSessionManager, createShortTtlCache, createStaleWhileRevalidateCache, defaultTerminalBackend, parseZellijSessions, tmuxExecutable, tmuxNewSessionArgs, type MultiplexerAdapter, type TmuxAdapter } from './sessions.ts'
 import { createStore } from './store.ts'
 import type { ProcessInfo } from './agents.ts'
+import { scanAgentNotifications } from '../src/agentNotifications.ts'
 
 function fakeTmux(): TmuxAdapter & { created: string[]; createCommands: Array<string[] | undefined>; createEnvs: Array<Record<string, string> | undefined>; stopped: string[]; live: Set<string> } {
   const live = new Set<string>()
@@ -840,6 +841,58 @@ test('completed agent activity stays read after reopening the workspace', () => 
     store.close()
     store = createStore(database)
     assert.equal(createSessionManager(store, adapter, [directory], processes).decorate([session])[0].agent?.state, 'read')
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('Codex permission notifications settle before alerting and repeated hooks preserve one wait on Windows', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-codex-notifications-')))
+  const store = createStore(':memory:')
+  const adapter = { ...fakeTmux(), backend: 'zellij' as const }
+  let now = Date.now()
+  const manager = createSessionManager(store, { zellij: adapter }, [directory], () => [], 'zellij', 'win32', { clock: () => now })
+  try {
+    const node = store.createNode('default', { parentId: 'workspace', title: 'Codex permissions', type: 'terminal', repoPath: directory })
+    const session = manager.attach(node.id)
+    const locator = { backend: 'zellij' as const, runtimeName: session.runtimeName }
+    const event = (hook_event_name: string) => manager.recordAgentEvent(locator, 'codex', { hook_event_name, session_id: 'codex-notification-test' }, new Date(now).toISOString())
+    let notified = new Map<string, string>()
+    const scan = () => {
+      const graph = { ...store.getWorkspace('default'), sessions: manager.decorate([store.getSession(session.id)!]) }
+      const result = scanAgentNotifications(graph, notified)
+      notified = result.notified
+      return result.notifications
+    }
+    event('UserPromptSubmit')
+    event('PermissionRequest')
+    assert.deepEqual(scan(), [], 'do not alert before automatic approval has a chance to finish')
+    now += 2000
+    event('PostToolUse')
+    assert.equal(manager.decorate([session])[0].agent?.state, 'working')
+    now += 5000
+    assert.deepEqual(scan(), [], 'resolved permission requests never notify')
+
+    const waiting = event('PermissionRequest')
+    assert.deepEqual(scan(), [])
+    now += 4999
+    event('PermissionRequest')
+    assert.equal(store.getAgentActivity(session.runtimeName)?.since, waiting.since, 'duplicates do not restart the grace period')
+    assert.deepEqual(scan(), [])
+    now += 1
+    assert.equal(scan().length, 1, 'a persistent wait notifies even without another hook')
+    now += 5000
+    event('PermissionRequest')
+    assert.deepEqual(scan(), [], 'repeated requests do not notify again during the same wait')
+    assert.equal(store.listAgentEvents(session.runtimeName).filter((item) => item.eventName === 'PermissionRequest').length, 4, 'keep the full event log')
+
+    event('PreToolUse')
+    now += 1
+    event('PermissionRequest')
+    now += 5000
+    assert.equal(scan().length, 1, 'a new wait after progress still notifies')
+    assert.deepEqual(adapter.stopped, [])
   } finally {
     store.close()
     rmSync(directory, { recursive: true, force: true })

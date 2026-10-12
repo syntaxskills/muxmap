@@ -674,8 +674,13 @@ export function createSessionManager(
     runtimeSnapshot,
 
     decorate(items: TerminalSession[], inventory = agentInventory(), live = runtimeSnapshot()) {
+      const now = options.clock?.() ?? Date.now()
       return items.map((session) => {
-        const agent = agentFor(session.runtimeName, inventory)
+        let agent = agentFor(session.runtimeName, inventory)
+        // Codex requests permission before automatic review; allow brief waits to resolve before notifying.
+        if (agent?.kind === 'codex' && agent.state === 'needs_input' && now - Date.parse(agent.since ?? '') < 5000) {
+          agent = { ...agent, notificationPending: true }
+        }
         const exists = runtimeExistsInSnapshot(session, live)
         const agentEvents = compactAgentEvents(store.listAgentEvents(session.runtimeName, 5))
         const recoverableAgent = canRecoverAgent(session, agent, exists)

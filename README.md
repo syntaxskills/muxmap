@@ -81,6 +81,8 @@ npm run hooks:update
 Hooks are safe outside MuxMap sessions: plain terminals no-op, ordinary tmux sessions are ignored, and live `muxmap*` sessions can appear as orphans for adoption.
 Run `npm run hooks:update` after pulling hook changes so existing Codex/Claude/Pi installs get the latest event coverage and resume metadata.
 
+Codex input notifications wait five seconds before becoming eligible for delivery on the next workspace refresh. Tool-progress hooks clear resolved permission waits, and repeated `PermissionRequest` events during the same wait do not send another alert. The event log still records every hook. This reduces notification noise from automatic approvals; Codex does not yet expose a reliable hook indicating that a person must approve, so slow automatic reviews can still notify. See [the upstream report](https://github.com/openai/codex/issues/28833).
+
 ## Agent channel MCP
 
 MuxMap includes a local stdio MCP server for bounded agent-to-agent channel messages. Configure MCP clients to run the Node entry directly so stdout contains only MCP JSON-RPC messages:

@@ -74,11 +74,11 @@ function printPiStatus() {
 }
 
 if (mode === 'status') {
-  printJsonStatus(join(homedir(), '.codex/hooks.json'), 'codex', ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'SessionEnd'])
+  printJsonStatus(join(homedir(), '.codex/hooks.json'), 'codex', ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'Stop', 'SessionEnd'])
   printJsonStatus(join(homedir(), '.claude/settings.json'), 'claude', ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'ElicitationResult', 'Notification', 'TaskCreated', 'TaskCompleted', 'SubagentStart', 'SubagentStop', 'Stop', 'StopFailure', 'SessionEnd'])
   printPiStatus()
 } else {
-  if (available('codex')) installJson(join(homedir(), '.codex/hooks.json'), 'codex', ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'SessionEnd'])
+  if (available('codex')) installJson(join(homedir(), '.codex/hooks.json'), 'codex', ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'Stop', 'SessionEnd'])
   else console.log('Skipped codex hooks: codex command unavailable')
   if (available('claude')) installJson(join(homedir(), '.claude/settings.json'), 'claude', ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'ElicitationResult', 'Notification', 'TaskCreated', 'TaskCompleted', 'SubagentStart', 'SubagentStop', 'Stop', 'StopFailure', 'SessionEnd'])
   else console.log('Skipped claude hooks: claude command unavailable')
