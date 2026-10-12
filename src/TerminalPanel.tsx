@@ -8,6 +8,7 @@ import type { AgentActivity, NodeType, TerminalInputHistoryItem, TerminalSession
 import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, attachTerminalTouchScroll, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
+import { attachTerminalRecovery } from './terminalRecovery.ts'
 import { loadAddonWithFallback } from './terminalRenderer.ts'
 import { agentStatusText, agentStatusTooltip } from './agentStatus.ts'
 import { visibleAgentForSession } from './graph.ts'
@@ -64,7 +65,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
   const [status, setStatus] = useState<TerminalStatus>(session.status)
   const [connection, setConnection] = useState<'connecting' | 'ready' | 'closed'>('connecting')
   const [connectionError, setConnectionError] = useState('')
-  const [restartCount, setRestartCount] = useState(0)
+  const [reconnectCount, setReconnectCount] = useState(0)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [isFullscreen, setFullscreen] = useState(false)
   const [showNodeEditor, setShowNodeEditor] = useState(false)
@@ -193,12 +194,20 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       if (lifecycle.canInput() && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))
       return false
     })
+    let disconnected = false
     const lifecycle = createTerminalLifecycle((nextStatus) => {
+      disconnected = true
       setConnection('closed')
       terminal.options.disableStdin = true
       setStatus(nextStatus)
       onStatus(session.id, nextStatus)
     })
+    const reconnect = () => {
+      if (lifecycle.disposed()) return
+      lifecycle.dispose()
+      setReconnectCount((count) => count + 1)
+    }
+    const detachRecovery = attachTerminalRecovery(socket, () => disconnected, reconnect)
     const sendResize = () => {
       try {
         fit.fit()
@@ -232,19 +241,20 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
         setStatus(message.status)
         onStatus(session.id, message.status)
         if (message.status === 'running') {
+          if (lifecycle.canInput()) return
           terminal.write('', () => {
-            if (!lifecycle.ready()) return
+            if (lifecycle.canInput() || !lifecycle.ready()) return
             setConnection('ready')
             terminal.options.disableStdin = false
             terminal.focus()
           })
         } else {
-          lifecycle.close()
+          lifecycle.close(message.status)
         }
       }
       if (message.type === 'error' && message.message) {
         lifecycle.fail()
-        setConnection('closed')
+        lifecycle.close()
         setConnectionError(message.message)
         onError(message.message)
         terminal.options.disableStdin = true
@@ -253,22 +263,20 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     })
     socket.addEventListener('close', (event) => {
       if (event.code === 1012 && event.reason === 'Session restarted' && !lifecycle.disposed()) {
-        for (const timer of pendingCommandSubmitEnters.current) window.clearTimeout(timer)
-        pendingCommandSubmitEnters.current.clear()
-        setRestartCount((count) => count + 1)
+        reconnect()
       } else lifecycle.close()
     })
     socket.addEventListener('error', () => {
       if (!lifecycle.fail()) return
-      setConnection('closed')
-      setConnectionError('Unable to connect to this terminal. Close it and try again.')
-      onError('Unable to connect to this terminal. Try opening it again.')
-      terminal.options.disableStdin = true
-      terminal.writeln('\r\nMuxMap: session unavailable. Restart the terminal.')
+      lifecycle.close()
     })
 
+    const pendingEnters = pendingCommandSubmitEnters.current
     return () => {
       lifecycle.dispose()
+      detachRecovery()
+      for (const timer of pendingEnters) window.clearTimeout(timer)
+      pendingEnters.clear()
       resize.disconnect()
       input.dispose()
       links.dispose()
@@ -283,7 +291,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       webglRenderer?.dispose()
       terminal.dispose()
     }
-  }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, node.id, onAgentActivity, onError, onStatus, precisionScrollMultiplier, restartCount, scrollback, session.cwd, session.id, wheelMode])
+  }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, node.id, onAgentActivity, onError, onStatus, precisionScrollMultiplier, reconnectCount, scrollback, session.cwd, session.id, wheelMode])
 
   function beginDrag(event: ReactPointerEvent<HTMLDivElement>) {
     if (!floating || isFullscreen || event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea, a, summary, .terminal-node-editor, .terminal-stop-confirm')) return
@@ -415,7 +423,8 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
         {connection !== 'ready' && <div className="terminal-connection-status" role={connection === 'closed' ? 'alert' : 'status'}>
           {connection === 'connecting' && <progress aria-label="Connecting to terminal" />}
           <strong>{connection === 'connecting' ? 'Connecting to terminal…' : 'Terminal disconnected'}</strong>
-          <span>{connection === 'connecting' ? 'Waiting for the terminal to be ready. Input will be enabled automatically.' : connectionError || 'Close this panel and reopen the terminal to reconnect.'}</span>
+          <span>{connection === 'connecting' ? 'Waiting for the terminal to be ready. Input will be enabled automatically.' : connectionError || 'Reconnecting automatically when you return to this tab or your connection comes back.'}</span>
+          {connection === 'closed' && <button type="button" onClick={() => setReconnectCount((count) => count + 1)}>Reconnect</button>}
         </div>}
       </div>
       <form className={`terminal-command-box ${commandEnterArmed ? 'is-enter-armed' : ''}`} onSubmit={(event) => { event.preventDefault(); void submitCommandInput() }}>

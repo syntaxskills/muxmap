@@ -30,7 +30,7 @@ test('StrictMode cleanup ignores the first socket close and leaves the replaceme
   assert.equal(replacement.disposed(), false)
 })
 
-test('a live connection reports detached while a genuine startup failure reports stopped', () => {
+test('connection loss never claims the underlying session stopped, even before the socket opens', () => {
   const statuses: string[] = []
   const live = createTerminalLifecycle((status) => statuses.push(status))
   live.open()
@@ -39,5 +39,19 @@ test('a live connection reports detached while a genuine startup failure reports
   const failed = createTerminalLifecycle((status) => statuses.push(status))
   failed.fail()
   failed.close()
-  assert.deepEqual(statuses, ['detached', 'stopped'])
+  const unopened = createTerminalLifecycle((status) => statuses.push(status))
+  unopened.close()
+  assert.deepEqual(statuses, ['detached', 'detached', 'detached'])
+})
+
+test('an authoritative session status is preserved and late readiness cannot reopen a closed connection', () => {
+  const statuses: string[] = []
+  const connection = createTerminalLifecycle((status) => statuses.push(status))
+  connection.open()
+  connection.close('suspended')
+  connection.open()
+  assert.equal(connection.ready(), false)
+  assert.equal(connection.canInput(), false)
+  connection.close()
+  assert.deepEqual(statuses, ['suspended'])
 })

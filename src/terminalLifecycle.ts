@@ -9,10 +9,10 @@ export function createTerminalLifecycle(onClose: (status: TerminalStatus) => voi
 
   return {
     open() {
-      if (!isDisposed) isOpened = true
+      if (!isDisposed && !isClosed) isOpened = true
     },
     ready() {
-      if (isDisposed || hasFailed || !isOpened) return false
+      if (isDisposed || isClosed || hasFailed || !isOpened) return false
       isReady = true
       return true
     },
@@ -24,10 +24,9 @@ export function createTerminalLifecycle(onClose: (status: TerminalStatus) => voi
       hasFailed = true
       return true
     },
-    close() {
+    close(status: TerminalStatus = 'detached') {
       if (isClosed) return
       isClosed = true
-      const status = hasFailed || !isOpened ? 'stopped' : 'detached'
       isReady = false
       isOpened = false
       if (!isDisposed) onClose(status)
