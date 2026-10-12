@@ -286,7 +286,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
   }, [cursorBlink, dedupeRepeatedInput, discreteScrollMultiplier, fontSize, node.id, onAgentActivity, onError, onStatus, precisionScrollMultiplier, restartCount, scrollback, session.cwd, session.id, wheelMode])
 
   function beginDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!floating || isFullscreen || event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea')) return
+    if (!floating || isFullscreen || event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea, a, summary, .terminal-node-editor, .terminal-stop-confirm')) return
     drag.current = { pointerId: event.pointerId, origin: offset, start: { x: event.clientX, y: event.clientY } }
     event.currentTarget.setPointerCapture(event.pointerId)
   }

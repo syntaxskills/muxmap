@@ -630,6 +630,7 @@ function App() {
         resetNodeDrag()
         return
       }
+      if (event.ctrlKey || event.metaKey || event.altKey) return
       const target = event.target as HTMLElement | null
       const tag = target?.tagName ?? ''
       const typing = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA'
@@ -1002,6 +1003,7 @@ function App() {
   }
 
   function openNodeContextMenu(event: React.MouseEvent<HTMLElement>, node: WorkNode) {
+    if (window.getSelection()?.toString()) return
     event.preventDefault()
     event.stopPropagation()
     setSelectedId(node.id)
@@ -1050,7 +1052,7 @@ function App() {
   }
 
   function beginPan(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea, a')) return
+    if (event.button !== 0 || (event.target as HTMLElement).closest('button, input, select, textarea, a, .canvas-toolbar, .canvas-legend, .node-notes-preview')) return
     dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y }
     event.currentTarget.setPointerCapture(event.pointerId)
     setPanning(true)
@@ -1756,7 +1758,7 @@ function App() {
               ? contextMenuPosition
               : contextMenu
             return (
-              <div className="node-context-menu" role="menu" aria-label={`Actions for ${node.title}`} ref={contextMenuRef} style={{ left: menuPosition.x, top: menuPosition.y }} onContextMenu={(event) => event.preventDefault()}>
+              <div className="node-context-menu" role="menu" aria-label={`Actions for ${node.title}`} ref={contextMenuRef} style={{ left: menuPosition.x, top: menuPosition.y }}>
                 <div className="node-context-menu-title"><span>{node.title}</span><small>{typeLabels[node.type]}</small></div>
                 <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void addChild(node) }}><PlusIcon />Add child</button>
                 <button type="button" role="menuitem" onClick={() => { setContextMenu(null); startRename(node) }}><Pencil2Icon />Rename</button>

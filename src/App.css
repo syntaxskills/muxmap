@@ -345,7 +345,6 @@ kbd {
   background-size: 20px 20px;
   cursor: grab;
   touch-action: none;
-  user-select: none;
 }
 
 .canvas.is-panning {
@@ -3786,7 +3785,6 @@ kbd {
   font: 10px/1 var(--mono);
   overflow: hidden;
   touch-action: none;
-  user-select: none;
 }
 
 .terminal-header.has-node-editor,

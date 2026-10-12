@@ -393,7 +393,7 @@ function fileSourcePreviewHtml(path: string, content: string, line: number | und
     return `<tr id="L${number}"${selected ? ' class="is-selected"' : ''}><th>${number}</th><td><code>${htmlEscape(row || ' ')}</code></td></tr>`
   }).join('')
   const script = line ? `<script>document.getElementById('L${line}')?.scrollIntoView({block:'center'});</script>` : ''
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`table{border-collapse:collapse;width:100%}th{width:1%;padding:0 12px;color:#657064;text-align:right;user-select:none;border-right:1px solid #262d25}
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${htmlEscape(basename(path))}</title>${filePreviewStyles(`table{border-collapse:collapse;width:100%}th{width:1%;padding:0 12px;color:#657064;text-align:right;border-right:1px solid #262d25}
 td{padding:0 14px;white-space:pre}tr.is-selected{background:#31401f}tr.is-selected th{color:#d8ef9a}`)}</head><body>${header}<table>${rows}</table>${script}</body></html>`
 }
 
