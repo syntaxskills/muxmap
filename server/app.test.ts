@@ -1694,7 +1694,8 @@ test('orphan tmux sessions can be adopted and node deletion explicitly keeps or 
   }
 })
 
-test('local agent hooks update automatically detected tmux activity', async () => {
+test('local agent hooks update automatically detected tmux activity', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-12T10:00:00.000Z') })
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-agent-api-')))
   const tmux = fakeTmux()
   tmux.live.add('muxmap-codex-work')
@@ -1771,6 +1772,7 @@ test('local agent hooks update automatically detected tmux activity', async () =
     const unread = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: TerminalSession[] }
     const unreadSession = unread.sessions.find((session) => session.id === adopted.session.id)
     assert.equal(unreadSession?.agent?.state, 'completed')
+    assert.equal(new Set(unreadSession?.agentEvents?.map((item) => item.createdAt)).size, 1)
     assert.deepEqual(unreadSession?.agentEvents?.map((item) => item.eventName), ['SubagentStop', 'Notification', 'Stop', 'UserPromptSubmit'])
     assert.equal(Object.hasOwn(unreadSession!.agentEvents![0]!, 'payload'), false)
     assert.deepEqual(Object.keys(unreadSession!.agentEvents![0]!).sort(), ['createdAt', 'eventName', 'id', 'state'].sort())

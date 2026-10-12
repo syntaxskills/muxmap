@@ -1173,13 +1173,13 @@ export function createStore(path: string, options: { nodeStepDefinitions?: reado
       database.prepare(`
         DELETE FROM agent_events
         WHERE tmux_name = ? AND id NOT IN (
-          SELECT id FROM agent_events WHERE tmux_name = ? ORDER BY created_at DESC LIMIT 80
+          SELECT id FROM agent_events WHERE tmux_name = ? ORDER BY created_at DESC, rowid DESC LIMIT 80
         )
       `).run(runtimeName, runtimeName)
     },
 
     listAgentEvents(runtimeName: string, limit = 20) {
-      const rows = database.prepare('SELECT * FROM agent_events WHERE tmux_name = ? ORDER BY created_at DESC LIMIT ?').all(runtimeName, limit) as Record<string, unknown>[]
+      const rows = database.prepare('SELECT * FROM agent_events WHERE tmux_name = ? ORDER BY created_at DESC, rowid DESC LIMIT ?').all(runtimeName, limit) as Record<string, unknown>[]
       return rows.map(mapAgentEvent)
     },
 

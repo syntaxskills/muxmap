@@ -102,6 +102,45 @@ test('agent event log stores recent hook payloads for debugging', () => {
   store.close()
 })
 
+test('agent events with equal timestamps list the last received event first', () => {
+  const store = createStore(':memory:')
+  try {
+    const names = ['UserPromptSubmit', 'Stop', 'Notification', 'SubagentStop']
+    for (const hook_event_name of names) {
+      store.recordAgentEvent('muxmap-claude', 'claude', { hook_event_name }, 'completed', '2026-10-12T10:00:00.000Z')
+    }
+    assert.deepEqual(store.listAgentEvents('muxmap-claude').map((event) => event.eventName), names.toReversed())
+    assert.deepEqual(store.listAgentEvents('muxmap-claude', 2).map((event) => event.eventName), ['SubagentStop', 'Notification'])
+  } finally {
+    store.close()
+  }
+})
+
+test('agent events with equal timestamps retain the newest 80 and replay the latest state on restart', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'muxmap-event-order-'))
+  const database = join(directory, 'muxmap.db')
+  let store = createStore(database)
+  try {
+    const timestamp = '2026-10-12T10:00:00.000Z'
+    store.recordAgentEvent('muxmap-other', 'claude', { type: 'manual_status', state: 'read' }, 'read', timestamp)
+    for (let sequence = 0; sequence < 85; sequence += 1) {
+      const state = sequence === 84 ? 'completed' : 'working'
+      store.recordAgentEvent('muxmap-burst', 'claude', { type: 'manual_status', state, sequence }, state, timestamp)
+    }
+    const expected = Array.from({ length: 80 }, (_, index) => 84 - index)
+    assert.deepEqual(store.listAgentEvents('muxmap-burst', 100).map((event) => event.payload.sequence), expected)
+    assert.equal(store.listAgentEvents('muxmap-other').length, 1)
+    store.close()
+    store = createStore(database)
+    assert.deepEqual(store.listAgentEvents('muxmap-burst', 100).map((event) => event.payload.sequence), expected)
+    assert.equal(store.getAgentActivity('muxmap-burst')?.state, 'completed')
+    assert.equal(store.getAgentActivity('muxmap-other')?.state, 'read')
+  } finally {
+    store.close()
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('agent activity rebuilds from event log on startup instead of trusting stale snapshots', () => {
   const directory = mkdtempSync(join(tmpdir(), 'muxmap-agent-replay-'))
   const database = join(directory, 'muxmap.db')
