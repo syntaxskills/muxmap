@@ -11,7 +11,7 @@ test('agent node attention distinguishes working, completed, and input-needed st
   assert.match(css, /--agent-delegated-color:\s*#8aa18f/)
   assert.match(css, /--agent-standby-color:\s*#9aa69c/)
   assert.match(css, /--agent-completed-color:\s*#13785b/)
-  assert.match(css, /prefers-color-scheme: dark[\s\S]*--agent-completed-color:\s*#68e4b4/)
+  assert.match(css, /data-theme='dark'[\s\S]*--agent-completed-color:\s*#68e4b4/)
   assert.match(css, /\.map-node\.is-agent-completed::after\s*\{[^}]*animation:\s*agent-completed-ripple 1\.1s ease-out 2;/s)
   assert.match(css, /prefers-reduced-motion:[^)]+\)[\s\S]*\.map-node\.is-agent-completed::after[\s\S]*animation:\s*none/)
   assert.match(app, /agentState === 'completed'[\s\S]*agent-completed-marker[\s\S]*✓ Done/)

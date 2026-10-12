@@ -348,6 +348,7 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem('muxmap:settings', JSON.stringify(settings))
     window.localStorage.setItem('muxmap:settings-version', String(SETTINGS_VERSION))
+    window.dispatchEvent(new Event('muxmap:settings-changed'))
   }, [settings])
   useEffect(() => {
     const platform = graph?.runtime?.platform

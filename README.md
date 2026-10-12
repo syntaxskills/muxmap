@@ -22,6 +22,7 @@ Most terminal-heavy workflows eventually become a pile of anonymous panes. MuxMa
 - Keep a durable note stream under each node with human notes, agent updates, opened files, and clickable Jira/GitHub/GitLab/Lark artifacts.
 - Use the terminal command box for edited input with MuxMap-managed history.
 - Tune the workspace through a VS Code-style settings UI or JSON editor.
+- Choose Light, Dark, or System in Settings → Appearance. Settings → About shows the build version and checks GitHub for updates against `main`.
 
 ## Quick start
 

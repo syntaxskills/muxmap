@@ -13,10 +13,8 @@
   color: var(--text);
 }
 
-@media (prefers-color-scheme: dark) {
-  .app-shell {
-    --agent-completed-color: #68e4b4;
-  }
+:root[data-theme='dark'] .app-shell {
+  --agent-completed-color: #68e4b4;
 }
 
 .terminal {
@@ -1859,6 +1857,77 @@ kbd {
   background: var(--surface);
 }
 
+.settings-about {
+  display: grid;
+  gap: 18px;
+  padding: 16px 12px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-about h3,
+.settings-about p,
+.settings-about dl,
+.settings-about dd {
+  margin: 0;
+}
+
+.settings-about h3 {
+  color: var(--text-strong);
+  font-size: 20px;
+}
+
+.settings-about dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-about dd {
+  color: var(--text-strong);
+  font-family: var(--mono);
+}
+
+.settings-about a {
+  color: var(--accent);
+  text-underline-offset: 3px;
+}
+
+.settings-update {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-update strong {
+  color: var(--text-strong);
+}
+
+.settings-update button {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-elevated);
+  color: var(--text-strong);
+  cursor: pointer;
+}
+
+.settings-update button:disabled {
+  opacity: .6;
+  cursor: wait;
+}
+
+.settings-update p:empty {
+  display: none;
+}
+
 .settings-list-heading {
   position: sticky;
   top: 0;
@@ -2108,7 +2177,7 @@ kbd {
   grid-row: 3 / -1;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(220px, 1fr) auto auto;
+  grid-template-rows: auto minmax(80px, 1fr) auto auto;
   gap: 0;
   overflow: hidden;
   padding: 10px;
@@ -4537,6 +4606,13 @@ kbd {
     min-width: 0;
     min-height: 320px;
     resize: none;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 900px) {
+  .workspace.has-side-panel:has(.settings-panel) {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
+    grid-template-rows: minmax(0, 1fr);
   }
 }
 

@@ -5,6 +5,7 @@ export const SETTINGS_VERSION = 5
 export type SettingCategory = 'Appearance' | 'Canvas' | 'Mindmap' | 'Lifecycle' | 'Terminal' | 'Notifications'
 
 export type AppSettings = {
+  'workbench.theme': 'system' | 'light' | 'dark'
   'workbench.density': 'compact' | 'comfortable'
   'workbench.reduceMotion': boolean
   'canvas.showGrid': boolean
@@ -56,6 +57,7 @@ export type SettingDefinition = {
 }
 
 export const settingDefinitions: SettingDefinition[] = [
+  { key: 'workbench.theme', category: 'Appearance', label: 'Color theme', description: 'Choose Light, Dark, or follow your system appearance.', control: 'select', options: [{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] },
   { key: 'workbench.density', category: 'Appearance', label: 'Interface density', description: 'Controls spacing in settings and side panels.', control: 'select', options: [{ value: 'compact', label: 'Compact' }, { value: 'comfortable', label: 'Comfortable' }] },
   { key: 'workbench.reduceMotion', category: 'Appearance', label: 'Reduce motion', description: 'Removes expansion and terminal window animations.', control: 'boolean' },
   { key: 'canvas.showGrid', category: 'Canvas', label: 'Show grid', description: 'Displays the dot grid behind the mindmap.', control: 'boolean' },
@@ -102,6 +104,7 @@ export function platformLabel(platform: RuntimePlatform) {
 
 export function defaultSettings(platform: RuntimePlatform): AppSettings {
   return {
+    'workbench.theme': 'system',
     'workbench.density': 'compact',
     'workbench.reduceMotion': false,
     'canvas.showGrid': true,

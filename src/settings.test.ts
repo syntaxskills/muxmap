@@ -12,8 +12,8 @@ import {
 } from './settings.ts'
 
 test('the settings schema exposes the compact adjustable settings', () => {
-  assert.equal(settingDefinitions.length, 31)
-  assert.equal(new Set(settingDefinitions.map((item) => item.key)).size, 31)
+  assert.equal(settingDefinitions.length, 32)
+  assert.equal(new Set(settingDefinitions.map((item) => item.key)).size, 32)
   assert.deepEqual([...new Set(settingDefinitions.map((item) => item.category))], [
     'Appearance',
     'Canvas',
@@ -31,6 +31,18 @@ test('notification delivery can target the system, the page, both, or neither', 
   assert.deepEqual(notificationDeliveryTargets('off'), { system: false, inPage: false })
   assert.equal(defaultSettings('linux')['notifications.delivery'], 'both')
   assert.equal(parseSettingsJson('{"notifications.delivery":"system"}', 'linux').settings?.['notifications.delivery'], 'system')
+})
+
+test('theme defaults to system and persists valid appearance choices in UI and JSON settings', () => {
+  assert.equal(defaultSettings('linux')['workbench.theme'], 'system')
+  assert.equal(loadSettings('{"terminal.opacity":81}', 'linux')['workbench.theme'], 'system')
+  for (const theme of ['system', 'light', 'dark']) {
+    const parsed = parseSettingsJson(JSON.stringify({ workbench: { theme } }), 'linux')
+    assert.deepEqual(parsed.errors, [])
+    assert.equal(loadSettings(settingsJson(parsed.settings!), 'linux')['workbench.theme'], theme)
+    assert.equal(loadSettings(JSON.stringify({ 'workbench.theme': theme }), 'linux')['workbench.theme'], theme)
+  }
+  assert.match(parseSettingsJson('{"workbench":{"theme":"invalid"}}', 'linux').errors.join('\n'), /theme.*invalid/)
 })
 
 test('lifecycle display can be disabled through settings UI and JSON', () => {

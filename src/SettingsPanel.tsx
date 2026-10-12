@@ -14,6 +14,7 @@ import {
 } from './settings.ts'
 import { systemNotificationResultText, type SystemNotificationResult } from './systemNotifications.ts'
 import type { NodeStepDefinition } from './model.ts'
+import { AboutSettings } from './AboutSettings.tsx'
 
 type Props = {
   settings: AppSettings
@@ -27,7 +28,7 @@ type Props = {
   onClose(): void
 }
 
-const categories: SettingCategory[] = ['Appearance', 'Canvas', 'Mindmap', 'Lifecycle', 'Terminal', 'Notifications']
+const categories: Array<SettingCategory | 'About'> = ['Appearance', 'Canvas', 'Mindmap', 'Lifecycle', 'Terminal', 'Notifications', 'About']
 
 function settingValue(definition: SettingDefinition, settings: AppSettings) {
   return settings[definition.key]
@@ -35,7 +36,7 @@ function settingValue(definition: SettingDefinition, settings: AppSettings) {
 
 export function SettingsPanel({ settings, platform, nodeStepDefinitions, notificationPermission, onChange, onNodeStepDefinitionsChange, onEnableNotifications, onTestSystemNotification, onClose }: Props) {
   const [mode, setMode] = useState<'ui' | 'json'>('ui')
-  const [category, setCategory] = useState<SettingCategory>('Appearance')
+  const [category, setCategory] = useState<SettingCategory | 'About'>('Appearance')
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState(() => settingsJson(settings))
   const [jsonErrors, setJsonErrors] = useState<string[]>([])
@@ -58,6 +59,7 @@ export function SettingsPanel({ settings, platform, nodeStepDefinitions, notific
     const needle = query.trim().toLowerCase()
     return settingDefinitions.filter((item) => (!needle && item.category === category) || (needle && `${item.key} ${item.label} ${item.description}`.toLowerCase().includes(needle)))
   }, [category, query])
+  const showAbout = query.trim() ? 'about muxmap version build github check for updates'.includes(query.trim().toLowerCase()) : category === 'About'
 
   function update(key: SettingKey, value: AppSettings[SettingKey]) {
     onChange({ ...settings, [key]: value })
@@ -104,11 +106,11 @@ export function SettingsPanel({ settings, platform, nodeStepDefinitions, notific
         <label className="settings-search"><MagnifyingGlassIcon /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search settings" aria-label="Search settings" /></label>
         <div className="settings-workbench">
           <nav className="settings-categories" aria-label="Setting categories">
-            {categories.map((item) => <button key={item} type="button" aria-current={!query && category === item ? 'page' : undefined} onClick={() => { setCategory(item); setQuery('') }}>{item}<span>{settingDefinitions.filter((definition) => definition.category === item).length}</span></button>)}
+            {categories.map((item) => <button key={item} type="button" aria-current={!query && category === item ? 'page' : undefined} onClick={() => { setCategory(item); setQuery('') }}>{item}{item !== 'About' && <span>{settingDefinitions.filter((definition) => definition.category === item).length}</span>}</button>)}
           </nav>
           <div className="settings-list">
-            <div className="settings-list-heading"><div><span>{query ? 'Search results' : category}</span><strong>{visible.length} settings</strong></div><small>{platformLabel(platform)} · saved in this browser</small></div>
-            {visible.length === 0 ? <p className="settings-empty">No matching settings.</p> : visible.map((definition) => {
+            <div className="settings-list-heading"><div><span>{query ? 'Search results' : category}</span>{category !== 'About' && <strong>{visible.length} settings</strong>}</div><small>{platformLabel(platform)}{category !== 'About' && ' · saved in this browser'}</small></div>
+            {visible.length === 0 && !showAbout ? <p className="settings-empty">No matching settings.</p> : visible.map((definition) => {
               const value = settingValue(definition, settings)
               return <label className="setting-row" key={definition.key}>
                 <span className="setting-copy"><strong>{definition.label}</strong><code>{definition.key}</code><small>{definition.description}</small></span>
@@ -119,6 +121,7 @@ export function SettingsPanel({ settings, platform, nodeStepDefinitions, notific
                 </span>
               </label>
             })}
+            {showAbout && <AboutSettings />}
             {category === 'Lifecycle' && !query && <div className="lifecycle-settings-editor">
               <div className="lifecycle-settings-heading">
                 <span><strong>Legacy Development stages</strong><small>Kept for existing workspaces. New work should use Node Notes and muxmap_add_node_note.</small></span>
