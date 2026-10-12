@@ -1003,7 +1003,6 @@ function App() {
   }
 
   function openNodeContextMenu(event: React.MouseEvent<HTMLElement>, node: WorkNode) {
-    if (window.getSelection()?.toString()) return
     event.preventDefault()
     event.stopPropagation()
     setSelectedId(node.id)

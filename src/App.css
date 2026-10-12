@@ -423,6 +423,8 @@ kbd {
 
 .map-node {
   position: absolute;
+  -webkit-user-select: none;
+  user-select: none;
   width: 184px;
   height: 42px;
   transition: top 220ms cubic-bezier(0.16, 1, 0.3, 1), width 220ms cubic-bezier(0.16, 1, 0.3, 1), height 220ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms ease, filter 150ms ease;
@@ -470,7 +472,6 @@ kbd {
 
 .map-node.is-dragging {
   opacity: 0.32;
-  user-select: none;
 }
 
 .map-node.drop-inside .node-select {
