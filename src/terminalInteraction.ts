@@ -3,6 +3,7 @@ type TerminalSelectionEvent = { readonly button: number; readonly altKey: boolea
 export type TerminalWheelMode = 'auto' | 'muxmap' | 'application'
 export type RecentTerminalInput = { data: string; at: number }
 export type TerminalScrollMultipliers = { precision: number; discrete: number }
+export type TerminalMousePosition = { col: number; row: number }
 export const COMMAND_DOUBLE_ENTER_MS = 900
 export const COMMAND_SUBMIT_ENTER_DELAY_MS = 150
 export const MAX_BROWSER_TERMINAL_SCROLLBACK = 2000
@@ -43,7 +44,7 @@ export function consumeTerminalWheel(
   return { lines, remainder: lines === rawLines ? total - lines * unit : 0 }
 }
 
-export function attachTerminalTouchScroll(element: HTMLElement, cellHeight: () => number, scroll: (lines: number) => void) {
+export function attachTerminalTouchScroll(element: HTMLElement, cellHeight: () => number, scroll: (lines: number, point: Pick<Touch, 'clientX' | 'clientY'>) => void) {
   let gesture: { id: number; x: number; y: number; lastY: number; remainder: number; scrolling: boolean } | null = null
   const start = (event: TouchEvent) => {
     event.stopImmediatePropagation()
@@ -71,7 +72,7 @@ export function attachTerminalTouchScroll(element: HTMLElement, cellHeight: () =
     const intent = consumeTerminalWheel(gesture.remainder, gesture.lastY - touch.clientY, 0, 1, cellHeight(), { precision: 1, discrete: 1 })
     gesture.lastY = touch.clientY
     gesture.remainder = intent.remainder
-    if (intent.lines) scroll(intent.lines)
+    if (intent.lines) scroll(intent.lines, touch)
   }
   const end = (event: TouchEvent) => {
     event.stopImmediatePropagation()
@@ -97,10 +98,17 @@ export function terminalWheelHandledByApplication(applicationInteractive: boolea
   return applicationInteractive
 }
 
-export function terminalSgrWheelReports(lines: number) {
+export function terminalMousePosition(point: Pick<MouseEvent, 'clientX' | 'clientY'>, screen: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>, cols: number, rows: number): TerminalMousePosition {
+  return {
+    col: Math.max(1, Math.min(cols, Math.floor((point.clientX - screen.left) * cols / Math.max(1, screen.width)) + 1)),
+    row: Math.max(1, Math.min(rows, Math.floor((point.clientY - screen.top) * rows / Math.max(1, screen.height)) + 1)),
+  }
+}
+
+export function terminalSgrWheelReports(lines: number, position: TerminalMousePosition = { col: 1, row: 1 }) {
   const count = Math.min(200, Math.abs(Math.trunc(lines)))
   if (!count) return ''
-  return `\x1b[<${lines < 0 ? 64 : 65};1;1M`.repeat(count)
+  return `\x1b[<${lines < 0 ? 64 : 65};${position.col};${position.row}M`.repeat(count)
 }
 
 export function coalesceTerminalSgrWheelLines(currentLines: number, nextLines: number) {

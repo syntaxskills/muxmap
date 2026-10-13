@@ -6,7 +6,7 @@ import '@xterm/xterm/css/xterm.css'
 import { api } from './api.ts'
 import type { AgentActivity, NodeType, TerminalInputHistoryItem, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
-import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, attachTerminalTouchScroll, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
+import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, attachTerminalTouchScroll, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalMousePosition, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { attachTerminalRecovery } from './terminalRecovery.ts'
 import { loadAddonWithFallback } from './terminalRenderer.ts'
@@ -147,20 +147,23 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     let wheelRemainder = 0
     let pendingScroll = 0
     let pendingSgrWheelLines = 0
+    let scrollPosition = { col: 1, row: 1 }
+    const screen = terminal.element!.querySelector<HTMLElement>('.xterm-screen')!
     let sgrWheelFrame: number | undefined
     let scrollTimer: number | undefined
     const flushScroll = () => {
       scrollTimer = undefined
-      if (pendingScroll && lifecycle.canInput() && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'scroll', lines: pendingScroll }))
+      if (pendingScroll && lifecycle.canInput() && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'scroll', lines: pendingScroll, ...scrollPosition }))
       pendingScroll = 0
     }
     const flushSgrWheel = () => {
       sgrWheelFrame = undefined
-      const data = terminalSgrWheelReports(pendingSgrWheelLines)
+      const data = terminalSgrWheelReports(pendingSgrWheelLines, scrollPosition)
       pendingSgrWheelLines = 0
       if (data && lifecycle.canInput() && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'input', data }))
     }
-    const scrollLines = (lines: number) => {
+    const scrollLines = (lines: number, point: Pick<MouseEvent, 'clientX' | 'clientY'>) => {
+      scrollPosition = terminalMousePosition(point, screen.getBoundingClientRect(), terminal.cols, terminal.rows)
       if (terminalWheelHandledByApplication(applicationInteractive(), wheelMode)) {
         pendingSgrWheelLines = coalesceTerminalSgrWheelLines(pendingSgrWheelLines, lines)
         sgrWheelFrame ??= window.requestAnimationFrame(flushSgrWheel)
@@ -169,7 +172,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       pendingScroll = Math.max(-200, Math.min(200, pendingScroll + lines))
       scrollTimer ??= window.setTimeout(flushScroll, 32)
     }
-    const cellHeight = () => (terminal.element?.querySelector('.xterm-screen')?.getBoundingClientRect().height ?? 0) / terminal.rows || fontSize * 1.4
+    const cellHeight = () => screen.getBoundingClientRect().height / terminal.rows || fontSize * 1.4
     const scroll = (event: WheelEvent) => {
       event.preventDefault()
       event.stopImmediatePropagation()
@@ -178,7 +181,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
         discrete: discreteScrollMultiplier,
       })
       wheelRemainder = intent.remainder
-      if (intent.lines) scrollLines(intent.lines)
+      if (intent.lines) scrollLines(intent.lines, event)
     }
     terminal.element?.addEventListener('wheel', scroll, { capture: true, passive: false })
     const detachTouchScroll = attachTerminalTouchScroll(container.current, cellHeight, scrollLines)

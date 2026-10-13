@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, MAX_BROWSER_TERMINAL_SCROLLBACK, attachTerminalTouchScroll, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelBatchReports, terminalSgrWheelReports, terminalWheelHandledByApplication } from './terminalInteraction.ts'
+import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, MAX_BROWSER_TERMINAL_SCROLLBACK, attachTerminalTouchScroll, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalMousePosition, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelBatchReports, terminalSgrWheelReports, terminalWheelHandledByApplication } from './terminalInteraction.ts'
 
 test('terminal dragging follows the pointer without changing its starting offset', () => {
   assert.deepEqual(dragOffset({ x: 20, y: -10 }, { x: 100, y: 80 }, { x: 145, y: 55 }), { x: 65, y: -35 })
@@ -65,7 +65,8 @@ test('terminal wheel auto mode lets fullscreen terminal apps handle scrolling', 
 test('terminal touch scrolling follows the finger without turning taps, pinches or cancelled gestures into input', () => {
   const element = new EventTarget() as HTMLElement
   const lines: number[] = []
-  const dispose = attachTerminalTouchScroll(element, () => 20, (value) => lines.push(value))
+  const points: { clientX: number; clientY: number }[] = []
+  const dispose = attachTerminalTouchScroll(element, () => 20, (value, point) => { lines.push(value); points.push(point) })
   const touch = (y: number, x = 100, identifier = 1) => ({ clientX: x, clientY: y, identifier })
   const send = (type: string, touches: ReturnType<typeof touch>[]) => {
     const event = new Event(type, { cancelable: true })
@@ -84,6 +85,7 @@ test('terminal touch scrolling follows the finger without turning taps, pinches 
   send('touchmove', [touch(120)])
   assert.equal(send('touchend', []), true, 'a swipe must not also click a terminal link')
   assert.deepEqual(lines.splice(0), [-2, 1], 'drag down into history and up toward the latest output')
+  assert.deepEqual(points.map(({ clientX, clientY }) => [clientX, clientY]), [[100, 140], [100, 120]], 'scrolling targets the pane under the finger')
 
   send('touchstart', [touch(100)])
   send('touchmove', [touch(112)])
@@ -112,8 +114,18 @@ test('terminal touch scrolling follows the finger without turning taps, pinches 
   assert.deepEqual(lines, [], 'unmounting must remove touch listeners')
 })
 
+test('terminal pointer coordinates target the hovered cell in the rendered screen', () => {
+  const screen = { left: 100, top: 50, width: 800, height: 600 }
+  assert.deepEqual(terminalMousePosition({ clientX: 500, clientY: 350 }, screen, 100, 30), { col: 51, row: 16 })
+  assert.deepEqual(terminalMousePosition({ clientX: 108, clientY: 90 }, screen, 100, 30), { col: 2, row: 3 })
+  assert.deepEqual(terminalMousePosition({ clientX: 0, clientY: 0 }, screen, 100, 30), { col: 1, row: 1 })
+  assert.deepEqual(terminalMousePosition({ clientX: 1000, clientY: 800 }, screen, 100, 30), { col: 100, row: 30 })
+})
+
 test('terminal wheel reports can be sent as proportional SGR mouse input', () => {
   assert.equal(terminalSgrWheelReports(0), '')
+  assert.equal(terminalSgrWheelReports(-2, { col: 51, row: 16 }), '\x1b[<64;51;16M'.repeat(2))
+  assert.equal(terminalSgrWheelReports(3, { col: 80, row: 24 }), '\x1b[<65;80;24M'.repeat(3))
   assert.equal(terminalSgrWheelReports(-2), '\x1b[<64;1;1M\x1b[<64;1;1M')
   assert.equal(terminalSgrWheelReports(3), '\x1b[<65;1;1M\x1b[<65;1;1M\x1b[<65;1;1M')
   assert.equal(terminalSgrWheelReports(250).split('\x1b[<65;1;1M').length - 1, 200)

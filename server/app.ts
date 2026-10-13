@@ -29,12 +29,13 @@ import type { ProcessInfo } from './agents.ts'
 import { terminalBackendsForPlatform, type RuntimePlatform } from '../src/settings.ts'
 import { defaultNodeStepDefinitions } from '../src/nodeSteps.ts'
 import { canBulkRecoverAgentSession, effectiveArchivedNodeIds, nodeHasLiveSession } from '../src/graph.ts'
+import { terminalSgrWheelReports, type TerminalMousePosition } from '../src/terminalInteraction.ts'
 
 export type PtyHandle = {
   onData(listener: (data: string) => void): void
   onExit(listener: () => void): void
   write(data: string): void
-  scroll(lines: number): void
+  scroll(lines: number, position?: TerminalMousePosition): void
   resize(cols: number, rows: number): void
   kill(): void
 }
@@ -160,9 +161,10 @@ export const defaultPtyFactory: PtyFactory = (session, size) => {
       onData: (listener) => { pty.onData(listener) },
       onExit: (listener) => { pty.onExit(listener) },
       write: (data) => { pty.write(data) },
-      scroll: (lines) => {
+      // Older clients omit coordinates; the top-left cell belongs to Zellij's tab bar.
+      scroll: (lines, position = { col: Math.ceil(pty.cols / 2), row: Math.ceil(pty.rows / 2) }) => {
         const count = Math.min(200, Math.abs(Math.trunc(lines)))
-        if (count) pty.write(`\x1b[<${lines < 0 ? 64 : 65};1;1M`.repeat(Math.ceil(count / 3)))
+        if (count) pty.write(terminalSgrWheelReports(Math.sign(lines) * Math.ceil(count / 3), position))
       },
       resize: (cols, rows) => { pty.resize(cols, rows) },
       kill: () => { pty.kill() },
@@ -1187,7 +1189,12 @@ export function createMuxMapServer(options: ServerOptions) {
           if (agent) send({ type: 'agent', agent })
         } else if (message.type === 'scroll') {
           const lines = Number(message.lines)
-          if (Number.isInteger(lines) && lines !== 0 && Math.abs(lines) <= 200) pty.scroll(lines)
+          const col = Number(message.col)
+          const row = Number(message.row)
+          if (Number.isInteger(lines) && lines !== 0 && Math.abs(lines) <= 200) {
+            if (message.col === undefined && message.row === undefined) pty.scroll(lines)
+            else if (Number.isInteger(col) && Number.isInteger(row) && col >= 1 && col <= 500 && row >= 1 && row <= 200) pty.scroll(lines, { col, row })
+          }
         } else if (message.type === 'resize') {
           const cols = Number(message.cols)
           const rows = Number(message.rows)

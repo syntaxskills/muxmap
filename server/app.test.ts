@@ -34,7 +34,7 @@ function fakeTmux(options: { currentWorkingDirectories?: Record<string, string> 
   }
 }
 
-function fakePtyFactory(record: { writes: string[]; resizes: number[][]; kills: number[]; starts?: number[][]; scrolls?: number[]; emitData?: (data: string) => void; autoReady?: boolean }): PtyFactory {
+function fakePtyFactory(record: { writes: string[]; resizes: number[][]; kills: number[]; starts?: number[][]; scrolls?: number[]; scrollPositions?: unknown[]; emitData?: (data: string) => void; autoReady?: boolean }): PtyFactory {
   return (_session, size) => {
     if (size) record.starts?.push([size.cols, size.rows])
     const dataListeners: Array<(data: string) => void> = []
@@ -46,7 +46,7 @@ function fakePtyFactory(record: { writes: string[]; resizes: number[][]; kills: 
       },
       onExit() {},
       write: (data) => { record.writes.push(data) },
-      scroll: (lines) => { record.scrolls?.push(lines) },
+      scroll: (lines, position) => { record.scrolls?.push(lines); record.scrollPositions?.push(position) },
       resize: (cols, rows) => { record.resizes.push([cols, rows]) },
       kill: () => { record.kills.push(1) },
     }
@@ -968,7 +968,7 @@ test('workspace polling cannot stop a new terminal using discovery from before i
 test('websocket detaches safely and workspace refresh surfaces a missing tmux session', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-ws-')))
   const tmux = fakeTmux()
-  const ptyRecord = { writes: [] as string[], resizes: [] as number[][], kills: [] as number[], starts: [] as number[][], scrolls: [] as number[], autoReady: false }
+  const ptyRecord = { writes: [] as string[], resizes: [] as number[][], kills: [] as number[], starts: [] as number[][], scrolls: [] as number[], scrollPositions: [] as unknown[], autoReady: false }
   const server = createMuxMapServer({
     databasePath: ':memory:',
     allowedRoots: [root],
@@ -1005,6 +1005,10 @@ test('websocket detaches safely and workspace refresh surfaces a missing tmux se
     })
     ws.send(JSON.stringify({ type: 'input', data: 'pwd\r' }))
     ws.send(JSON.stringify({ type: 'scroll', lines: -4 }))
+    ws.send(JSON.stringify({ type: 'scroll', lines: 6, col: 51, row: 16 }))
+    for (const position of [{ col: 0, row: 1 }, { col: 1, row: 201 }, { col: 501, row: 1 }, { col: 2.5, row: 1 }, { col: 1 }, { row: 1 }]) {
+      ws.send(JSON.stringify({ type: 'scroll', lines: -4, ...position }))
+    }
     ws.send(JSON.stringify({ type: 'resize', cols: 120, rows: 36 }))
     await new Promise((resolve) => setTimeout(resolve, 20))
     const connectedGraph = await fetch(`${base}/api/workspaces/default`, { headers: { cookie } }).then((response) => response.json()) as { sessions: Array<{ id: string; status: string }> }
@@ -1014,7 +1018,8 @@ test('websocket detaches safely and workspace refresh surfaces a missing tmux se
     await eventually(() => ptyRecord.kills.length === 1)
 
     assert.deepEqual(ptyRecord.writes, ['pwd\r'])
-    assert.deepEqual(ptyRecord.scrolls, [-4])
+    assert.deepEqual(ptyRecord.scrolls, [-4, 6])
+    assert.deepEqual(ptyRecord.scrollPositions, [undefined, { col: 51, row: 16 }])
     assert.deepEqual(ptyRecord.starts, [])
     assert.deepEqual(ptyRecord.resizes, [])
     assert.equal(ptyRecord.kills.length, 1)
@@ -1542,7 +1547,7 @@ test('tmux PTY fallback shell command safely quotes executable and args', () => 
   )
 })
 
-test('the real node-pty adapter reattaches to a persistent Zellij session', {
+test('the real node-pty adapter reattaches to Zellij and scrolls pane history', {
   skip: process.platform === 'win32' && process.env.CI
     ? 'Zellij 0.44.3 IPC is not usable in a non-interactive Windows Actions host'
     : spawnSync(zellijExecutable(), ['--version'], { stdio: 'ignore' }).status !== 0,
@@ -1569,8 +1574,8 @@ test('the real node-pty adapter reattaches to a persistent Zellij session', {
     activePty.kill()
   })
 
-  const proveShell = (activePty: ReturnType<typeof defaultPtyFactory>, marker: string) => new Promise<string>((resolve, reject) => {
-    const terminal = new Terminal({ cols: 100, rows: 30 })
+  const proveShell = (activePty: ReturnType<typeof defaultPtyFactory>, marker: string) => new Promise<InstanceType<typeof Terminal>>((resolve, reject) => {
+    const terminal = new Terminal({ cols: 100, rows: 30, allowProposedApi: true })
     let received = ''
     const timeout = setTimeout(() => reject(new Error(`Timed out waiting for Zellij PTY output: ${received}`)), 8000)
     terminal.onData((data) => activePty.write(data))
@@ -1579,7 +1584,7 @@ test('the real node-pty adapter reattaches to a persistent Zellij session', {
       terminal.write(data)
       if (received.split(marker).length > 2) {
         clearTimeout(timeout)
-        resolve(received)
+        resolve(terminal)
       }
     })
     activePty.write(`echo ${marker}\r`)
@@ -1594,8 +1599,17 @@ test('the real node-pty adapter reattaches to a persistent Zellij session', {
     pty = undefined
     await eventually(() => realZellij.exists(runtimeName), 5000)
 
-    pty = defaultPtyFactory(session)
-    await proveShell(pty, '__MUXMAP_ZELLIJ_REATTACHED__')
+    pty = defaultPtyFactory(session, { cols: 100, rows: 30 })
+    const terminal = await proveShell(pty, '__MUXMAP_ZELLIJ_REATTACHED__')
+    const screen = () => Array.from({ length: terminal.rows }, (_, i) => terminal.buffer.active.getLine(terminal.buffer.active.viewportY + i)?.translateToString(true) ?? '').join('\n')
+    pty.write(process.platform === 'win32' ? '1..160 | ForEach-Object { "MUXROW_$_" }\r' : "printf 'MUXROW_%03d\\r\\n' {1..160}\r")
+    await eventually(() => screen().includes('MUXROW_160'), 5000)
+    pty.scroll(-18, { col: 50, row: 15 })
+    await eventually(() => screen().includes('MUXROW_140') && !screen().includes('MUXROW_160'))
+    pty.scroll(200, { col: 50, row: 15 })
+    await eventually(() => screen().includes('MUXROW_160'))
+    pty.scroll(-18)
+    await eventually(() => screen().includes('MUXROW_140') && !screen().includes('MUXROW_160'))
   } finally {
     if (pty) await detach(pty)
     if (realZellij.exists(runtimeName)) realZellij.stop(runtimeName)
