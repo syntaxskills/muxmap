@@ -1464,6 +1464,11 @@ kbd {
   filter: brightness(0.18);
 }
 
+:root[data-theme='dark'] .agent-icon.is-codex,
+.terminal .agent-icon.is-codex {
+  filter: none;
+}
+
 .agent-icon.is-pi {
   width: 21px;
   height: 21px;
