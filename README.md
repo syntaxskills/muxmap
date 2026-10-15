@@ -2,134 +2,176 @@
 
 [![CI](https://github.com/syntaxskills/muxmap/actions/workflows/ci.yml/badge.svg)](https://github.com/syntaxskills/muxmap/actions/workflows/ci.yml)
 
-A mindmap that remembers what every terminal is for.
+**A mindmap for your Claude Code and Codex terminals.**
 
-MuxMap is a local-first mindmap for managing developer context: repos, tickets, notes, agent runs, and persistent terminals.
+Running several coding-agent sessions across repos and tasks? MuxMap gives each terminal a place on a map, so you can see what it belongs to, spot sessions that need attention, and get back to the right work.
 
-Most terminal-heavy workflows eventually become a pile of anonymous panes. MuxMap gives each session a place in the work graph, so you can see what you are working on, jump back into the right terminal, and keep long-running tmux or Zellij sessions alive across browser refreshes.
+Group work by repo, feature, or ticket. Attach a persistent terminal to any node. Keep the map visible beside your terminal, and return to the same running session after closing or refreshing the browser.
 
-![MuxMap mindmap with docked terminal](docs/assets/muxmap-docked-terminal.png)
+![MuxMap mindmap with a docked Codex terminal](docs/assets/muxmap-docked-terminal.png)
 
-## What it does
+*Example workspace with synthetic data. [More screenshots](docs/SCREENSHOTS.md).*
 
-- Organize repos, features, tickets, notes, and terminal tasks in a compact tree.
-- Attach a persistent terminal to any node, then dock, float, resize, or full-screen it.
-- Reopen the browser and reattach to the same session.
-- Archive completed nodes to keep them searchable while stopping their live terminal sessions.
-- Manage orphan `muxmap*` sessions instead of leaving hidden tmux/Zellij clutter.
-- Track Codex, Claude Code, Pi, and SSH activity with optional system or in-page notifications.
-- Manually connect two terminal-backed nodes into a bounded agent chat channel and see that relationship on the map.
-- Keep a durable note stream under each node with human notes, agent updates, opened files, and clickable Jira/GitHub/GitLab/Lark artifacts.
-- Use the terminal command box for edited input with MuxMap-managed history.
-- Tune the workspace through a VS Code-style settings UI or JSON editor.
-- Choose Light, Dark, or System in Settings → Appearance. Settings → About shows the build version and checks GitHub for updates against `main`.
+[Quick start](#quick-start) · [Your first session](#your-first-session) · [Agent status](#agent-status-optional) · [Persistence](#how-persistence-works)
+
+## Why use it?
+
+- **Remember what each terminal is for.** Put Claude Code, Codex, Pi, ordinary shells, and SSH sessions next to their repo, task, notes, and links.
+- **See what needs your attention.** Optional agent hooks show working, completed, and waiting-for-input states, with in-page or system notifications.
+- **Pick up where you left off.** tmux on macOS/Linux or Zellij on Windows keeps terminals running when the browser disconnects.
+- **Keep context with the work.** Save notes, opened files, and Jira/GitHub/GitLab/Lark links on each node.
+- **Clean up deliberately.** Find orphaned MuxMap sessions, adopt them into the map, or stop them. Archive finished branches when you're ready to stop their terminals.
+
+MuxMap runs locally and stores workspace data in SQLite. Bring your own installed coding-agent CLI and its usual authentication; MuxMap doesn't include an agent or model subscription.
 
 ## Quick start
 
-Requirements:
+### Prerequisites
 
-- Node.js 22+
-- Native build tools for `node-pty`
-- tmux on macOS/Linux, or Zellij 0.44.3+ on Windows
+- **Git and Node.js with npm.** Use a current Node.js 22.x or 24.x release. Node 22 must be **22.13 or newer** because the server uses [built-in SQLite](https://nodejs.org/api/sqlite.html).
+- **A terminal multiplexer on your PATH:** `tmux` on macOS/Linux, or **Zellij 0.44.3+** on Windows.
+- **Native build tools for `node-pty`:** Python and a C/C++ toolchain. See the [platform prerequisites](https://github.com/microsoft/node-pty#dependencies) if installation fails.
+- **Optional:** `claude`, `codex`, or `pi`, installed and authenticated if you want to run that agent. Ordinary terminals work without an agent.
+
+### Install and run
 
 ```bash
-npm install
+git clone https://github.com/syntaxskills/muxmap.git
+cd muxmap
+npm ci
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>.
+Open the **Local URL printed by Vite**, usually **<http://localhost:5173>**. Keep the command running while you use MuxMap. Development mode starts both the UI and the local backend on port `4782`.
 
-If opening a terminal shows `posix_spawnp failed` on macOS/Linux, check the file descriptor limit:
-
-```bash
-ulimit -n
-```
-
-`256` is too low for terminal-heavy use. Restart MuxMap from the same shell after:
-
-```bash
-ulimit -n 4096
-```
-
-For the production server:
+To run the built app instead, stop development mode with `Ctrl+C`, then run:
 
 ```bash
 npm run build
 npm start
 ```
 
-Open <http://127.0.0.1:4782>.
+Open **<http://127.0.0.1:4782>**. This still runs on your computer; no deployment is required.
 
-## File previews
+### Your first session
 
-Terminal file links open in a MuxMap browser preview and are saved to the node's Notes & artifacts stream. Markdown is rendered with `markdown-it`, including Mermaid diagrams; HTML files open in a sandboxed preview with a MuxMap header. The preview header can copy the path/content. Under **Open in…**, Zed uses a `zed://file` link to open the file on the browser’s computer; the adjacent copy icon copies a quoted `zed` command, including the line and column. The file must be accessible on that computer. If needed, register the link handler with Zed’s `cli: register zed scheme` action, or install its CLI with `cli: install cli binary` on macOS. VS Code uses the `code` CLI on the MuxMap server.
+1. Select the workspace root and choose **+ Add child node**. Name it for something you're working on, such as `Fix login redirect`.
+2. In the node's **Context**, set **Repository path** to an existing local directory. The initial workspace contains example nodes and paths; replace those paths before attaching a terminal to them.
+3. Click **Attach terminal**. Run `claude`, `codex`, or your usual shell command in that terminal.
+4. Add another node for a second task. Select either node to return to its terminal; dock, float, or full-screen the terminal to suit your workflow.
+5. Refresh the page and reopen the node. Its terminal reattaches while the underlying tmux/Zellij session is still running.
 
-By default, file previews and terminal working directories can use any path accessible to the MuxMap process on Windows, macOS, and Linux, including Windows drives and UNC shares. Relative file paths use the terminal's working directory, the supplied `cwd`, or MuxMap's working directory when neither is available.
+Add [agent hooks](#agent-status-optional) when you're ready to see which sessions are working or waiting for you.
 
-To restrict access, set `MUXMAP_ALLOWED_ROOTS` to comma-separated directories, such as `/Users/you/projects,/Volumes/work` on macOS, `/home/you/projects,/mnt/work` on Linux, or `C:\Users\you\projects,D:\work,\\server\share` on Windows. With restrictions enabled, the first root is the default working directory. Leave the variable unset or empty for unrestricted access.
+## Agent status (optional)
 
-## Agent hooks
-
-Agent hooks are optional. They let MuxMap mark agent sessions as working, completed, read, unavailable, or needing input.
+From the cloned MuxMap directory:
 
 ```bash
 npm run hooks:install
 npm run hooks:status
-npm run hooks:update
 ```
 
-Hooks are safe outside MuxMap sessions: plain terminals no-op, ordinary tmux sessions are ignored, and live `muxmap*` sessions can appear as orphans for adoption.
-Run `npm run hooks:update` after pulling hook changes so existing Codex/Claude/Pi installs get the latest event coverage and resume metadata.
+The installer detects CLIs on your PATH and updates their local configuration:
 
-Codex input notifications wait five seconds before becoming eligible for delivery on the next workspace refresh. Tool-progress hooks clear resolved permission waits, and repeated `PermissionRequest` events during the same wait do not send another alert. The event log still records every hook. This reduces notification noise from automatic approvals; Codex does not yet expose a reliable hook indicating that a person must approve, so slow automatic reviews can still notify. See [the upstream report](https://github.com/openai/codex/issues/28833).
+- Codex: `~/.codex/hooks.json`
+- Claude Code: `~/.claude/settings.json`
+- Pi: `~/.pi/agent/extensions/muxmap-status.ts`
 
-## Agent channel MCP
+It preserves unrelated Codex/Claude hooks. Start an agent in a MuxMap terminal after installation, then enable notifications in **Settings** if you want alerts. Hooks identify the current terminal; they don't import all of your existing agent sessions. Plain terminals without a locator do nothing, and ordinary tmux/Zellij sessions are ignored.
 
-MuxMap includes a local stdio MCP server for bounded agent-to-agent channel messages. Configure MCP clients to run the Node entry directly so stdout contains only MCP JSON-RPC messages:
+After pulling hook changes, or moving the MuxMap checkout, run:
 
 ```bash
-node --experimental-strip-types server/mcp-adapter.ts
+npm run hooks:update
+npm run hooks:status
 ```
 
-For a manual smoke test, use `npm run --silent mcp`. Do not use bare `npm run mcp` as an MCP client command because npm writes its own banner to stdout.
+**Status is a useful signal, not a guarantee that a task is finished.** It depends on the events your agent emits. Codex input alerts wait five seconds before becoming eligible for delivery on the next workspace refresh; slow automatic approvals can still trigger an alert. See [hook behavior](docs/AGENT-HOOKS.md) and the [upstream Codex report](https://github.com/openai/codex/issues/28833).
 
-Configure the MCP client with:
+## How persistence works
 
-- `MUXMAP_URL`, default `http://127.0.0.1:4782`
-- `MUXMAP_TOKEN` when MuxMap runs with Basic Auth
-- `MUXMAP_NODE_ID` so sends can default to the current node
-- `MUXMAP_WORKSPACE_ID`, default `default`
+- **The map and notes:** Stored in `.muxmap/muxmap.db` by default, relative to the directory where MuxMap starts. Set `MUXMAP_DATA_DIR` to choose another data directory. Keep this data when updating the app.
+- **Live terminals:** Owned by tmux or Zellij. Closing the browser doesn't stop them. A machine reboot or a stopped runtime does end the live shell; SQLite doesn't preserve arbitrary process state.
+- **Agent recovery:** When supported resume metadata is available, MuxMap can resume a saved agent conversation. This is separate from keeping a process alive.
+- **Archive:** Archiving a node or branch preserves its map context but stops its live terminal sessions. Restoring the node doesn't restore the old processes.
+- **Automatic suspension:** The optional `terminal.autoSuspend` setting can stop quiet runtimes when `terminal.maxActiveSessions` is exceeded. It retains session metadata, not arbitrary shell state.
+- **Existing terminals:** The Sessions panel manages `muxmap*` runtimes, including orphans. Unrelated tmux/Zellij sessions aren't automatically adopted.
 
-New tmux sessions started from MuxMap automatically carry `MUXMAP_NODE_ID`, `MUXMAP_SESSION_ID`, and `MUXMAP_URL` in their session environment. Agents launched inside those terminals can call `muxmap_add_node_note` without passing `nodeId` manually. Existing sessions are not retroactively modified.
+Your coding agents and commands retain their usual filesystem, network, and provider access. Running MuxMap locally doesn't make an external agent service offline.
 
-The adapter exposes tools to list channels, read messages, send concise messages, check hourly quota usage, and add or read node notes. Agents should attach concise decisions, messages, and artifact links with `muxmap_add_node_note`.
+## Troubleshooting
 
-The older fixed lifecycle tools remain available for compatibility but are hidden by default in the map. They can be re-enabled under Settings → Lifecycle.
+**Installation fails while building `node-pty`**
 
-## Access modes
+Check `node --version` and install the [native build prerequisites](https://github.com/microsoft/node-pty#dependencies) for your OS, then rerun `npm ci`.
 
-MuxMap starts in local mode and binds only `127.0.0.1`. Use `npm run doctor` before exposing it to another device.
+**The map loads, but a terminal won't open**
 
-| Mode | Use case | Auth |
+Confirm `tmux -V` on macOS/Linux or `zellij --version` on Windows works in the shell that starts MuxMap. Check that the node's Repository path exists. Run `npm run doctor` before starting the app to check the port and access configuration; it also checks Zellij on Windows.
+
+If macOS/Linux reports `posix_spawnp failed`, check the file descriptor limit:
+
+```bash
+ulimit -n
+```
+
+`256` is too low for terminal-heavy use. If your shell permits it, raise the limit and restart MuxMap from that same shell:
+
+```bash
+ulimit -n 4096
+npm run dev
+```
+
+**An agent's status is missing or stale**
+
+Run `npm run hooks:status`, then `npm run hooks:update` if needed. Make sure the agent was launched inside a MuxMap-managed terminal. See [Agent hooks](docs/AGENT-HOOKS.md) for event and recovery details.
+
+## Access and security
+
+MuxMap provides **real terminal control** with the permissions of the account running the server. It starts in local mode, bound to `127.0.0.1`. Keep it local unless another device needs access; don't expose it to an untrusted network.
+
+| `MUXMAP_ACCESS` | Use case | Authentication |
 | --- | --- | --- |
-| `local` | Same machine only | Local session cookie |
-| `lan` | Trusted local network | `MUXMAP_TOKEN` Basic Auth |
-| `tailscale` | Tailnet access | `MUXMAP_TOKEN` Basic Auth |
+| `local` (default) | Same computer | Local session cookie |
+| `lan` | Trusted local network | Basic Auth using `MUXMAP_TOKEN` |
+| `tailscale` | Tailnet access | Basic Auth using `MUXMAP_TOKEN` |
 
-Password-free LAN/Tailscale mode is explicit via `MUXMAP_AUTH=none`. That exposes terminal control to clients allowed by your network and firewall.
+Run `npm run doctor` before starting a network-accessible server. In Basic Auth modes, the username is `muxmap` and the password is your `MUXMAP_TOKEN`. See [Windows LAN/Tailscale setup](docs/WINDOWS-NETWORK.md) and the [security policy](SECURITY.md).
 
-## Settings
+`MUXMAP_AUTH=none` explicitly disables the password in LAN/Tailscale mode, giving clients allowed by your network and firewall terminal control. Use this only when you understand and trust that access boundary.
 
-Open Settings from the top bar. Every setting is editable through the UI or the nested JSON tab. Legacy dotted JSON keys are still accepted. Inactive terminal nodes are dimmed by default only when both are true:
+File previews and terminal starting directories can use any path accessible to the MuxMap process by default. To restrict them, set `MUXMAP_ALLOWED_ROOTS` to comma-separated directories. The first root becomes the default working directory. **This setting does not sandbox commands run inside terminals.**
 
-- last activity is at least `mindmap.inactiveAfterHours` old, default `36`
-- the node belongs to the oldest `mindmap.inactiveOldestPercent` of visible terminal nodes, default `50`
+## More features
 
-Terminal suspension is also configurable. `terminal.autoSuspend` can stop the oldest quiet live runtimes once `terminal.maxActiveSessions` is exceeded. This releases memory; it preserves MuxMap metadata, not arbitrary shell process state.
+### File previews and notes
 
-Runtime discovery is non-blocking after startup. MuxMap does one initial tmux/Zellij/process scan before listening, then workspace polls use the latest completed snapshot while the next scan refreshes in the background.
+Terminal file links open in a browser preview and are saved in the node's **Notes & artifacts** stream. Markdown supports Mermaid diagrams; HTML opens in a sandboxed preview. The header can copy a path or content.
 
-## Verify
+Under **Open in…**, Zed opens on the browser's computer via a `zed://file` link, so the file must be accessible there. VS Code uses the `code` CLI on the MuxMap server. Relative paths use the terminal's working directory, a supplied `cwd`, or MuxMap's working directory when neither is available.
+
+### Agent channels and MCP
+
+Manually connect two terminal-backed nodes to create a bounded agent-message channel. The map shows the relationship; the bundled MCP adapter lets agents read and send messages, check quotas, and add or read node notes.
+
+Configure an MCP client to run the Node entry directly, using an absolute path to your checkout if the client starts elsewhere:
+
+```bash
+node --experimental-strip-types /absolute/path/to/muxmap/server/mcp-adapter.ts
+```
+
+Set `MUXMAP_URL` (default `http://127.0.0.1:4782`), `MUXMAP_TOKEN` when Basic Auth is enabled, `MUXMAP_NODE_ID` to default to the current node, and optionally `MUXMAP_WORKSPACE_ID` (default `default`). New tmux sessions created by MuxMap carry `MUXMAP_NODE_ID`, `MUXMAP_SESSION_ID`, and `MUXMAP_URL`; existing sessions aren't changed retroactively.
+
+For a manual smoke test from the checkout, use `npm run --silent mcp`. Bare `npm run mcp` writes an npm banner to stdout and is unsuitable as an MCP client command. See [Architecture](docs/ARCHITECTURE.md#agent-channels) for tools, quotas, and APIs.
+
+### Workspace settings
+
+Open **Settings** from the top bar to change appearance, terminal behavior, notifications, and more. Settings are editable through the UI or the nested JSON tab; legacy dotted keys are also accepted. **Settings → About** shows the build version and checks GitHub for updates against `main`.
+
+The terminal command box keeps its own per-session input history in MuxMap. It doesn't write those entries into your shell's history. Older lifecycle-step tools remain available under **Settings → Lifecycle**.
+
+## Development and feedback
 
 ```bash
 npm test
@@ -138,12 +180,8 @@ npm run build
 npm run doctor
 ```
 
-## Docs
+Run Doctor with the server stopped, since it checks whether the port is available. See [Contributing](CONTRIBUTING.md) and [Acceptance coverage](docs/ACCEPTANCE.md).
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Agent hooks](docs/AGENT-HOOKS.md)
-- [Screenshots](docs/SCREENSHOTS.md)
-- [Windows LAN/Tailscale setup](docs/WINDOWS-NETWORK.md)
-- [Acceptance coverage](docs/ACCEPTANCE.md)
-- [Changelog](CHANGELOG.md)
-- [MIT License](LICENSE)
+If you try MuxMap with several agent sessions, [open an issue](https://github.com/syntaxskills/muxmap/issues) with what worked or where you got stuck. For bugs, include your OS, Node version, terminal backend, and steps to reproduce; remove private paths, tokens, and terminal content. If it helps your workflow, a GitHub star helps other developers find it.
+
+[Architecture](docs/ARCHITECTURE.md) · [Agent hooks](docs/AGENT-HOOKS.md) · [Screenshots](docs/SCREENSHOTS.md) · [Changelog](CHANGELOG.md) · [MIT License](LICENSE)
