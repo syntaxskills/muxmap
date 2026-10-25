@@ -5,6 +5,23 @@ export type UploadedImageAttachment = {
   markdown: string
 }
 
+export type UploadedFileAttachment = {
+  url: string
+  path: string
+  name: string
+  type: string
+  size: number
+}
+
+export async function uploadFileAttachment(file: File) {
+  if (file.size > 20 * 1024 * 1024) throw new Error('Files must be 20 MB or smaller')
+  return api<UploadedFileAttachment>(`/api/attachments?name=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/octet-stream' },
+    body: file,
+  })
+}
+
 export function imageFileFromClipboard(data: Pick<DataTransfer, 'items' | 'files'>) {
   for (const item of Array.from(data.items ?? [])) {
     if (item.kind !== 'file' || !item.type.startsWith('image/')) continue

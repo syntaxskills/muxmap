@@ -4325,11 +4325,69 @@ kbd {
   position: relative;
 }
 
+.terminal-attachments {
+  grid-column: 1 / -1;
+  min-width: 0;
+  max-height: min(120px, 20dvh);
+  overflow-y: auto;
+  color: var(--terminal-text);
+  font: 11px/1.4 var(--mono);
+}
+
+.terminal-attachment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.terminal-attachment a,
+.terminal-attachment button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  height: 44px;
+  border: 1px solid var(--terminal-line);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.terminal-attachment img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.terminal-attachment > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.terminal-attachment strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-attachment code {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.terminal-upload-status {
+  padding-top: 4px;
+  color: var(--terminal-muted);
+  overflow-wrap: anywhere;
+}
+
 .terminal-command-box textarea {
   min-width: 0;
   width: 100%;
   resize: none;
-  max-height: 180px;
+  max-height: min(180px, 25dvh);
   min-height: 76px;
   field-sizing: content;
   border: 1px solid var(--terminal-line);
@@ -4373,7 +4431,7 @@ kbd {
   min-height: 76px;
   display: grid;
   grid-template-columns: repeat(2, 28px);
-  grid-auto-rows: 28px;
+  grid-auto-rows: minmax(28px, auto);
   align-content: stretch;
   gap: 6px;
 }
@@ -4408,9 +4466,11 @@ kbd {
   color: var(--terminal-text);
 }
 
-.terminal-command-actions:not(:has(.is-history)) .is-send {
-  grid-row: 1 / span 3;
-  min-height: 76px;
+.terminal-command-actions .terminal-upload-trigger {
+  display: grid;
+  place-items: center;
+  grid-column: 1 / -1;
+  border-color: var(--terminal-line);
 }
 
 .terminal-command-actions .is-send:not(:disabled):hover {
@@ -4432,20 +4492,24 @@ kbd {
 
 @media (max-width: 640px), (pointer: coarse) {
   .terminal-command-actions {
-    grid-template-columns: repeat(2, 36px);
+    grid-template-columns: repeat(2, 44px);
     grid-auto-rows: minmax(44px, auto);
   }
 
-  .terminal-command-actions .terminal-shortcuts-trigger {
+  .terminal-command-actions .terminal-shortcuts-trigger,
+  .terminal-command-actions .terminal-upload-trigger {
     display: grid;
     place-items: center;
-    grid-column: 1 / -1;
+    grid-column: auto;
     border-color: var(--terminal-line);
   }
 
-  .terminal-command-actions:not(:has(.is-history)) .is-send {
-    grid-row: auto;
+  .terminal-command-actions .is-send {
     min-height: 44px;
+  }
+
+  .terminal-command-actions:has(.is-history) .terminal-upload-trigger {
+    grid-column: 1;
   }
 
   .terminal-shortcuts-panel {

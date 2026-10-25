@@ -442,7 +442,7 @@ async function launchEditor(editor: FileEditor, path: string, line: number | und
   })
 }
 
-async function readJson(request: IncomingMessage, maxBytes = 64 * 1024) {
+async function readBody(request: IncomingMessage, maxBytes: number) {
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of request) {
@@ -451,8 +451,12 @@ async function readJson(request: IncomingMessage, maxBytes = 64 * 1024) {
     if (size > maxBytes) throw new Error('Request body is too large')
     chunks.push(buffer)
   }
-  if (chunks.length === 0) return {}
-  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
+  return Buffer.concat(chunks)
+}
+
+async function readJson(request: IncomingMessage, maxBytes = 64 * 1024) {
+  const body = await readBody(request, maxBytes)
+  return body.length ? JSON.parse(body.toString('utf8')) as Record<string, unknown> : {}
 }
 
 function attachmentDirectory(databasePath: string, configured?: string) {
@@ -478,6 +482,7 @@ function positiveInteger(value: unknown) {
 
 function attachmentContentType(name: string) {
   const extension = extname(name).toLowerCase()
+  if (extension === '.jpeg') return 'image/jpeg'
   return Object.entries(attachmentTypes).find(([, value]) => value === extension)?.[0]
 }
 
@@ -689,27 +694,46 @@ export function createMuxMapServer(options: ServerOptions) {
         }
 
         if (request.method === 'POST' && url.pathname === '/api/attachments') {
-          const body = await readJson(request, 12 * 1024 * 1024)
-          const image = decodeImageDataUrl(body.dataUrl, body.type)
+          const filename = url.searchParams.get('name')
+          let attachment: { data: Buffer; extension: string }
+          if (filename !== null) {
+            if (!filename.trim() || filename.length > 255 || /[/\\\p{Cc}]/u.test(filename)) throw new Error('Invalid filename')
+            const extension = extname(filename).toLowerCase()
+            attachment = {
+              data: await readBody(request, 20 * 1024 * 1024),
+              extension: /^\.[a-z0-9]{1,16}$/.test(extension) ? extension : '',
+            }
+          } else {
+            const body = await readJson(request, 12 * 1024 * 1024)
+            attachment = decodeImageDataUrl(body.dataUrl, body.type)
+          }
           mkdirSync(attachmentsDirectory, { recursive: true })
-          const name = `${randomUUID()}${image.extension}`
+          const name = `${randomUUID()}${attachment.extension}`
           const path = join(attachmentsDirectory, name)
-          writeFileSync(path, image.data, { flag: 'wx' })
+          writeFileSync(path, attachment.data, { flag: 'wx', mode: 0o600 })
           return sendJson(response, 201, {
             url: `/api/attachments/${name}`,
-            markdown: `![pasted image](/api/attachments/${name})`,
+            ...(filename === null ? { markdown: `![pasted image](/api/attachments/${name})` } : {}),
+            path,
+            name: filename ?? `pasted image${attachment.extension}`,
+            type: attachmentContentType(name) ?? 'application/octet-stream',
+            size: attachment.data.length,
           })
         }
 
-        const attachmentMatch = url.pathname.match(/^\/api\/attachments\/([a-f0-9-]+\.(?:gif|jpg|png|webp))$/i)
+        const attachmentMatch = url.pathname.match(/^\/api\/attachments\/([a-f0-9-]+(?:\.[a-z0-9]{1,16})?)$/i)
         if (request.method === 'GET' && attachmentMatch) {
           const name = attachmentMatch[1]
           const type = attachmentContentType(name)
-          if (!type) return sendJson(response, 404, { error: 'Not found' })
           const path = resolve(attachmentsDirectory, name)
           const root = resolve(attachmentsDirectory)
           if (!isWithinRoot(path, root) || !existsSync(path)) return sendJson(response, 404, { error: 'Not found' })
-          response.writeHead(200, { 'content-type': type, 'cache-control': 'private, max-age=31536000' })
+          response.writeHead(200, {
+            'content-type': type ?? 'application/octet-stream',
+            'content-disposition': type ? 'inline' : 'attachment',
+            'x-content-type-options': 'nosniff',
+            'cache-control': 'private, max-age=31536000',
+          })
           return response.end(readFileSync(path))
         }
 

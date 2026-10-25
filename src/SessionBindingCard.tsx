@@ -2,32 +2,13 @@ import { useState } from 'react'
 import { CopyIcon } from '@radix-ui/react-icons'
 import { agentStatusText } from './agentStatus.ts'
 import { agentSessionDetails } from './agentSessionDetails.ts'
+import { copyText } from './clipboard.ts'
 import type { TerminalSession } from './model.ts'
 
 type Props = {
   session: TerminalSession
   statusLabel?: string
   className?: string
-}
-
-async function copyText(value: string) {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value)
-      return
-    }
-  } catch {
-    // Fall back to the selection-based browser copy path below.
-  }
-  const textarea = document.createElement('textarea')
-  textarea.value = value
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.opacity = '0'
-  document.body.append(textarea)
-  textarea.select()
-  document.execCommand('copy')
-  textarea.remove()
 }
 
 export function SessionBindingCard({ session, statusLabel, className = 'agent-session-card' }: Props) {

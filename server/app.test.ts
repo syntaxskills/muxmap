@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 import test from 'node:test'
 import xterm from '@xterm/xterm'
 import WebSocket from 'ws'
@@ -835,6 +835,61 @@ test('attachment API stores pasted images and rejects unsupported clipboard payl
     await server.close()
     rmSync(root, { recursive: true, force: true })
     rmSync(attachments, { recursive: true, force: true })
+  }
+})
+
+test('file uploads return readable host paths, preserve bytes and safely serve images and other files', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muxmap-file-uploads-')))
+  const server = createMuxMapServer({
+    databasePath: ':memory:', allowedRoots: [], attachmentsDirectory: join(root, 'uploads'),
+    platform: 'linux', token: 'test-token', tmux: fakeTmux(),
+    ptyFactory: fakePtyFactory({ writes: [], resizes: [], kills: [] }),
+  })
+  try {
+    const address = await server.listen(0)
+    const base = `http://127.0.0.1:${address.port}`
+    const cookie = (await fetch(`${base}/api/auth`)).headers.get('set-cookie')?.split(';')[0] ?? ''
+    const headers = { cookie, origin: base, 'content-type': 'application/octet-stream' }
+    const upload = (name: string, data: Uint8Array<ArrayBuffer>, requestHeaders = headers) => fetch(`${base}/api/attachments?name=${encodeURIComponent(name)}`, { method: 'POST', headers: requestHeaders, body: data })
+    const savedPaths = new Set<string>()
+    for (const name of ['screen shot.png', 'photo.JPEG', 'design notes.txt', 'page.html', 'vector.svg', 'archive.zip', 'README', 'empty.txt', '图片.png']) {
+      const data = name === 'empty.txt' ? Buffer.alloc(0) : Buffer.from('<script>alert(1)</script>\n\x00\xff', 'latin1')
+      const response = await upload(name, data)
+      assert.equal(response.status, 201, name)
+      const file = await response.json() as { name: string; path: string; url: string; size: number; type: string }
+      assert.equal(file.name, name)
+      assert.equal(file.size, data.length)
+      assert.ok(isAbsolute(file.path))
+      assert.match(relative(join(root, 'uploads'), file.path), /^[a-f0-9-]+(?:\.[a-z0-9]+)?$/)
+      assert.deepEqual(readFileSync(file.path), data)
+      assert.ok(!savedPaths.has(file.path))
+      savedPaths.add(file.path)
+
+      const download = await fetch(`${base}${file.url}`, { headers: { cookie } })
+      assert.equal(download.status, 200)
+      assert.equal(download.headers.get('content-type'), file.type)
+      assert.equal(download.headers.get('content-disposition'), /\.(png|JPEG)$/.test(name) ? 'inline' : 'attachment')
+      assert.equal(download.headers.get('x-content-type-options'), 'nosniff')
+      assert.deepEqual(Buffer.from(await download.arrayBuffer()), data)
+      assert.equal((await fetch(`${base}${file.url}`)).status, 401)
+    }
+    const duplicate = await (await upload('screen shot.png', Buffer.from('second image'))).json() as { path: string }
+    assert.ok(!savedPaths.has(duplicate.path), 'same original filename cannot overwrite a previous upload')
+
+    for (const name of ['', '../escape.txt', '..\\escape.txt', '/absolute.png', 'bad\nname.txt', 'bad\0name.txt', 'x'.repeat(256)]) {
+      const response = await upload(name, Buffer.from('rejected'))
+      assert.equal(response.status, 400, JSON.stringify(name))
+      assert.deepEqual(await response.json(), { error: 'Invalid filename' })
+    }
+    assert.equal((await upload('unauthorized.txt', Buffer.from('test'), { ...headers, cookie: '' })).status, 401)
+    assert.equal((await upload('cross-origin.txt', Buffer.from('test'), { ...headers, origin: 'https://example.com' })).status, 403)
+    const tooLarge = await upload('large.bin', Buffer.alloc(20 * 1024 * 1024 + 1))
+    assert.equal(tooLarge.status, 400)
+    assert.deepEqual(await tooLarge.json(), { error: 'Request body is too large' })
+    assert.equal((await fetch(`${base}/api/attachments/missing.txt`, { headers: { cookie } })).status, 404)
+  } finally {
+    await server.close()
+    rmSync(root, { recursive: true, force: true })
   }
 })
 

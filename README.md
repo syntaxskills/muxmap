@@ -151,6 +151,8 @@ Terminal file links open in a browser preview and are saved in the node's **Note
 
 Under **Open in…**, Zed opens on the browser's computer via a `zed://file` link, so the file must be accessible there. VS Code uses the `code` CLI on the MuxMap server. Relative paths use the terminal's working directory, a supplied `cwd`, or MuxMap's working directory when neither is available.
 
+Use **Upload files** beside the terminal input to choose images or other files on desktop or mobile, or paste images directly into the input. Each file can be up to 20 MB. Uploads are saved under the MuxMap data directory's `attachments` folder with unique filenames; their absolute paths are inserted into your draft for the agent to read when you press **Send**. Image previews and a **Copy path** button appear above the input. Files remain available after sending or restarting MuxMap. Agents must have access to that directory; an agent running over SSH or in an isolated container may need a separate transfer or mount.
+
 ### Agent channels and MCP
 
 Manually connect two terminal-backed nodes to create a bounded agent-message channel. The map shows the relationship; the bundled MCP adapter lets agents read and send messages, check quotas, and add or read node notes.

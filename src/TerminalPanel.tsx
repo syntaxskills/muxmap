@@ -4,6 +4,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { api } from './api.ts'
+import { copyText } from './clipboard.ts'
 import type { AgentActivity, NodeType, TerminalInputHistoryItem, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
 import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, attachTerminalTouchScroll, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalMousePosition, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
@@ -15,20 +16,24 @@ import { visibleAgentForSession } from './graph.ts'
 import { AgentIcon } from './AgentIcon.tsx'
 import { createTerminalLinkProvider } from './terminalLinks.ts'
 import { checkFileNote } from './fileNoteStatus.ts'
-import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachment } from './imageAttachments.ts'
+import { imageFileFromClipboard, insertMarkdownAtSelection, uploadFileAttachment, uploadImageAttachment, type UploadedFileAttachment } from './imageAttachments.ts'
 import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { AgentEventList } from './AgentEventList.tsx'
 import { TerminalShortcuts } from './TerminalShortcuts.tsx'
 import {
   ChevronDownIcon,
+  CheckIcon,
+  CopyIcon,
   DrawingPinIcon,
   EnterFullScreenIcon,
   ExitFullScreenIcon,
+  FileIcon,
   Link2Icon,
   MinusIcon,
   OpenInNewWindowIcon,
   StopIcon,
+  UploadIcon,
 } from '@radix-ui/react-icons'
 
 const OUTPUT_CHARS_PER_FRAME = 128 * 1024
@@ -72,11 +77,15 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
   const [showNodeEditor, setShowNodeEditor] = useState(false)
   const [stopConfirming, setStopConfirming] = useState(false)
   const [commandInput, setCommandInput] = useState('')
+  const [uploading, setUploading] = useState('')
+  const [attachments, setAttachments] = useState<UploadedFileAttachment[]>([])
+  const [copiedPath, setCopiedPath] = useState('')
   const [commandEnterArmed, setCommandEnterArmed] = useState(false)
   const [inputHistory, setInputHistory] = useState<TerminalInputHistoryItem[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const socketRef = useRef<WebSocket | null>(null)
   const commandInputRef = useRef<HTMLTextAreaElement>(null)
+  const uploadInputRef = useRef<HTMLInputElement>(null)
   const lastCommandEnterAt = useRef<number | null>(null)
   const commandEnterExpiry = useRef<number | null>(null)
   const pendingCommandSubmitEnters = useRef<Set<number>>(new Set())
@@ -351,7 +360,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
   async function submitCommandInput() {
     const value = commandInput.trim()
     const socket = socketRef.current
-    if (!value || disabled || connection !== 'ready' || socket?.readyState !== WebSocket.OPEN) return
+    if (!value || uploading || disabled || connection !== 'ready' || socket?.readyState !== WebSocket.OPEN) return
     const [text, enter] = commandInputSubmissionWrites(value)
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: 'input', data: text }))
@@ -363,6 +372,8 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     }
     updateCommandEnterArm(null)
     setCommandInput('')
+    setAttachments([])
+    setCopiedPath('')
     setHistoryIndex(-1)
     try {
       const response = await api<{ item: TerminalInputHistoryItem }>(`/api/sessions/${session.id}/input-history`, {
@@ -404,6 +415,42 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       onError('Clipboard access is unavailable. Long-press the input and choose Paste.')
     }
     textarea.focus()
+  }
+
+  async function uploadCommandFiles(files: File[]) {
+    const textarea = commandInputRef.current
+    if (!files.length || !textarea || textarea.disabled) return
+    if (uploading) return onError('An upload is already in progress. Wait before adding more files.')
+    updateCommandEnterArm(null)
+    try {
+      for (const [index, file] of files.entries()) {
+        setUploading(`Uploading ${file.name} (${index + 1}/${files.length})…`)
+        try {
+          const uploaded = await uploadFileAttachment(file)
+          if (!textarea.isConnected) return
+          const inserted = insertMarkdownAtSelection(textarea.value, uploaded.path, textarea.selectionStart, textarea.selectionEnd)
+          textarea.value = inserted.value
+          textarea.setSelectionRange(inserted.cursor, inserted.cursor)
+          setCommandInput(inserted.value)
+          setHistoryIndex(-1)
+          setAttachments((current) => [...current, uploaded])
+        } catch (error) {
+          if (!textarea.isConnected) return
+          onError(`${file.name}: ${error instanceof Error ? error.message : 'Upload failed'}`)
+        }
+      }
+    } finally {
+      setUploading('')
+    }
+  }
+
+  async function copyAttachmentPath(path: string) {
+    try {
+      if (!await copyText(path)) throw new Error('Copy failed')
+      setCopiedPath(path)
+    } catch {
+      onError('Unable to copy the path. Select the path below and copy it manually.')
+    }
   }
 
   const style = {
@@ -457,6 +504,16 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
         </div>}
       </div>
       <form className={`terminal-command-box ${commandEnterArmed ? 'is-enter-armed' : ''}`} onSubmit={(event) => { event.preventDefault(); void submitCommandInput() }}>
+        {(uploading || attachments.length > 0) && <div className="terminal-attachments" aria-label="Uploaded files">
+          <div className="terminal-upload-status" role="status">{uploading || 'Saved on the MuxMap host. Paths added to your message.'}</div>
+          {attachments.map((file) => <div className="terminal-attachment" key={file.path}>
+            <a href={file.url} target="_blank" rel="noreferrer" title={`Open ${file.name}`}>
+              {file.type.startsWith('image/') ? <img src={file.url} alt={file.name} /> : <FileIcon aria-label={file.name} />}
+            </a>
+            <div><strong>{file.name}</strong><code>{file.path}</code></div>
+            <button type="button" onClick={() => void copyAttachmentPath(file.path)} aria-label={`Copy path for ${file.name}`} title={copiedPath === file.path ? 'Copied' : 'Copy path'}>{copiedPath === file.path ? <CheckIcon /> : <CopyIcon />}</button>
+          </div>)}
+        </div>}
         <label>
           <textarea
             ref={commandInputRef}
@@ -466,9 +523,15 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
             placeholder="Type or paste… double Enter to send"
             title="Double Enter sends; Shift+Enter adds a line"
             onChange={(event) => { setCommandInput(event.target.value); setHistoryIndex(-1); updateCommandEnterArm(null) }}
+            onPaste={(event) => {
+              const files = Array.from(event.clipboardData.files)
+              if (!files.length) return
+              event.preventDefault()
+              void uploadCommandFiles(files)
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
-                const action = commandInputEnterAction({ value: commandInput, disabled: inputDisabled, shiftKey: event.shiftKey, lastEnterAt: lastCommandEnterAt.current, now: Date.now() })
+                const action = commandInputEnterAction({ value: commandInput, disabled: inputDisabled || Boolean(uploading), shiftKey: event.shiftKey, lastEnterAt: lastCommandEnterAt.current, now: Date.now() })
                 updateCommandEnterArm(action.nextLastEnterAt)
                 if (action.preventDefault) event.preventDefault()
                 if (action.submit) void submitCommandInput()
@@ -492,10 +555,12 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
           {commandEnterArmed && <span className="terminal-command-enter-hint" aria-live="polite">press Enter again to send</span>}
         </label>
         <div className="terminal-command-actions">
+          <input ref={uploadInputRef} type="file" multiple hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void uploadCommandFiles(files) }} />
           {inputHistory.length > 0 && <button className="is-history" type="button" onClick={() => navigateCommandHistory(1)} title="Previous input">↑</button>}
           {historyIndex >= 0 && <button className="is-history" type="button" onClick={() => navigateCommandHistory(-1)} title="Next input">↓</button>}
+          <button className="terminal-upload-trigger" type="button" onClick={() => uploadInputRef.current?.click()} disabled={inputDisabled || Boolean(uploading)} aria-label="Upload files" title="Upload images or files (up to 20 MB each)"><UploadIcon aria-hidden="true" /></button>
           <TerminalShortcuts disabled={inputDisabled} onSend={sendTerminalShortcut} onPaste={pasteCommandInput} />
-          <button className="is-send" type="submit" disabled={!commandInput.trim() || inputDisabled}>Send</button>
+          <button className="is-send" type="submit" disabled={!commandInput.trim() || inputDisabled || Boolean(uploading)}>Send</button>
         </div>
       </form>
     </section>
