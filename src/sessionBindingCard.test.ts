@@ -4,12 +4,15 @@ import test from 'node:test'
 
 test('session binding rows are selectable and copyable in details and terminal panels', () => {
   const component = readFileSync(new URL('./SessionBindingCard.tsx', import.meta.url), 'utf8')
+  const clipboard = readFileSync(new URL('./clipboard.ts', import.meta.url), 'utf8')
   const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
   const terminal = readFileSync(new URL('./TerminalPanel.tsx', import.meta.url), 'utf8')
   const css = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
 
-  assert.match(component, /navigator\.clipboard\?\.writeText[\s\S]*navigator\.clipboard\.writeText\(value\)/)
-  assert.match(component, /document\.execCommand\('copy'\)/)
+  assert.match(clipboard, /navigator\.clipboard\?\.writeText[\s\S]*navigator\.clipboard\.writeText\(value\)/)
+  assert.match(clipboard, /document\.execCommand\('copy'\)/)
+  assert.match(component, /import \{ copyText \} from '\.\/clipboard\.ts'/)
+  assert.match(component, /copyText\(row\.value\)/)
   assert.match(component, /aria-label=\{`Copy \$\{row\.label\}`\}/)
   assert.match(component, /className="session-binding-value"/)
   assert.match(component, /className="session-binding-copy"/)
