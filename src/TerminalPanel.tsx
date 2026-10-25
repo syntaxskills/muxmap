@@ -19,6 +19,7 @@ import { imageFileFromClipboard, insertMarkdownAtSelection, uploadImageAttachmen
 import { NoteImagePreview } from './NoteImagePreview.tsx'
 import { SessionBindingCard } from './SessionBindingCard.tsx'
 import { AgentEventList } from './AgentEventList.tsx'
+import { TerminalShortcuts } from './TerminalShortcuts.tsx'
 import {
   ChevronDownIcon,
   DrawingPinIcon,
@@ -75,6 +76,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
   const [inputHistory, setInputHistory] = useState<TerminalInputHistoryItem[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const socketRef = useRef<WebSocket | null>(null)
+  const commandInputRef = useRef<HTMLTextAreaElement>(null)
   const lastCommandEnterAt = useRef<number | null>(null)
   const commandEnterExpiry = useRef<number | null>(null)
   const pendingCommandSubmitEnters = useRef<Set<number>>(new Set())
@@ -380,6 +382,30 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     setCommandInput(nextIndex === -1 ? '' : inputHistory[nextIndex].value)
   }
 
+  function sendTerminalShortcut(data: string) {
+    const socket = socketRef.current
+    if (disabled || connection !== 'ready' || socket?.readyState !== WebSocket.OPEN) return
+    updateCommandEnterArm(null)
+    socket.send(JSON.stringify({ type: 'input', data }))
+  }
+
+  async function pasteCommandInput() {
+    const textarea = commandInputRef.current
+    if (!textarea || textarea.disabled) return
+    try {
+      const text = await navigator.clipboard.readText()
+      if (!text || !textarea.isConnected || textarea.disabled) return
+      textarea.setRangeText(text, textarea.selectionStart, textarea.selectionEnd, 'end')
+      setCommandInput(textarea.value)
+      setHistoryIndex(-1)
+      updateCommandEnterArm(null)
+    } catch {
+      if (!textarea.isConnected) return
+      onError('Clipboard access is unavailable. Long-press the input and choose Paste.')
+    }
+    textarea.focus()
+  }
+
   const style = {
     '--terminal-drag-x': `${offset.x}px`,
     '--terminal-drag-y': `${offset.y}px`,
@@ -433,6 +459,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       <form className={`terminal-command-box ${commandEnterArmed ? 'is-enter-armed' : ''}`} onSubmit={(event) => { event.preventDefault(); void submitCommandInput() }}>
         <label>
           <textarea
+            ref={commandInputRef}
             value={commandInput}
             disabled={inputDisabled}
             rows={3}
@@ -467,6 +494,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
         <div className="terminal-command-actions">
           {inputHistory.length > 0 && <button className="is-history" type="button" onClick={() => navigateCommandHistory(1)} title="Previous input">↑</button>}
           {historyIndex >= 0 && <button className="is-history" type="button" onClick={() => navigateCommandHistory(-1)} title="Next input">↓</button>}
+          <TerminalShortcuts disabled={inputDisabled} onSend={sendTerminalShortcut} onPaste={pasteCommandInput} />
           <button className="is-send" type="submit" disabled={!commandInput.trim() || inputDisabled}>Send</button>
         </div>
       </form>

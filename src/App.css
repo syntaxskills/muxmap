@@ -4408,7 +4408,7 @@ kbd {
   color: var(--terminal-text);
 }
 
-.terminal-command-actions .is-send:only-child {
+.terminal-command-actions:not(:has(.is-history)) .is-send {
   grid-row: 1 / span 3;
   min-height: 76px;
 }
@@ -4423,6 +4423,94 @@ kbd {
   color: var(--terminal-muted);
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.terminal-shortcuts-trigger,
+.terminal-shortcuts-panel {
+  display: none;
+}
+
+@media (max-width: 640px), (pointer: coarse) {
+  .terminal-command-actions {
+    grid-template-columns: repeat(2, 36px);
+    grid-auto-rows: minmax(44px, auto);
+  }
+
+  .terminal-command-actions .terminal-shortcuts-trigger {
+    display: grid;
+    place-items: center;
+    grid-column: 1 / -1;
+    border-color: var(--terminal-line);
+  }
+
+  .terminal-command-actions:not(:has(.is-history)) .is-send {
+    grid-row: auto;
+    min-height: 44px;
+  }
+
+  .terminal-shortcuts-panel {
+    display: block;
+    z-index: 100;
+    width: min(296px, calc(100vw - 16px));
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+    padding: 12px;
+    border: 1px solid var(--terminal-line);
+    border-radius: 12px;
+    background: var(--terminal);
+    color: var(--terminal-text);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
+    font: 12px/1.4 var(--mono);
+  }
+
+  .terminal-shortcuts-heading,
+  .terminal-shortcuts-panel button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .terminal-shortcuts-heading {
+    justify-content: space-between;
+  }
+
+  .terminal-shortcuts-panel p {
+    margin: 0 0 10px;
+    color: var(--terminal-muted);
+  }
+
+  .terminal-shortcuts-panel button {
+    min-height: 44px;
+    padding: 8px;
+    border: 1px solid var(--terminal-line);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, .04);
+    color: var(--terminal-text);
+    cursor: pointer;
+  }
+
+  .terminal-shortcuts-heading button {
+    min-width: 44px;
+    border: 0;
+    background: transparent;
+  }
+
+  .terminal-shortcuts-panel button:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+  }
+
+  .terminal-shortcuts-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .terminal-shortcuts-paste {
+    width: 100%;
+    margin-top: 8px;
+  }
 }
 
 @keyframes terminal-expand-from-preview {
