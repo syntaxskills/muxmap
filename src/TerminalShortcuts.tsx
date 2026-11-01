@@ -14,11 +14,19 @@ const shortcuts = [
   ['Shift+Tab', '\x1b[Z', 'Back tab'],
 ] as const
 
-export function TerminalShortcuts({ disabled, onSend, onPaste }: { disabled: boolean; onSend(data: string): void; onPaste(): Promise<void> }) {
+const arrows = [
+  ['↑', '\x1b[A', 'Arrow up'],
+  ['←', '\x1b[D', 'Arrow left'],
+  ['↓', '\x1b[B', 'Arrow down'],
+  ['→', '\x1b[C', 'Arrow right'],
+] as const
+
+export function TerminalShortcuts({ disabled, onSend, onPaste }: { disabled: boolean; onSend(data: string, shift?: boolean): void; onPaste(): Promise<void> }) {
   const [open, setOpen] = useState(false)
+  const [shiftPressed, setShiftPressed] = useState(false)
   const { context, floatingStyles, refs } = useFloating({
     open,
-    onOpenChange: setOpen,
+    onOpenChange: (nextOpen) => { setOpen(nextOpen); setShiftPressed(false) },
     placement: 'top-end',
     strategy: 'fixed',
     middleware: [offset(8), flip(), shift({ padding: 8, crossAxis: true })],
@@ -40,9 +48,13 @@ export function TerminalShortcuts({ disabled, onSend, onPaste }: { disabled: boo
             <strong>Terminal keys</strong>
             <button type="button" onClick={() => setOpen(false)} aria-label="Close terminal shortcuts"><Cross2Icon aria-hidden="true" /></button>
           </div>
-          <p>Send keys directly to the terminal.</p>
+          <p>Send keys directly to the terminal. Shift combines with arrows and Tab.</p>
+          <div className="terminal-shortcuts-grid terminal-shortcuts-navigation">
+            <button type="button" disabled={disabled} aria-pressed={shiftPressed} onClick={() => setShiftPressed((pressed) => !pressed)}>Shift</button>
+            {arrows.map(([label, data, description]) => <button key={label} type="button" disabled={disabled} aria-label={shiftPressed ? `Shift + ${description}` : description} title={shiftPressed ? `Shift + ${description}` : description} onClick={() => onSend(data, shiftPressed)}>{label}</button>)}
+          </div>
           <div className="terminal-shortcuts-grid">
-            {shortcuts.map(([label, data, description]) => <button key={label} type="button" disabled={disabled} title={description} onClick={() => onSend(data)}>{label}</button>)}
+            {shortcuts.map(([label, data, description]) => <button key={label} type="button" disabled={disabled} title={description} onClick={() => onSend(data, shiftPressed)}>{label === 'Tab' && shiftPressed ? 'Shift+Tab' : label}</button>)}
           </div>
           <button className="terminal-shortcuts-paste" type="button" disabled={disabled} onClick={() => { void onPaste().then(() => setOpen(false)) }}><ClipboardIcon aria-hidden="true" />Paste into input</button>
         </div>

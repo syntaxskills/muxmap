@@ -6,6 +6,7 @@ All notable changes to MuxMap are documented here.
 
 ### Changed
 
+- Added mobile terminal arrow keys and a Shift toggle for arrows and Tab, including application cursor mode support.
 - Replaced fixed lifecycle stages as the default workflow with per-node Notes & artifacts streams. Terminal-opened links and files are captured automatically, agents can append context through MCP, and humans can add, edit, or delete each entry.
 - Added special node-note presentation for Jira, GitHub, GitLab, Lark, local files, web links, and AI messages while retaining legacy lifecycle storage and tools for compatibility.
 - Added Mermaid rendering to Markdown file previews with a safe fallback when the renderer is unavailable.

@@ -8,6 +8,14 @@ export const COMMAND_DOUBLE_ENTER_MS = 900
 export const COMMAND_SUBMIT_ENTER_DELAY_MS = 150
 export const MAX_BROWSER_TERMINAL_SCROLLBACK = 2000
 
+export function terminalVirtualKeyData(data: string, shift: boolean, applicationCursorKeysMode: boolean) {
+  if (shift && data === '\t') return '\x1b[Z'
+  if (data.startsWith('\x1b[') && /^[ABCD]$/.test(data.slice(2))) {
+    return `\x1b${shift ? '[1;2' : applicationCursorKeysMode ? 'O' : '['}${data.at(-1)}`
+  }
+  return data
+}
+
 export function terminalShortcutData(event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'altKey'>) {
   if (event.metaKey && (event.key === 'Backspace' || event.key === 'Delete')) return '\x15'
   if (event.metaKey && event.key === 'ArrowLeft') return '\x01'

@@ -4571,6 +4571,20 @@ kbd {
     gap: 6px;
   }
 
+  .terminal-shortcuts-navigation {
+    margin-bottom: 6px;
+  }
+
+  .terminal-shortcuts-navigation button:nth-child(3) {
+    grid-column: 1;
+  }
+
+  .terminal-shortcuts-panel button[aria-pressed="true"] {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
   .terminal-shortcuts-paste {
     width: 100%;
     margin-top: 8px;

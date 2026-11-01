@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, MAX_BROWSER_TERMINAL_SCROLLBACK, attachTerminalTouchScroll, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalMousePosition, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelBatchReports, terminalSgrWheelReports, terminalWheelHandledByApplication } from './terminalInteraction.ts'
+import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, MAX_BROWSER_TERMINAL_SCROLLBACK, attachTerminalTouchScroll, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, normalizeTerminalOpacity, normalizeTerminalSplit, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalMousePosition, terminalScrollbackLimit, terminalShortcutData, terminalVirtualKeyData, terminalSgrWheelBatchReports, terminalSgrWheelReports, terminalWheelHandledByApplication } from './terminalInteraction.ts'
 
 test('terminal dragging follows the pointer without changing its starting offset', () => {
   assert.deepEqual(dragOffset({ x: 20, y: -10 }, { x: 100, y: 80 }, { x: 145, y: 55 }), { x: 65, y: -35 })
@@ -19,6 +19,25 @@ test('terminal split defaults to half and keeps both panes usable', () => {
   assert.equal(normalizeTerminalSplit(62.4), 62)
   assert.equal(normalizeTerminalSplit(10), 25)
   assert.equal(normalizeTerminalSplit(90), 75)
+})
+
+test('mobile terminal arrows respect Shift and application cursor mode', () => {
+  for (const direction of ['A', 'B', 'C', 'D']) {
+    const data = `\x1b[${direction}`
+    assert.equal(terminalVirtualKeyData(data, false, false), data)
+    assert.equal(terminalVirtualKeyData(data, false, true), `\x1bO${direction}`)
+    assert.equal(terminalVirtualKeyData(data, true, false), `\x1b[1;2${direction}`)
+    assert.equal(terminalVirtualKeyData(data, true, true), `\x1b[1;2${direction}`)
+  }
+})
+
+test('mobile Shift combines with Tab and preserves other terminal shortcuts', () => {
+  assert.equal(terminalVirtualKeyData('\t', false, false), '\t')
+  assert.equal(terminalVirtualKeyData('\t', true, false), '\x1b[Z')
+  for (const data of ['\x1b', '\r', '\x03', '\x16', '\x1a', '\x04', '\x0c', '\x1b[Z']) {
+    assert.equal(terminalVirtualKeyData(data, false, true), data)
+    assert.equal(terminalVirtualKeyData(data, true, true), data)
+  }
 })
 
 test('command-delete clears the current shell line', () => {

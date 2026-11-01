@@ -7,7 +7,7 @@ import { api } from './api.ts'
 import { copyText } from './clipboard.ts'
 import type { AgentActivity, NodeType, TerminalInputHistoryItem, TerminalSession, TerminalStatus, WorkNode } from './model.ts'
 import { NodeColorPicker } from './NodeColorPicker.tsx'
-import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, attachTerminalTouchScroll, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalMousePosition, terminalScrollbackLimit, terminalShortcutData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
+import { COMMAND_DOUBLE_ENTER_MS, COMMAND_SUBMIT_ENTER_DELAY_MS, attachTerminalTouchScroll, coalesceTerminalSgrWheelLines, commandInputEnterAction, commandInputSubmissionWrites, consumeTerminalWheel, dragOffset, drainTerminalOutputBuffer, forceTerminalTextSelection, shouldCopyTerminalSelection, shouldDropDuplicateTerminalInput, stopSessionIntent, terminalMousePosition, terminalScrollbackLimit, terminalShortcutData, terminalVirtualKeyData, terminalSgrWheelReports, terminalWheelHandledByApplication, type RecentTerminalInput, type TerminalWheelMode } from './terminalInteraction.ts'
 import { createTerminalLifecycle } from './terminalLifecycle.ts'
 import { attachTerminalRecovery } from './terminalRecovery.ts'
 import { loadAddonWithFallback } from './terminalRenderer.ts'
@@ -84,6 +84,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
   const [inputHistory, setInputHistory] = useState<TerminalInputHistoryItem[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const socketRef = useRef<WebSocket | null>(null)
+  const terminalRef = useRef<Terminal | null>(null)
   const commandInputRef = useRef<HTMLTextAreaElement>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const lastCommandEnterAt = useRef<number | null>(null)
@@ -119,6 +120,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       theme: { background: '#101311', foreground: '#d8ddd7', cursor: '#d49a4d', selectionBackground: '#4b3d29' },
     })
     const fit = new FitAddon()
+    terminalRef.current = terminal
     terminal.loadAddon(fit)
     terminal.open(container.current)
     const webglRenderer = loadAddonWithFallback(terminal, () => new WebglAddon())
@@ -302,6 +304,7 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
       if (outputFrame !== undefined) window.cancelAnimationFrame(outputFrame)
       socket.close()
       if (socketRef.current === socket) socketRef.current = null
+      if (terminalRef.current === terminal) terminalRef.current = null
       webglRenderer?.dispose()
       terminal.dispose()
     }
@@ -393,11 +396,11 @@ export function TerminalPanel({ session, node, opacity, fontSize, cursorBlink, s
     setCommandInput(nextIndex === -1 ? '' : inputHistory[nextIndex].value)
   }
 
-  function sendTerminalShortcut(data: string) {
+  function sendTerminalShortcut(data: string, shift = false) {
     const socket = socketRef.current
     if (disabled || connection !== 'ready' || socket?.readyState !== WebSocket.OPEN) return
     updateCommandEnterArm(null)
-    socket.send(JSON.stringify({ type: 'input', data }))
+    socket.send(JSON.stringify({ type: 'input', data: terminalVirtualKeyData(data, shift, terminalRef.current?.modes.applicationCursorKeysMode ?? false) }))
   }
 
   async function pasteCommandInput() {
